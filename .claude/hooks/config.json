@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "ffplay -nodisp -autoexit ./.claude/hooks/start.wav"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "ffplay -nodisp -autoexit ./.claude/hooks/slow.mp3"
+      }
+    ],
+    "Notification": [
+      {
+        "type": "command",
+        "command": "ffplay -nodisp -autoexit ./.claude/hooks/quick.mp3"
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "ffplay -nodisp -autoexit ./.claude/hooks/nice.mp3"
+      }
+    ]
+  }
+}
