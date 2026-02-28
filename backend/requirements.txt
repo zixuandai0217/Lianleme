@@ -1,0 +1,14 @@
+# VibeFit Backend Dependencies
+# This file is kept for reference only. Use pyproject.toml with uv for dependency management.
+#
+# To install dependencies:
+#   uv sync
+#
+# To add new dependencies:
+#   uv add <package-name>
+#
+# To generate this file:
+#   uv export > requirements.txt
+#
+
+-e .
