@@ -1,0 +1,112 @@
+{
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^u--(.*)": "uview-ui/components/u-$1/u-$1.vue"
+    }
+  },
+  "plugins": ["uview-ui"],
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "VibeFit",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/profile/index",
+      "style": {
+        "navigationBarTitleText": "身体数据"
+      }
+    },
+    {
+      "path": "pages/profile/edit",
+      "style": {
+        "navigationBarTitleText": "录入数据"
+      }
+    },
+    {
+      "path": "pages/diet/index",
+      "style": {
+        "navigationBarTitleText": "饮食计划"
+      }
+    },
+    {
+      "path": "pages/diet/log",
+      "style": {
+        "navigationBarTitleText": "饮食记录"
+      }
+    },
+    {
+      "path": "pages/workout/index",
+      "style": {
+        "navigationBarTitleText": "运动训练"
+      }
+    },
+    {
+      "path": "pages/workout/detail",
+      "style": {
+        "navigationBarTitleText": "训练详情"
+      }
+    },
+    {
+      "path": "pages/chat/index",
+      "style": {
+        "navigationBarTitleText": "AI 健康顾问"
+      }
+    },
+    {
+      "path": "pages/stats/index",
+      "style": {
+        "navigationBarTitleText": "数据统计"
+      }
+    },
+    {
+      "path": "pages/login/index",
+      "style": {
+        "navigationBarTitleText": "登录",
+        "navigationStyle": "custom"
+      }
+    }
+  ],
+  "tabBar": {
+    "color": "#A1887F",
+    "selectedColor": "#FF8A65",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "height": "50px",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页",
+        "iconPath": "static/icons/home.png",
+        "selectedIconPath": "static/icons/home-active.png"
+      },
+      {
+        "pagePath": "pages/diet/index",
+        "text": "饮食",
+        "iconPath": "static/icons/diet.png",
+        "selectedIconPath": "static/icons/diet-active.png"
+      },
+      {
+        "pagePath": "pages/workout/index",
+        "text": "运动",
+        "iconPath": "static/icons/workout.png",
+        "selectedIconPath": "static/icons/workout-active.png"
+      },
+      {
+        "pagePath": "pages/profile/index",
+        "text": "我的",
+        "iconPath": "static/icons/profile.png",
+        "selectedIconPath": "static/icons/profile-active.png"
+      }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "VibeFit",
+    "navigationBarBackgroundColor": "#FFF8E5",
+    "backgroundColor": "#FFF8E5"
+  }
+}
