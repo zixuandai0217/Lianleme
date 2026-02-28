@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: vibefit-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vibefit
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI 后端
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vibefit-backend
+    restart: always
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/vibefit
+    volumes:
+      - ./backend/app:/app/app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx 反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: vibefit-nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf
+      - ./miniprogram:/usr/share/nginx/html
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
