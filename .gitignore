@@ -64,3 +64,6 @@ dist/
 
 # Windows
 Thumbs.db
+
+.agent/
+
