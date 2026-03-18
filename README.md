@@ -1,242 +1,237 @@
-# VibeFit - AI 科学减肥健身应用
+# 练了么（Lianleme）
 
-> 基于 FastAPI + uni-app 的科学减肥健身平台
+练了么是一个 **AI 主导的健身搭子应用**，面向减脂新人，提供训练、饮食、体重管理和 AI 教练建议。
 
-## 🌟 项目简介
+当前 V1 采用 **3 Tab 用户信息架构**：
+- 练了么：训练主流程（内含 AI 搭子入口）
+- 吃了么：饮食记录与摄入管理
+- 瘦了么：体重趋势与周报（内含“我的”入口）
 
-VibeFit 是一款面向大众的科学减肥健身应用，通过 AI 技术为用户提供个性化的饮食计划和运动训练方案。
+---
 
-### 核心功能
+## 1. 项目目标
 
-- 🍽️ **个性化饮食计划** - AI 根据您的身体数据和目标生成专属饮食方案
-- 💪 **科学运动训练** - 定制化训练计划，适合居家和专业健身房
-- 📊 **身体数据追踪** - 记录体重、体脂等数据，可视化趋势分析
-- 🤖 **AI 健康顾问** - 7x24 小时在线解答减肥健身问题
+V1 的目标是用最小可交付架构快速上线，同时保证后续可演进：
+- 单一对外网关，避免客户端直连多服务
+- AI 编排独立服务，便于模型切换和链路升级
+- 异步任务独立服务，支持拍照分析/周报等耗时场景
+- 前后端目录语义清晰，降低团队沟通成本
 
-## 🛠️ 技术栈
+---
 
-### 后端
-- **框架**: FastAPI (Python 3.11+)
-- **数据库**: PostgreSQL 15
-- **ORM**: SQLAlchemy (异步)
-- **认证**: JWT
-- **AI 服务**: 通义千问
+## 2. 命名规范（已统一）
 
-### 前端
-- **框架**: uni-app + Vue 3
-- **UI 组件**: uView UI
-- **状态管理**: Pinia
-- **目标平台**: 微信小程序、H5、App
+### 2.1 应用层（apps）
+- `apps/mobile-client`：用户端（uni-app，多端）
+- `apps/admin-console`：运营后台（Web）
 
-### 部署
-- **容器化**: Docker + Docker Compose
-- **反向代理**: Nginx
+### 2.2 服务层（services）
+- `services/api-gateway`：对外 API 网关
+- `services/profile-service`：用户资料与体重画像
+- `services/ai-coach-service`：AI 教练编排（LangChain + LangGraph）
+- `services/task-service`：异步任务（ARQ + Redis）
 
-## 📁 项目结构
+### 2.3 共享层（packages）
+- `packages/contracts`：OpenAPI 与共享类型
+- `packages/design-tokens`：设计令牌（颜色、字体、圆角等）
 
+> 说明：命名统一采用“职责 + service/console/client”模式，避免 `domain/worker/orchestrator` 这类不直观词汇造成理解偏差。
+
+---
+
+## 3. 仓库结构
+
+```text
+Lianleme/
+├─ apps/
+│  ├─ mobile-client/         # 用户端（uni-app）
+│  └─ admin-console/         # 后台（Vue + Vite）
+├─ services/
+│  ├─ api-gateway/           # 对外 API /v1/*
+│  ├─ profile-service/       # 用户资料服务
+│  ├─ ai-coach-service/      # AI 编排服务
+│  └─ task-service/          # 异步任务服务
+├─ packages/
+│  ├─ contracts/             # OpenAPI / Python shared models
+│  └─ design-tokens/         # 设计令牌
+├─ infra/
+│  └─ docker/                # Dockerfile / env 示例
+├─ docs/
+│  └─ architecture/          # 架构和运行文档
+└─ tests/
+   └─ e2e/                   # E2E 说明/脚本
 ```
-VibeFit/
-├── backend/                    # FastAPI 后端
-│   ├── app/
-│   │   ├── api/               # API 路由
-│   │   ├── core/              # 核心功能（AI、安全、计算器）
-│   │   ├── models/            # 数据模型
-│   │   ├── schemas/           # Pydantic 模式
-│   │   ├── utils/             # 工具函数
-│   │   ├── config.py          # 配置管理
-│   │   ├── database.py        # 数据库连接
-│   │   └── main.py            # 应用入口
-│   ├── pyproject.toml         # 项目配置（uv）
-│   ├── requirements.txt       # Python 依赖
-│   ├── Dockerfile             # Docker 配置
-│   └── ENV_SETUP.md          # 环境配置说明
-├── miniprogram/              # uni-app 前端
-│   ├── pages/                # 页面
-│   ├── api/                  # API 封装
-│   ├── store/                # Pinia 状态管理
-│   ├── utils/                # 工具函数
-│   └── static/               # 静态资源
-├── deploy/                   # 部署配置
-│   └── nginx.conf           # Nginx 配置
-├── docker-compose.yml       # Docker 编排
-└── README.md                # 项目说明
-```
 
-## 🚀 快速开始
+---
 
-### 环境要求
+## 4. 技术栈
 
+### 4.1 用户端
+- uni-app + Vue 3 + Pinia
+- 目标平台：微信小程序 / H5 / App（同一套代码）
+
+### 4.2 后台
+- Vue 3 + Vite + TypeScript
+
+### 4.3 后端服务
+- FastAPI
+- Redis + ARQ（异步任务）
+- LangChain + LangGraph（AI 编排）
+
+### 4.4 数据与部署
+- PostgreSQL
+- Docker Compose（V1 单区容器化部署）
+
+---
+
+## 5. AI 模型策略
+
+- 文本模型：`deepseek-v3.2`
+- 视觉模型：`qwen3-vl-flash`
+- 语音模型：V1 暂不启用
+
+安全边界：仅健康管理建议，不提供医疗诊断或处方。
+
+---
+
+## 6. 快速开始
+
+### 6.1 环境要求
+- Node.js 20+
 - Python 3.11+
-- PostgreSQL 15+
-- Node.js 16+
-- Docker & Docker Compose（可选）
+- `uv`（Python 包管理/运行）
+- Docker Desktop（可选，但推荐）
 
-### 方式一：Docker 部署（推荐）
-
-```bash
-# 1. 克隆项目
-git clone <repo-url>
-cd VibeFit
-
-# 2. 配置环境变量
-cp backend/.env.example backend/.env
-# 编辑 backend/.env，配置 AI API 密钥等
-
-# 3. 启动服务
-docker-compose up -d
-
-# 4. 访问应用
-# 前端：http://localhost
-# 后端 API：http://localhost:8000
-# API 文档：http://localhost:8000/docs
-```
-
-### 方式二：本地开发
-
-#### 后端启动（使用 uv）
+### 6.2 安装前端依赖
 
 ```bash
-cd backend
-
-# 1. 安装 uv（如果未安装）
-# Windows PowerShell
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-# macOS/Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 2. 同步依赖（自动创建虚拟环境）
-uv sync
-
-# 3. 激活虚拟环境（可选）
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
-
-# 4. 配置环境变量
-cp .env.example .env
-# 编辑 .env 文件
-
-# 5. 启动数据库（PostgreSQL）
-# 确保 PostgreSQL 已安装并运行
-
-# 6. 启动应用
-uv run uvicorn app.main:app --reload
+npm install --workspace apps/mobile-client --legacy-peer-deps
+npm install --workspace apps/admin-console --legacy-peer-deps
 ```
 
-#### 添加依赖
+### 6.3 本地启动后端（四个终端）
 
 ```bash
-# 添加生产依赖
-uv add <package-name>
-
-# 添加开发依赖
-uv add --dev pytest
+cd services/profile-service && uv run python -m app.main
+cd services/ai-coach-service && uv run python -m app.main
+cd services/task-service && uv run python -m app.main
+cd services/api-gateway && uv run python -m app.main
 ```
 
-#### 前端启动
+### 6.4 启动前端
 
 ```bash
-cd miniprogram
-
-# 1. 安装依赖
-npm install
-
-# 2. 启动开发服务器（H5）
-npm run dev:h5
-
-# 3. 微信小程序
-# 使用微信开发者工具导入项目
-npm run dev:mp-weixin
+npm run dev:mobile:h5
+npm run dev:admin
 ```
 
-## 📋 配置说明
-
-### 后端配置（.env）
+### 6.5 Docker 一键启动
 
 ```bash
-# 数据库
-DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/vibefit
-
-# AI 服务（通义千问）
-ALIYUN_API_KEY=your_api_key_here
-
-# JWT 配置
-JWT_SECRET_KEY=your-secret-key
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=1440
-
-# 服务器
-HOST=0.0.0.0
-PORT=8000
-DEBUG=True
+docker compose up --build
 ```
 
-### 获取 AI API 密钥
+网关文档：`http://localhost:8000/docs`
 
-1. 访问 [阿里云百炼平台](https://bailian.console.aliyun.com/)
-2. 注册/登录账号
-3. 创建 API Key
-4. 开通通义千问服务
+---
 
-## 📱 页面说明
+## 7. API 总览（Gateway）
 
-| 页面 | 路径 | 说明 |
-|------|------|------|
-| 首页 | `/pages/index/index` | 数据概览、快捷操作 |
-| 身体数据 | `/pages/profile/index` | 查看/录入身体数据 |
-| 饮食计划 | `/pages/diet/index` | 今日饮食、饮食记录 |
-| 运动训练 | `/pages/workout/index` | 训练计划、动作详情 |
-| AI 顾问 | `/pages/chat/index` | AI 健康咨询 |
-| 登录 | `/pages/login/index` | 手机号验证码登录 |
+客户端统一调用网关 `api-gateway`：
 
-## 🔌 API 接口
+### 7.1 首页聚合
+- `GET /v1/home/workout`
+- `GET /v1/home/diet`
+- `GET /v1/home/progress`
 
-后端提供 RESTful API，完整文档访问：`http://localhost:8000/docs`
+### 7.2 用户与资料
+- `POST /v1/auth/login`
+- `POST /v1/auth/logout`
+- `GET /v1/auth/me`
+- `GET /v1/profile`
+- `PUT /v1/profile`
+- `GET /v1/profile/trend`
 
-### 主要接口
+### 7.3 训练与饮食
+- `GET /v1/workout/today`
+- `POST /v1/workout/logs`
+- `GET /v1/diet/today`
+- `POST /v1/diet/logs`
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | /api/v1/auth/verify-code | 获取验证码 |
-| POST | /api/v1/auth/login | 登录 |
-| GET | /api/v1/profiles/current | 获取身体数据 |
-| POST | /api/v1/profiles | 创建身体数据 |
-| POST | /api/v1/diet/generate | 生成饮食计划 |
-| POST | /api/v1/workout/generate | 生成运动计划 |
-| POST | /api/v1/ai/chat | AI 对话 |
-| GET | /api/v1/stats/summary | 汇总统计 |
+### 7.4 AI 与计划
+- `POST /v1/coach/message`
+- `POST /v1/plan/generate`
+- `POST /v1/plan/regenerate`
 
-## 🎨 UI 设计
+### 7.5 拍照与周报
+- `POST /v1/photo/analyze`
+- `GET /v1/photo/tasks/{task_id}`
+- `GET /v1/report/weekly`
 
-### 配色方案
+### 7.6 后台接口
+- `GET /v1/admin/dashboard`
+- `GET /v1/admin/users`
+- `GET /v1/admin/recipes`
+- `GET /v1/admin/workout-templates`
+- `GET /v1/admin/ai-config`
 
-| 颜色 | 色值 | 用途 |
-|------|------|------|
-| 主色调（珊瑚橙） | `#FF8A65` | 按钮、强调色 |
-| 辅助色（暖杏色） | `#FFCC80` | 卡片背景、进度条 |
-| 成功色（清新绿） | `#81C784` | 完成状态 |
-| 背景色（米白色） | `#FFF8E5` | 页面背景 |
-| 文字色（暖棕色） | `#5D4037` | 主文字 |
+---
 
-## 📝 开发计划
+## 8. 测试
 
-- [ ] 食物拍照识别
-- [ ] 动作视频演示
-- [ ] 社交分享功能
-- [ ] 数据导出功能
-- [ ] 多语言支持
+```bash
+cd services/api-gateway && uv run --with pytest pytest -q
+cd services/profile-service && uv run --with pytest pytest -q
+cd services/ai-coach-service && uv run --with pytest pytest -q
+cd services/task-service && uv run --with pytest pytest -q
+```
 
-## ⚠️ 注意事项
+---
 
-1. 本项目仅供学习参考，不构成医疗建议
-2. 如有健康问题请咨询专业医生或营养师
-3. AI 生成的内容可能存在误差，请谨慎参考
+## 9. 常见问题
 
-## 📄 License
+### Q1：为什么服务拆成四个而不是更多？
+A：V1 面向 1-2 人团队，目标是最小可交付。四服务是当前性价比最高的分层：网关、资料域、AI 域、任务域。
 
-MIT License
+### Q2：为什么 AI 单独服务？
+A：模型和编排策略变化最快，独立后不会影响用户域和网关稳定性。
 
-## 👥 联系方式
+### Q3：为什么“我的”不单独做 Tab？
+A：按产品决策，“我的”归入“瘦了么”，减少底部导航复杂度，突出训练/饮食/体重三主线。
 
-如有问题或建议，欢迎提 Issue！
+---
+
+## 10. 下一步建议
+
+- 增加 OpenAPI 自动生成 SDK（mobile/admin 共用）
+- 完善 task-service 的真实队列消费链路
+- 增加网关鉴权与 RBAC（后台角色权限）
+- 增加 E2E 自动化（小程序/H5/后台）
+---
+
+## 11. 目录作用速查（按协作视角）
+<!-- Why: 补充“目录 -> 职责 -> 关键入口”的速查说明，降低新成员理解成本。 Scope: 仓库顶层目录及核心子目录说明。 Verify: 新同学仅阅读 README 本节即可知道每类改动应落在哪个目录。 -->
+
+| 目录 | 主要作用 | 你通常会改什么 |
+| --- | --- | --- |
+| `.github/` | CI 配置（自动测试与构建） | `workflows/ci.yml` |
+| `.claude/` | Agent 本地配置、hooks、skills 资源 | 一般不改业务逻辑 |
+| `apps/mobile-client/` | 用户端（uni-app，多端） | `src/pages/*`、`src/api/client.js` |
+| `apps/admin-console/` | 管理后台（Vue + Vite） | `src/App.vue`、`src/main.ts` |
+| `services/api-gateway/` | 对外统一 API 网关，聚合内部服务 | `app/routes/*`、`app/clients.py` |
+| `services/profile-service/` | 用户资料与体重画像服务 | `app/main.py` |
+| `services/ai-coach-service/` | AI 教练编排服务（意图、安全、工具调用） | `app/agent/*`、`app/routes/internal.py` |
+| `services/task-service/` | 异步任务服务（拍照分析、周报、队列） | `app/routes.py`、`app/worker.py`、`app/tasks/jobs.py` |
+| `packages/contracts/` | 共享契约（OpenAPI + Python 类型） | `openapi/gateway.yaml`、`python/lianleme_contracts/*` |
+| `packages/design-tokens/` | 共享设计令牌（颜色/字号/间距等） | `tokens.json` |
+| `infra/docker/` | 运行环境与镜像模板 | `python-service.Dockerfile`、`.env.example` |
+| `docs/architecture/` | 架构说明与运行手册 | `monorepo.md`、`runbook.md` |
+| `tests/e2e/` | 端到端测试说明/脚本占位 | `README.md` |
+| `docker-compose.yml` | 本地一键拉起基础设施与后端服务 | 服务端口、环境变量、依赖关系 |
+
+### 快速定位建议
+- 前端页面问题：先看 `apps/*/src/pages`。
+- 接口聚合问题：先看 `services/api-gateway/app/routes`。
+- AI 回复逻辑：先看 `services/ai-coach-service/app/agent/graph.py`。
+- 异步任务状态问题：先看 `services/task-service/app/routes.py` 与 `app/worker.py`。
+- 联调与部署问题：先看 `docker-compose.yml` 和 `docs/architecture/runbook.md`。

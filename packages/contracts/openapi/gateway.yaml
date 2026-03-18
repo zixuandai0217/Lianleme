@@ -1,0 +1,23 @@
+﻿openapi: 3.0.3
+info:
+  title: Lianleme Gateway API
+  version: 1.0.0
+paths:
+  /v1/home/workout:
+    get:
+      summary: Workout home aggregate payload
+      responses:
+        "200":
+          description: ok
+  /v1/home/diet:
+    get:
+      summary: Diet home aggregate payload
+      responses:
+        "200":
+          description: ok
+  /v1/home/progress:
+    get:
+      summary: Progress home aggregate payload
+      responses:
+        "200":
+          description: ok

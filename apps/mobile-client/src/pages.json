@@ -1,0 +1,57 @@
+{
+  "pages": [
+    {
+      "path": "pages/workout/index",
+      "style": {
+        "navigationBarTitleText": "缁冧簡涔?
+      }
+    },
+    {
+      "path": "pages/workout/ai-chat",
+      "style": {
+        "navigationBarTitleText": "AI鎼瓙"
+      }
+    },
+    {
+      "path": "pages/diet/index",
+      "style": {
+        "navigationBarTitleText": "鍚冧簡涔?
+      }
+    },
+    {
+      "path": "pages/progress/index",
+      "style": {
+        "navigationBarTitleText": "鐦︿簡涔?
+      }
+    },
+    {
+      "path": "pages/profile/index",
+      "style": {
+        "navigationBarTitleText": "鎴戠殑"
+      }
+    }
+  ],
+  "tabBar": {
+    "color": "#8f94a8",
+    "selectedColor": "#f21162",
+    "backgroundColor": "#ffffff",
+    "list": [
+      {
+        "pagePath": "pages/workout/index",
+        "text": "缁冧簡涔?
+      },
+      {
+        "pagePath": "pages/diet/index",
+        "text": "鍚冧簡涔?
+      },
+      {
+        "pagePath": "pages/progress/index",
+        "text": "鐦︿簡涔?
+      }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f7f8fc"
+  }
+}

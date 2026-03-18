@@ -1,69 +1,30 @@
-# 忽略 Python 缓存
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
+# Why: full-rebuild monorepo ignores old legacy folders while preserving policy files.
+# Scope: workspace-wide build outputs, Python caches, node modules, env files.
+# Verify: `git status` should only show intended source/config changes.
+
+node_modules/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+coverage/
 
-# 虚拟环境
-venv/
-env/
-ENV/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# 环境变量
 .env
-.env.local
+.env.*
+!.env.example
 
-# 数据库
-*.db
-*.sqlite3
+apps/**/dist/
+apps/**/.vite/
+services/**/.mypy_cache/
+services/**/.ruff_cache/
 
-# 日志
 *.log
 
-# 测试
-.pytest_cache/
-.coverage
-htmlcov/
-
-# node_modules
-node_modules/
-
-# uni-app 编译输出
-unpackage/
-dist/
-
-# 微信开发者工具
-.user.ini
-.project
-
-# macOS
-.DS_Store
-
-# Windows
-Thumbs.db
-
-.agent/
-
+# Why: avoid generated artifacts from local uv/pip runs polluting git status.
+# Scope: service-local packaging metadata and lock outputs generated during tests.
+# Verify: running tests no longer creates new untracked *.egg-info/uv.lock files.
+services/**/.venv/
+services/**/*.egg-info/
+services/**/uv.lock

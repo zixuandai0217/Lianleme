@@ -1,0 +1,18 @@
+﻿$brand-primary: #f21162;
+$brand-secondary: #ff7a45;
+$bg: #f7f8fc;
+$surface: #ffffff;
+$ink: #1c2233;
+$muted: #6e7485;
+
+.card {
+  background: $surface;
+  border-radius: 24rpx;
+  box-shadow: 0 12rpx 32rpx rgba(242, 17, 98, 0.12);
+}
+
+.pill-btn {
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, $brand-primary, $brand-secondary);
+  color: #fff;
+}

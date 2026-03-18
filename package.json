@@ -1,0 +1,16 @@
+{
+  "name": "lianleme-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/mobile-client",
+    "apps/admin-console"
+  ],
+  "scripts": {
+    "dev:mobile:h5": "npm --workspace apps/mobile-client run dev:h5",
+    "dev:mobile:mp": "npm --workspace apps/mobile-client run dev:mp-weixin",
+    "dev:admin": "npm --workspace apps/admin-console run dev",
+    "build:admin": "npm --workspace apps/admin-console run build",
+    "build:mobile:h5": "npm --workspace apps/mobile-client run build:h5"
+  }
+}
