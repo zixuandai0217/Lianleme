@@ -2,6 +2,9 @@
 # Scope: workspace-wide build outputs, Python caches, node modules, env files.
 # Verify: `git status` should only show intended source/config changes.
 
+# ignore macOS Finder metadata; any `.DS_Store` file anywhere in the repository; verify with `git check-ignore -v .DS_Store`.
+.DS_Store
+
 node_modules/
 dist/
 coverage/

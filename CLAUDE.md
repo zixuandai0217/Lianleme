@@ -47,10 +47,11 @@ Agents should declare their "current working mode" before execution:
 - **Avoid redundancy**: If a task can be completed with standard CLI tools, complex custom Skills should not be created.
 
 ### Change Annotation Standards
-- **Mandatory requirement**: After each modification to code, routing, configuration, or documentation, a brief comment must be added at the modification site, explaining the change purpose (Why), impact scope (Scope), and verification method (Verify).
+- **Mandatory requirement**: After each modification to code, routing, configuration, or documentation, add a brief single-line comment at the modification site in `//...;...;...` style.
 - **Comment forms**:
-  - Code files: Use appropriate inline/block comments near changes (JS/Vue uses `//` or `/* */`; templates follow framework recommendations).
-  - Document files: Add HTML comments `<!-- ... -->` near the adjusted paragraph to describe the modification.
+  - Code files: Use a one-line inline comment near the change, for example `// ignore macOS Finder metadata; any .DS_Store file anywhere in the repo; verify with git check-ignore -v .DS_Store`.
+  - Document files: Use a one-line HTML comment near the adjusted paragraph, for example `<!-- ignore macOS Finder metadata; any .DS_Store file anywhere in the repo; verify with git check-ignore -v .DS_Store -->`.
+- **Style**: Prefer one line by default; keep the three parts unlabeled unless labels genuinely improve clarity.
 - **Security constraints**: Comments must not contain sensitive information such as keys, access tokens, or private links.
 - **Conflict with user preferences**: If the user explicitly prohibits comments, follow the user's instructions and record them in the task description.
 
