@@ -5,14 +5,41 @@ $surface: #ffffff;
 $ink: #1c2233;
 $muted: #6e7485;
 
+/* Why: add H5 px fallback because current browser chain does not reliably apply rpx declarations. */
+/* Scope: shared card/button primitives used by all user mobile pages. */
+/* Verify: localhost:5173 shows rounded cards, shadows, and pill buttons instead of plain blocks. */
 .card {
+  display: block;
   background: $surface;
+  border-radius: 24px;
   border-radius: 24rpx;
+  box-shadow: 0 12px 32px rgba(242, 17, 98, 0.12);
   box-shadow: 0 12rpx 32rpx rgba(242, 17, 98, 0.12);
 }
 
 .pill-btn {
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  border-radius: 999px;
   border-radius: 999rpx;
   background: linear-gradient(135deg, $brand-primary, $brand-secondary);
   color: #fff;
+}
+
+/* Why: keep px fallback in a feature-query block so css optimizer won't drop it as duplicate declarations. */
+/* Scope: H5-only fallback for shared card/button primitives. */
+/* Verify: built CSS still contains this block and localhost:5173 cards/buttons are visibly styled. */
+@supports not (width: 1rpx) {
+  .card {
+    border-radius: 24px;
+    box-shadow: 0 12px 32px rgba(242, 17, 98, 0.12);
+  }
+
+  .pill-btn {
+    padding: 10px 18px;
+    border-radius: 999px;
+  }
 }

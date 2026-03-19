@@ -18,11 +18,14 @@
 </script>
 
 <style scoped lang="scss">
-.page { padding: 24rpx; display: grid; gap: 20rpx; }
-.intake,.record { padding: 28rpx; }
-.title { font-size: 38rpx; font-weight: 700; display: block; }
-.kcal { margin-top: 12rpx; font-size: 42rpx; color: #f21162; display: block; font-weight: 700; }
-.section-title { font-size: 32rpx; font-weight: 700; display: block; }
-.sub { margin-top: 10rpx; color: #6e7485; display: block; }
-.cta { margin-top: 16rpx; }
+/* Why: add px fallback for H5 so diet page spacing and type scale render predictably. */
+/* Scope: diet tab visual styles only; business content unchanged. */
+/* Verify: cards and CTA on diet page appear with intended spacing at localhost:5173. */
+.page { padding: 24px; padding: 24rpx; display: grid; gap: 20px; gap: 20rpx; }
+.intake,.record { padding: 28px; padding: 28rpx; }
+.title { font-size: 38px; font-size: 38rpx; font-weight: 700; display: block; }
+.kcal { margin-top: 12px; margin-top: 12rpx; font-size: 42px; font-size: 42rpx; color: #f21162; display: block; font-weight: 700; }
+.section-title { font-size: 32px; font-size: 32rpx; font-weight: 700; display: block; }
+.sub { margin-top: 10px; margin-top: 10rpx; color: #6e7485; display: block; }
+.cta { margin-top: 16px; margin-top: 16rpx; }
 </style>

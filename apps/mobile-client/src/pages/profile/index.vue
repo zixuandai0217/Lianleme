@@ -23,8 +23,11 @@
 </script>
 
 <style scoped lang="scss">
-.page { padding: 24rpx; display: grid; gap: 16rpx; }
-.block { padding: 24rpx; }
-.title { font-size: 30rpx; font-weight: 700; display: block; }
-.sub { margin-top: 8rpx; color: #6e7485; display: block; }
+/* Why: add px fallback for H5 to keep profile cards readable with current direct-entry runtime. */
+/* Scope: profile page spacing/type styles only. */
+/* Verify: profile page cards and text spacing are visibly styled on localhost:5173. */
+.page { padding: 24px; padding: 24rpx; display: grid; gap: 16px; gap: 16rpx; }
+.block { padding: 24px; padding: 24rpx; }
+.title { font-size: 30px; font-size: 30rpx; font-weight: 700; display: block; }
+.sub { margin-top: 8px; margin-top: 8rpx; color: #6e7485; display: block; }
 </style>

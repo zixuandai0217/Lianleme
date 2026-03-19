@@ -1,9 +1,32 @@
-﻿const BASE_URL = 'http://localhost:8000/v1'
+// Why: prefer fetch in H5 browser runtime because uni.request can fail in web preview with non-descriptive errors.
+// Scope: mobile-client API helper behavior for GET/POST requests.
+// Verify: workout home fetches /v1/home/workout and no longer falls back to request-failed message.
+const API_PREFIX = '/v1'
 
-export const apiGet = (path) => {
+const buildUrl = (path) => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
+  return `${origin}${API_PREFIX}${normalizedPath}`
+}
+
+const isBrowserFetchAvailable = () => {
+  return typeof window !== 'undefined' && typeof fetch === 'function'
+}
+
+export const apiGet = async (path) => {
+  const url = buildUrl(path)
+
+  if (isBrowserFetchAvailable()) {
+    const response = await fetch(url)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  }
+
   return new Promise((resolve, reject) => {
     uni.request({
-      url: `${BASE_URL}${path}`,
+      url,
       method: 'GET',
       success: (res) => resolve(res.data),
       fail: reject,
@@ -11,10 +34,24 @@ export const apiGet = (path) => {
   })
 }
 
-export const apiPost = (path, data) => {
+export const apiPost = async (path, data) => {
+  const url = buildUrl(path)
+
+  if (isBrowserFetchAvailable()) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  }
+
   return new Promise((resolve, reject) => {
     uni.request({
-      url: `${BASE_URL}${path}`,
+      url,
       method: 'POST',
       data,
       success: (res) => resolve(res.data),

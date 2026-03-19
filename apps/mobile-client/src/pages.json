@@ -3,31 +3,31 @@
     {
       "path": "pages/workout/index",
       "style": {
-        "navigationBarTitleText": "缁冧簡涔?
+        "navigationBarTitleText": "\u7ec3\u4e86\u4e48"
       }
     },
     {
       "path": "pages/workout/ai-chat",
       "style": {
-        "navigationBarTitleText": "AI鎼瓙"
+        "navigationBarTitleText": "AI\u642d\u5b50"
       }
     },
     {
       "path": "pages/diet/index",
       "style": {
-        "navigationBarTitleText": "鍚冧簡涔?
+        "navigationBarTitleText": "\u5403\u4e86\u4e48"
       }
     },
     {
       "path": "pages/progress/index",
       "style": {
-        "navigationBarTitleText": "鐦︿簡涔?
+        "navigationBarTitleText": "\u7626\u4e86\u4e48"
       }
     },
     {
       "path": "pages/profile/index",
       "style": {
-        "navigationBarTitleText": "鎴戠殑"
+        "navigationBarTitleText": "\u6211\u7684"
       }
     }
   ],
@@ -38,15 +38,15 @@
     "list": [
       {
         "pagePath": "pages/workout/index",
-        "text": "缁冧簡涔?
+        "text": "\u7ec3\u4e86\u4e48"
       },
       {
         "pagePath": "pages/diet/index",
-        "text": "鍚冧簡涔?
+        "text": "\u5403\u4e86\u4e48"
       },
       {
         "pagePath": "pages/progress/index",
-        "text": "鐦︿簡涔?
+        "text": "\u7626\u4e86\u4e48"
       }
     ]
   },

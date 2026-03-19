@@ -13,10 +13,13 @@
 </script>
 
 <style scoped lang="scss">
-.chat-page { padding: 24rpx; }
-.chat-box { padding: 24rpx; display: grid; gap: 16rpx; }
-.hint { color: #6e7485; font-size: 24rpx; }
-.msg { padding: 16rpx 20rpx; border-radius: 18rpx; }
+/* Why: keep chat page readable on H5 by providing px fallback where rpx may be ignored. */
+/* Scope: workout AI chat spacing/typography only. */
+/* Verify: bubbles and hint text no longer collapse into unstyled compact lines on 5173. */
+.chat-page { padding: 24px; padding: 24rpx; }
+.chat-box { padding: 24px; padding: 24rpx; display: grid; gap: 16px; gap: 16rpx; }
+.hint { color: #6e7485; font-size: 24px; font-size: 24rpx; }
+.msg { padding: 16px 20px; padding: 16rpx 20rpx; border-radius: 18px; border-radius: 18rpx; }
 .ai { background: #ffe7f0; color: #1c2233; }
 .user { background: #f21162; color: #fff; justify-self: end; }
 </style>

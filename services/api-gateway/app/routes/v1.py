@@ -63,7 +63,10 @@ async def profile_trend():
 
 @router.get("/workout/today")
 async def workout_today():
-    return {"name": "鑳歌儗鍔涢噺寮哄寲璁粌", "duration_minutes": 45, "cta": "寮€濮嬭缁?}
+    # Why: restore readable fallback copy and valid quoting after encoding corruption.
+    # Scope: static fallback payload text used by workout/diet/coach/plan/admin APIs in gateway.
+    # Verify: `uv run python -m compileall app` and smoke calls on `/v1/*` return 200 with readable text.
+    return {"name": "胸背力量强化训练", "duration_minutes": 45, "cta": "开始训练"}
 
 
 @router.post("/workout/logs")
@@ -75,7 +78,7 @@ async def create_workout_log(payload: WorkoutLogRequest):
 async def diet_today():
     return {
         "daily_target": 2000,
-        "suggestions": ["鏃╅澧炲姞铔嬬櫧璐?, "鍗堥鎺у埗娌硅剛", "鏅氶琛ュ厖钄彍"],
+        "suggestions": ["早餐增加蛋白质", "午餐控制油脂", "晚餐补充蔬菜"],
     }
 
 
@@ -89,7 +92,7 @@ async def coach_message(payload: CoachMessageRequest):
     service_response = await post_json(settings.ai_coach_service_base_url, "/internal/coach/message", payload.model_dump())
     return service_response or {
         "session_id": payload.session_id,
-        "reply": "缁х画淇濇寔锛屼粖澶╁厛鍋氱儹韬?0鍒嗛挓锛屽啀杩涘叆涓昏缁冦€?,
+        "reply": "继续保持，今天先做热身10分钟，再进入主训练。",
     }
 
 
@@ -99,7 +102,7 @@ async def plan_generate(payload: PlanGenerateRequest):
     return service_response or {
         "plan_id": f"plan_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
         "plan_type": payload.plan_type,
-        "summary": "宸茬敓鎴?澶╄缁冧笌楗寤鸿",
+        "summary": "已生成7天训练与饮食建议",
     }
 
 
@@ -109,7 +112,7 @@ async def plan_regenerate(payload: PlanGenerateRequest):
     return service_response or {
         "plan_id": f"plan_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
         "plan_type": payload.plan_type,
-        "summary": "宸查噸鏂扮敓鎴愯鍒?,
+        "summary": "已重新生成计划",
     }
 
 
@@ -162,8 +165,8 @@ async def admin_users():
 async def admin_recipes():
     return {
         "items": [
-            {"recipe_id": "r1", "name": "鎵嬫挄楦¤兏鑲?, "calories": 210, "tag": "楂樿泲鐧?},
-            {"recipe_id": "r2", "name": "榛勭摐娌欐媺", "calories": 85, "tag": "浣庣⒊姘?},
+            {"recipe_id": "r1", "name": "手撕鸡胸肉", "calories": 210, "tag": "高蛋白"},
+            {"recipe_id": "r2", "name": "黄瓜沙拉", "calories": 85, "tag": "低碳水"},
         ]
     }
 
@@ -172,8 +175,8 @@ async def admin_recipes():
 async def admin_workout_templates():
     return {
         "items": [
-            {"template_id": "w1", "name": "鍑忚剛鍏ラ棬4鍛?, "level": "beginner"},
-            {"template_id": "w2", "name": "鐕冭剛闂存瓏璁粌", "level": "intermediate"},
+            {"template_id": "w1", "name": "减脂入门4周", "level": "beginner"},
+            {"template_id": "w2", "name": "燃脂间歇训练", "level": "intermediate"},
         ]
     }
 

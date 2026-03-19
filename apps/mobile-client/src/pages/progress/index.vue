@@ -27,11 +27,14 @@ const goMy = () => {
 </script>
 
 <style scoped lang="scss">
-.page { padding: 24rpx; display: grid; gap: 20rpx; }
-.trend,.report,.my-entry { padding: 28rpx; }
-.title { font-size: 38rpx; font-weight: 700; display: block; }
-.weight { margin-top: 12rpx; font-size: 44rpx; color: #ff7a45; display: block; font-weight: 700; }
-.section-title { font-size: 32rpx; font-weight: 700; display: block; }
-.sub { margin-top: 10rpx; color: #6e7485; display: block; }
-.cta { margin-top: 16rpx; }
+/* Why: provide px fallback for H5 rendering where rpx-based rhythm is currently lost. */
+/* Scope: progress tab typography and spacing only. */
+/* Verify: progress cards show proper spacing and weight number hierarchy on 5173. */
+.page { padding: 24px; padding: 24rpx; display: grid; gap: 20px; gap: 20rpx; }
+.trend,.report,.my-entry { padding: 28px; padding: 28rpx; }
+.title { font-size: 38px; font-size: 38rpx; font-weight: 700; display: block; }
+.weight { margin-top: 12px; margin-top: 12rpx; font-size: 44px; font-size: 44rpx; color: #ff7a45; display: block; font-weight: 700; }
+.section-title { font-size: 32px; font-size: 32rpx; font-weight: 700; display: block; }
+.sub { margin-top: 10px; margin-top: 10rpx; color: #6e7485; display: block; }
+.cta { margin-top: 16px; margin-top: 16rpx; }
 </style>
