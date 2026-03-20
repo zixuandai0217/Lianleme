@@ -31,3 +31,6 @@ services/**/.ruff_cache/
 services/**/.venv/
 services/**/*.egg-info/
 services/**/uv.lock
+
+tmp/
+docs/
