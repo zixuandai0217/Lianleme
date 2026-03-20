@@ -3,7 +3,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 
-# Why: lock the richer workout-home landmarks before redesign regression sneaks back in; Scope: mobile H5 homepage smoke coverage only; Verify: `uv run --with playwright python tests/e2e/mobile_home_smoke.py`.
+# Why: lock the default H5 preview on the workout tab while shared preview-shell changes land; Scope: mobile H5 workout landing smoke coverage only; Verify: `uv run --with playwright python tests/e2e/mobile_home_smoke.py`.
 EDGE_PATH = Path("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe")
 TARGET_URL = "http://localhost:5173"
 

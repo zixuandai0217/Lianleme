@@ -119,25 +119,12 @@
         <text v-if="loading">正在同步今日训练计划...</text>
         <text v-else>{{ error }}</text>
       </view>
-
-      <view class="preview-nav">
-        <view
-          v-for="tab in previewTabs"
-          :key="tab.label"
-          class="nav-item"
-          :class="{ active: tab.active }"
-          @click="tapPreviewNav(tab)"
-        >
-          <view class="nav-icon">{{ tab.icon }}</view>
-          <text class="nav-label">{{ tab.label }}</text>
-        </view>
-      </view>
     </view>
   </view>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 
 import { apiGet } from '../../api/client'
 
@@ -148,21 +135,16 @@ const fallbackHomeWorkout = {
 }
 
 const planCards = [
-  { title: '拍照定制', desc: '卷腹外型画像 AI 定制', icon: '◎', tone: 'tone-camera' },
+  { title: '拍照定制', desc: '卷腹外型画像 AI 定制', icon: '◎', tone: 'tone-camera', path: '/pages/workout/photo-customize', previewKey: 'photoCustomize' },
   { title: '需求定制', desc: '填写目标与基础情况', icon: '定', tone: 'tone-demand' },
 ]
 
-const previewTabs = [
-  { label: '练了么', icon: '✦', active: true },
-  { label: '吃了么', icon: '⌂', active: false },
-  { label: '瘦了么', icon: '⌁', active: false },
-]
-
+const previewShell = inject('previewShell', null)
 const homeWorkout = ref(fallbackHomeWorkout)
 const loading = ref(false)
 const error = ref('')
 
-// Why: expand the limited gateway payload into a richer consumer-home dashboard without adding new backend contracts; Scope: workout home hero, calendar, training module, plan cards, and preview nav; Verify: `uv run --with playwright python tests/e2e/mobile_home_smoke.py` passes and localhost:5173 no longer looks like a sparse three-card stack.
+// Why: expand the limited gateway payload into a richer consumer-home dashboard without adding new backend contracts; Scope: workout home hero, calendar, and training modules while the shared preview nav now lives in `App.vue`; Verify: `uv run --with playwright python tests/e2e/mobile_home_smoke.py` passes and localhost:5173 no longer looks like a sparse three-card stack.
 const todayWorkout = computed(() => {
   return homeWorkout.value.today_workout || fallbackHomeWorkout.today_workout
 })
@@ -234,13 +216,20 @@ const startWorkout = () => {
 }
 
 const openPlan = (plan) => {
-  showToast(`${plan.title} 即将开放`)
-}
-
-const tapPreviewNav = (tab) => {
-  if (!tab.active) {
-    showToast(`${tab.label} 页签保留现有数据页，当前先聚焦首页`)
+  if (plan.path && previewShell?.openPreviewPage && plan.previewKey) {
+    previewShell.openPreviewPage(plan.previewKey)
+    return
   }
+
+  if (plan.path && typeof uni !== 'undefined' && typeof uni.navigateTo === 'function') {
+    uni.navigateTo({
+      url: plan.path,
+      fail: () => showToast(`${plan.title} 即将开放`),
+    })
+    return
+  }
+
+  showToast(`${plan.title} 即将开放`)
 }
 
 const fetchHomeWorkout = async () => {
@@ -306,7 +295,6 @@ onMounted(() => {
 .section-header,
 .section-heading,
 .workout-top,
-.preview-nav,
 .hero-meta-row {
   display: flex;
   align-items: center;
@@ -564,7 +552,6 @@ onMounted(() => {
 .section-helper,
 .workout-meta,
 .plan-desc,
-.nav-label,
 .calendar-weekday {
   color: #8a90a5;
 }
@@ -819,33 +806,4 @@ onMounted(() => {
   line-height: 1.45;
 }
 
-.preview-nav {
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 20px;
-  padding: 10px 12px 2px;
-  border-top: 1px solid rgba(28, 34, 51, 0.06);
-}
-
-.nav-item {
-  flex: 1;
-  text-align: center;
-}
-
-.nav-icon {
-  font-size: 15px;
-  color: #a9afc0;
-}
-
-.nav-label {
-  display: block;
-  margin-top: 6px;
-  font-size: 11px;
-}
-
-.nav-item.active .nav-icon,
-.nav-item.active .nav-label {
-  color: #f21162;
-  font-weight: 700;
-}
 </style>

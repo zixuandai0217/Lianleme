@@ -13,6 +13,13 @@
       }
     },
     {
+      "path": "pages/workout/photo-customize",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "\u62cd\u7167\u5b9a\u5236"
+      }
+    },
+    {
       "path": "pages/diet/index",
       "style": {
         "navigationBarTitleText": "\u5403\u4e86\u4e48"
