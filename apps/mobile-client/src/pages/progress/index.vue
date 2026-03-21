@@ -1,90 +1,133 @@
 <template>
-  <view class="page">
-    <view class="phone-shell">
-      <view class="topbar">
-        <view class="brand-chip">
-          <view class="brand-mark">
-            <view class="brand-scale"></view>
+  <!-- keep the progress home focused on a weekly-report-first story while preserving access to detailed trend filters and profile entry; progress home template only; verify by opening the progress tab in localhost:5173 and checking the report, summary, trend, and coach sections. -->
+  <view class="page app-mobile-page app-mobile-page--with-tabbar">
+    <view class="phone-shell app-mobile-shell">
+      <view class="topbar app-mobile-topbar">
+        <view class="brand-chip app-mobile-brand">
+          <view class="brand-mark app-mobile-mark">
+            <text class="brand-mark-glyph">◎</text>
           </view>
-          <view class="brand-copy">
-            <text class="headline">{{ pageModel.headerTitle }}</text>
+          <view class="brand-copy app-mobile-copy">
+            <text class="eyebrow app-mobile-eyebrow">{{ pageModel.headerEyebrow }}</text>
+            <text class="headline app-mobile-headline">{{ pageModel.headerTitle }}</text>
             <text class="subhead">{{ pageModel.headerSubtitle }}</text>
           </view>
         </view>
 
-        <view class="notify-button" @click="showToast('提醒设置即将开放')">
-          <view class="notify-icon"></view>
+        <view class="share-button app-mobile-float-chip" @click="handleShareAction">
+          <text class="share-glyph">↗</text>
         </view>
       </view>
 
-      <view class="hero-card">
-        <view class="hero-header">
-          <text class="hero-label">{{ pageModel.hero.label }}</text>
-          <text class="hero-progress-chip">{{ pageModel.hero.progressText }}</text>
+      <view class="report-card">
+        <view class="report-head">
+          <text class="report-label">{{ pageModel.weeklyHero.label }}</text>
+          <text class="report-badge">{{ pageModel.weeklyHero.badge }}</text>
         </view>
 
-        <view class="hero-value-row">
-          <text class="hero-value">{{ pageModel.hero.value }}</text>
-          <text class="hero-unit">{{ pageModel.hero.unit }}</text>
+        <view class="report-headline-row">
+          <text class="report-headline">{{ pageModel.weeklyHero.headline }}</text>
+          <text class="report-emoji">{{ pageModel.weeklyHero.emoji }}</text>
         </view>
 
-        <text class="hero-change" :class="pageModel.hero.changeTone">{{ pageModel.hero.changeText }}</text>
-        <text class="hero-helper">{{ pageModel.hero.helper }}</text>
+        <text class="report-helper">{{ pageModel.weeklyHero.helper }}</text>
 
-        <view class="hero-track">
-          <view class="hero-fill" :style="{ width: `${pageModel.hero.progressPercent}%` }"></view>
-        </view>
-
-        <view class="hero-actions">
-          <view class="hero-primary" @click="handlePrimaryAction">{{ pageModel.hero.ctaLabel }}</view>
-          <view class="hero-secondary" @click="handleSecondaryAction">
-            <view class="hero-secondary-icon"></view>
-          </view>
+        <view class="report-footer">
+          <text class="report-change" :class="pageModel.weeklyHero.changeTone">{{ pageModel.weeklyHero.changeText }}</text>
+          <text class="report-note">{{ pageModel.weeklyHero.footerNote }}</text>
         </view>
       </view>
 
-      <view class="stats-grid">
-        <view
-          v-for="card in pageModel.statCards"
-          :key="card.label"
-          class="stat-card"
-        >
-          <text class="stat-label">{{ card.label }}</text>
-          <view class="stat-value-row">
-            <text class="stat-value">{{ card.value }}</text>
-            <text v-if="card.unit" class="stat-unit">{{ card.unit }}</text>
-            <text v-if="card.badge" class="stat-badge" :class="card.tone">{{ card.badge }}</text>
-          </view>
-        </view>
-      </view>
-
-      <view class="chart-card">
-        <view class="chart-header">
+      <view class="summary-card app-mobile-card">
+        <view class="section-heading">
           <view>
-            <text class="section-title">{{ pageModel.chart.title }}</text>
-            <text class="section-note">{{ pageModel.chart.summary }}</text>
+            <text class="section-title">{{ pageModel.dietSummary.title }}</text>
+            <text class="section-note">{{ pageModel.dietSummary.helper }}</text>
           </view>
+        </view>
 
-          <view class="range-switch">
-            <view
-              v-for="item in pageModel.rangeTabs"
-              :key="item.key"
-              class="range-chip"
-              :class="{ active: item.active }"
-              @click="setActiveRange(item.key)"
-            >
-              {{ item.label }}
+        <view class="diet-metrics">
+          <view
+            v-for="card in pageModel.dietSummary.cards"
+            :key="card.key"
+            class="diet-metric"
+            :class="card.tone"
+          >
+            <text class="diet-metric-label">{{ card.label }}</text>
+            <view class="diet-metric-value-row">
+              <text class="diet-metric-value">{{ card.value }}</text>
+              <text class="diet-metric-unit">{{ card.unit }}</text>
             </view>
           </view>
         </view>
 
-        <!-- keep the progress chart fully driven by local range and metric state so H5 preview can demonstrate all tabs without backend expansion; progress chart module only; verify by switching 7/14/30 and metric tabs in localhost:5173 -->
+        <view class="macro-row">
+          <view
+            v-for="macro in pageModel.dietSummary.macros"
+            :key="macro.key"
+            class="macro-item"
+          >
+            <view class="macro-ring" :style="getMacroRingStyle(macro.percent, macro.tone)">
+              <view class="macro-ring-inner">
+                <text class="macro-percent">{{ macro.percent }}%</text>
+              </view>
+            </view>
+            <text class="macro-label">{{ macro.label }}</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="summary-card app-mobile-card">
+        <view class="section-heading">
+          <view>
+            <text class="section-title">{{ pageModel.workoutSummary.title }}</text>
+            <text class="section-note">{{ pageModel.workoutSummary.helper }}</text>
+          </view>
+        </view>
+
+        <view class="workout-stats">
+          <view
+            v-for="item in pageModel.workoutSummary.stats"
+            :key="item.key"
+            class="workout-stat"
+          >
+            <text class="workout-stat-label">{{ item.label }}</text>
+            <view class="workout-stat-value-row">
+              <text class="workout-stat-value">{{ item.value }}</text>
+              <text class="workout-stat-unit">{{ item.unit }}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="week-strip">
+          <view
+            v-for="day in pageModel.workoutSummary.days"
+            :key="day.label"
+            class="week-day"
+            :class="{ active: day.active, emphasis: day.emphasis }"
+          >
+            <text class="week-day-label">{{ day.label }}</text>
+            <view class="week-day-dot"></view>
+          </view>
+        </view>
+      </view>
+
+      <view class="trend-card app-mobile-card">
+        <view class="trend-top">
+          <view>
+            <text class="section-title">{{ pageModel.trendSnapshot.title }}</text>
+            <text class="section-note">{{ pageModel.trendSnapshot.helper }}</text>
+          </view>
+          <text class="trend-badge" :class="pageModel.trendSnapshot.badgeTone">{{ pageModel.trendSnapshot.badge }}</text>
+        </view>
+
+        <!-- keep the trend plot on-device and driven by the active metric/range state so the weekly report still exposes detailed progress context; progress chart module only; verify by switching metric and range chips in localhost:5173. -->
         <view class="chart-shell">
           <svg class="chart-svg" :viewBox="`0 0 ${chartGeometry.width} ${chartGeometry.height}`" preserveAspectRatio="none">
             <defs>
               <linearGradient id="progressAreaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stop-color="rgba(255, 140, 106, 0.34)" />
-                <stop offset="100%" stop-color="rgba(255, 140, 106, 0)" />
+                <stop offset="0%" stop-color="rgba(242, 17, 98, 0.26)" />
+                <stop offset="100%" stop-color="rgba(242, 17, 98, 0)" />
               </linearGradient>
             </defs>
             <path class="chart-area" :d="chartGeometry.areaPath"></path>
@@ -111,42 +154,80 @@
         </view>
       </view>
 
-      <view class="mode-strip">
-        <view
-          v-for="item in pageModel.metricTabs"
-          :key="item.key"
-          class="mode-item"
-          :class="{ active: item.active }"
-          @click="setActiveMetric(item.key)"
-        >
-          <view class="mode-icon" :class="`mode-icon-${item.key}`"></view>
-          <text class="mode-label">{{ item.label }}</text>
+      <view class="detail-card app-mobile-card">
+        <view class="detail-top">
+          <view>
+            <text class="section-title">{{ pageModel.detailPanel.title }}</text>
+            <text class="section-note">{{ pageModel.detailPanel.helper }}</text>
+          </view>
+
+          <view class="mini-link" @click="handleDetailAction">{{ pageModel.detailPanel.ctaLabel }}</view>
+        </view>
+
+        <view class="metric-tabs">
+          <view
+            v-for="item in pageModel.metricTabs"
+            :key="item.key"
+            class="metric-chip"
+            :class="{ active: item.active }"
+            @click="setActiveMetric(item.key)"
+          >
+            {{ item.label }}
+          </view>
+        </view>
+
+        <view class="range-switch">
+          <view
+            v-for="item in pageModel.rangeTabs"
+            :key="item.key"
+            class="range-chip"
+            :class="{ active: item.active }"
+            @click="setActiveRange(item.key)"
+          >
+            {{ item.label }}
+          </view>
+        </view>
+
+        <text class="detail-insight">{{ pageModel.chart.summary }} · {{ pageModel.detailPanel.insight }}</text>
+      </view>
+
+      <view class="coach-card">
+        <view class="coach-orb coach-orb-large"></view>
+        <view class="coach-orb coach-orb-small"></view>
+        <text class="coach-title">{{ pageModel.coachRecommendation.title }}</text>
+        <text class="coach-text">{{ pageModel.coachRecommendation.text }}</text>
+
+        <view class="coach-tags">
+          <text
+            v-for="tag in pageModel.coachRecommendation.tags"
+            :key="tag"
+            class="coach-tag"
+          >
+            {{ tag }}
+          </text>
         </view>
       </view>
 
-      <view class="insight-card">
-        <text class="insight-title">{{ pageModel.insight.title }}</text>
-        <text class="insight-text">{{ pageModel.insight.text }}</text>
-        <view class="insight-button" @click="showToast('详细分析即将开放')">查看详细分析</view>
-      </view>
-
-      <view class="quick-actions">
+      <view class="actions-strip app-mobile-card">
         <view
-          v-for="item in pageModel.quickActions"
+          v-for="item in pageModel.secondaryActions"
           :key="item.key"
-          class="quick-item"
+          class="action-item"
           @click="handleQuickAction(item)"
         >
-          <view class="quick-icon" :class="`quick-icon-${item.key}`"></view>
-          <text class="quick-label">{{ item.label }}</text>
+          <view class="action-icon">
+            <text class="action-glyph">{{ resolveActionGlyph(item.key) }}</text>
+          </view>
+          <text class="action-label">{{ item.label }}</text>
         </view>
       </view>
 
-      <view class="status-strip" v-if="loading || error">
-        <text v-if="loading">正在同步今日减重数据...</text>
+      <view class="status-strip app-mobile-status-strip" v-if="loading || error">
+        <text v-if="loading">正在同步本周周报数据...</text>
         <text v-else>{{ error }}</text>
       </view>
     </view>
+    <MobileTabBar v-if="!previewShell" current-tab="progress" />
   </view>
 </template>
 
@@ -154,6 +235,9 @@
 import { computed, inject, onMounted, ref } from 'vue'
 
 import { apiGet } from '../../api/client'
+import MobileTabBar from '../../components/MobileTabBar.vue'
+import { requireMobileAuth } from '../../lib/authSession'
+import { hideNativeTabBar } from '../../lib/tabbar'
 import { buildProgressHomeViewModel, fallbackProgressPayloads } from './view-model'
 
 const previewShell = inject('previewShell', null)
@@ -166,7 +250,14 @@ const weeklyReport = ref(fallbackProgressPayloads.weekly)
 const loading = ref(false)
 const error = ref('')
 
-// keep the page component focused on fetch orchestration while the view-model owns all cross-endpoint shaping and demo fallbacks; progress page fetch/render flow only; verify with `uv run --with playwright python tests/e2e/mobile_progress_preview_smoke.py`.
+// keep the progress tab on the shared custom bottom nav so the detailed-trend page no longer falls back to the generic system tab bar; progress tab runtime shell only; verify by opening `瘦了么` in mini-program preview and checking the custom white nav remains pinned.
+const syncRuntimeTabBar = () => {
+  if (!previewShell) {
+    hideNativeTabBar()
+  }
+}
+
+// keep the page component focused on fetch orchestration while the view-model owns all weekly-report shaping and fallback behavior; progress page fetch/render flow only; verify with `uv run --with playwright python tests/e2e/mobile_progress_preview_smoke.py`.
 const pageModel = computed(() => {
   return buildProgressHomeViewModel({
     homePayload: homeProgress.value,
@@ -178,13 +269,14 @@ const pageModel = computed(() => {
   })
 })
 
+// keep the report chart geometry derived locally from the active view-model so tab/range interactions stay instant in preview and mini-program modes; progress trend geometry only; verify by switching metric and range chips and checking the curve updates immediately.
 const chartGeometry = computed(() => {
   const width = 320
-  const height = 190
+  const height = 188
   const left = 8
   const right = 8
-  const top = 18
-  const bottom = 30
+  const top = 14
+  const bottom = 28
   const values = pageModel.value.chart.values
   const min = Math.min(...values)
   const max = Math.max(...values)
@@ -201,7 +293,7 @@ const chartGeometry = computed(() => {
   })
   const linePath = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.y}`).join(' ')
   const areaPath = `${linePath} L ${points[points.length - 1].x},${height - bottom} L ${points[0].x},${height - bottom} Z`
-  const markerIndexes = [...new Set([0, Math.round((values.length - 1) * 0.35), Math.round((values.length - 1) * 0.68), values.length - 1])]
+  const markerIndexes = [...new Set([0, Math.round((values.length - 1) * 0.42), values.length - 1])]
   const markers = markerIndexes.map((index) => points[index])
 
   return {
@@ -213,8 +305,23 @@ const chartGeometry = computed(() => {
   }
 })
 
+const macroToneMap = {
+  protein: ['#f21162', '#ff6a8b'],
+  carb: ['#ff8c45', '#ffb35b'],
+  fat: ['#ff9aa8', '#ffc5cd'],
+}
+
 const roundCoordinate = (value) => {
   return Number(value.toFixed(2))
+}
+
+const getMacroRingStyle = (percent, tone) => {
+  const [startColor, endColor] = macroToneMap[tone] || macroToneMap.protein
+  const degrees = Math.round((percent / 100) * 360)
+
+  return {
+    background: `conic-gradient(${startColor} 0deg, ${endColor} ${degrees}deg, rgba(236, 240, 247, 0.96) ${degrees}deg 360deg)`,
+  }
 }
 
 const showToast = (title) => {
@@ -223,12 +330,22 @@ const showToast = (title) => {
   }
 }
 
-const handlePrimaryAction = () => {
-  showToast(`${pageModel.value.hero.ctaLabel} 入口先保留演示反馈`)
+const handleShareAction = () => {
+  showToast('分享周报即将开放')
 }
 
-const handleSecondaryAction = () => {
-  showToast(`${pageModel.value.secondaryActionLabel} 即将开放`)
+const handleDetailAction = () => {
+  showToast('详细趋势即将开放')
+}
+
+const resolveActionGlyph = (key) => {
+  const glyphMap = {
+    profile: '我',
+    reminder: '铃',
+    history: '史',
+  }
+
+  return glyphMap[key] || '•'
 }
 
 const openProfile = (path) => {
@@ -337,13 +454,20 @@ const fetchProgressDashboard = async () => {
   loading.value = false
 }
 
+// gate the progress home behind mobile session state before any data fetch starts; progress entry guard only; verify by opening the page without login in mini-program preview.
 onMounted(() => {
+  const session = requireMobileAuth()
+  if (!session) {
+    return
+  }
+
+  syncRuntimeTabBar()
   void fetchProgressDashboard()
 })
 </script>
 
 <style scoped lang="scss">
-/* rebuild the progress tab into a dense, soft-medical dashboard instead of three sparse placeholders; progress page presentation only in H5 and mini-program previews; verify by opening the progress tab at localhost:5173 and checking the hero card, trend chart, and AI insight card. */
+/* Why: rebuild the progress tab into a weekly-report-first dashboard that mirrors the provided reference while still exposing deeper trend filters; Scope: progress page presentation only in H5 and mini-program previews; Verify: localhost:5173 progress tab shows the weekly report, diet/workout summaries, trend chart, detail chips, and AI coach card. */
 .page,
 .page *,
 .page *::before,
@@ -352,414 +476,346 @@ onMounted(() => {
 }
 
 .page {
-  display: block !important;
-  width: 100%;
-  min-height: 100vh;
-  padding: 28px 16px 20px;
   background:
-    radial-gradient(circle at top left, rgba(255, 168, 137, 0.18), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(126, 118, 244, 0.08), transparent 24%),
-    linear-gradient(180deg, #2b2c35 0%, #32343f 16%, #f8f3ef 16%, #f4f6fb 100%);
-  font-family: 'MiSans', 'Source Han Sans CN', sans-serif;
+    radial-gradient(circle at top left, rgba(242, 17, 98, 0.18), transparent 30%),
+    radial-gradient(circle at top right, rgba(255, 181, 91, 0.22), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(144, 172, 255, 0.14), transparent 22%),
+    linear-gradient(180deg, #1c212f 0%, #282f43 18%, #f8f0f7 18%, #f2f5fb 100%);
 }
 
 .phone-shell {
-  display: block !important;
-  width: 100%;
-  max-width: 390px;
-  margin: 0 auto;
   padding: 18px 16px 20px;
-  border-radius: 32px;
-  background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.98), rgba(251, 248, 245, 0.98)),
-    #ffffff;
-  box-shadow:
-    0 30px 72px rgba(34, 28, 25, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.94);
 }
 
-.topbar,
-.brand-chip,
-.hero-header,
-.hero-value-row,
-.hero-actions,
-.chart-header,
+.topbar {
+  gap: 12px;
+}
+
+.brand-mark {
+  color: var(--mobile-brand-primary);
+}
+
+.brand-mark-glyph {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.subhead {
+  font-size: 13px;
+  color: #8a92aa;
+  font-weight: 700;
+}
+
+.share-button {
+  color: var(--mobile-brand-primary);
+}
+
+.share-glyph {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.report-card,
+.coach-card {
+  position: relative;
+  overflow: hidden;
+  margin-top: 18px;
+  border-radius: 30px;
+}
+
+.report-card {
+  padding: 20px 18px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 223, 187, 0.28), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(251, 248, 252, 0.98));
+  box-shadow:
+    0 24px 44px rgba(28, 34, 51, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.report-head,
+.report-headline-row,
+.section-heading,
+.trend-top,
+.detail-top,
+.diet-metrics,
+.workout-stats,
+.week-strip,
+.macro-row,
+.metric-tabs,
 .range-switch,
-.stats-grid,
-.mode-strip,
-.quick-actions {
+.coach-tags,
+.actions-strip {
   display: flex;
 }
 
-.topbar,
-.hero-header,
-.hero-actions,
-.chart-header {
+.report-head,
+.trend-top,
+.detail-top {
   align-items: center;
   justify-content: space-between;
 }
 
-.brand-chip {
-  align-items: center;
-  gap: 12px;
-}
-
-.brand-mark,
-.notify-button,
-.hero-secondary,
-.mode-icon,
-.quick-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.brand-mark {
-  width: 48px;
-  height: 48px;
-  border-radius: 18px;
-  background: linear-gradient(145deg, rgba(255, 136, 103, 0.15), rgba(255, 184, 126, 0.22));
-  box-shadow: 0 16px 30px rgba(255, 136, 103, 0.14);
-}
-
-.brand-scale {
-  position: relative;
-  width: 20px;
-  height: 24px;
-  border-radius: 6px;
-  background: linear-gradient(180deg, #ff986b 0%, #ff7e63 100%);
-}
-
-.brand-scale::before,
-.brand-scale::after {
-  content: '';
-  position: absolute;
-}
-
-.brand-scale::before {
-  left: 4px;
-  right: 4px;
-  top: 5px;
-  height: 7px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.68);
-}
-
-.brand-scale::after {
-  top: 7px;
-  left: 50%;
-  width: 2px;
-  height: 5px;
-  background: #ff7e63;
-  transform: translateX(-50%);
-}
-
-.brand-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.headline {
-  font-size: 23px;
-  font-weight: 800;
-  color: #22283a;
-  line-height: 1.12;
-}
-
-.subhead {
-  font-size: 14px;
-  color: #ff855a;
-  font-weight: 700;
-}
-
-.notify-button {
-  width: 48px;
-  height: 48px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #ffffff, #f7f8fc);
-  box-shadow: 0 14px 28px rgba(34, 40, 58, 0.08);
-}
-
-.notify-icon {
-  position: relative;
-  width: 18px;
-  height: 18px;
-  border-radius: 9px 9px 6px 6px;
-  background: #7b859d;
-}
-
-.notify-icon::before,
-.notify-icon::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.notify-icon::before {
-  top: -4px;
-  width: 8px;
-  height: 4px;
-  border-radius: 999px 999px 0 0;
-  background: #7b859d;
-}
-
-.notify-icon::after {
-  bottom: -3px;
-  width: 6px;
-  height: 3px;
-  border-radius: 999px;
-  background: #7b859d;
-}
-
-.hero-card,
-.chart-card,
-.stat-card,
-.mode-strip,
-.quick-actions {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 250, 252, 0.98));
-  box-shadow:
-    0 20px 38px rgba(34, 40, 58, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.hero-card {
-  display: block;
-  margin-top: 18px;
-  padding: 18px 16px 16px;
-  border-radius: 30px;
-}
-
-.hero-label,
+.report-label,
 .section-title {
-  font-size: 14px;
-  color: #7f88a0;
-  font-weight: 700;
+  color: var(--mobile-ink);
+  font-weight: 800;
 }
 
-.hero-progress-chip {
-  padding: 8px 14px;
+.report-label {
+  font-size: 14px;
+}
+
+.report-badge,
+.trend-badge,
+.mini-link {
+  padding: 8px 12px;
   border-radius: 999px;
-  background: rgba(255, 136, 103, 0.12);
-  color: #ff855a;
   font-size: 12px;
   font-weight: 800;
 }
 
-.hero-value-row {
-  align-items: flex-end;
-  gap: 8px;
+.report-badge {
+  background: rgba(242, 17, 98, 0.08);
+  color: var(--mobile-brand-primary);
+}
+
+.report-headline-row {
+  align-items: flex-start;
+  gap: 10px;
   margin-top: 14px;
 }
 
-.hero-value {
-  font-size: 62px;
-  line-height: 0.9;
-  font-weight: 800;
-  color: #22283a;
-}
-
-.hero-unit {
-  padding-bottom: 8px;
-  font-size: 18px;
-  color: #96a0b7;
-  font-weight: 700;
-}
-
-.hero-change,
-.section-note,
-.hero-helper {
-  display: block;
-  font-size: 13px;
-}
-
-.hero-change {
-  margin-top: 14px;
-  font-weight: 800;
-}
-
-.hero-change.good {
-  color: #1fb878;
-}
-
-.hero-change.warn {
-  color: #ff855a;
-}
-
-.hero-helper {
-  margin-top: 8px;
-  color: #8f97ad;
-  line-height: 1.55;
-}
-
-.hero-track {
-  width: 100%;
-  height: 10px;
-  margin-top: 18px;
-  border-radius: 999px;
-  background: #edf1f8;
-  overflow: hidden;
-}
-
-.hero-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #ff9369, #ff7d63);
-}
-
-.hero-actions {
-  margin-top: 18px;
-  gap: 12px;
-}
-
-.hero-primary,
-.insight-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  font-weight: 800;
-}
-
-.hero-primary {
+.report-headline {
   flex: 1;
-  min-height: 60px;
-  background: linear-gradient(145deg, #ff9769 0%, #ff7d63 100%);
-  color: #ffffff;
-  font-size: 17px;
-  box-shadow: 0 16px 28px rgba(255, 136, 103, 0.24);
+  font-size: 27px;
+  line-height: 1.18;
+  font-weight: 900;
+  color: var(--mobile-ink);
 }
 
-.hero-secondary {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #ffffff, #f5f7fb);
-}
-
-.hero-secondary-icon {
-  position: relative;
-  width: 20px;
-  height: 20px;
-}
-
-.hero-secondary-icon::before,
-.hero-secondary-icon::after {
-  content: '';
-  position: absolute;
-  background: #a0a9bf;
-}
-
-.hero-secondary-icon::before {
-  inset: 9px 2px 9px 2px;
-  border-radius: 999px;
-  transform: rotate(28deg);
-}
-
-.hero-secondary-icon::after {
-  inset: 2px 9px 2px 9px;
-  border-radius: 999px;
-  transform: rotate(28deg);
-}
-
-.stats-grid {
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 18px;
-}
-
-.stat-card {
-  width: calc(50% - 6px);
-  min-height: 98px;
-  padding: 16px;
-  border-radius: 24px;
-}
-
-.stat-label,
-.mode-label,
-.quick-label,
-.axis-label {
-  color: #8d95ab;
-}
-
-.stat-label {
-  display: block;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.stat-value-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-
-.stat-value {
-  font-size: 22px;
-  font-weight: 800;
-  color: #22283a;
+.report-emoji {
+  font-size: 28px;
   line-height: 1;
 }
 
-.stat-unit {
-  padding-bottom: 1px;
-  font-size: 14px;
-  color: #6d758d;
+.report-helper,
+.section-note,
+.detail-insight,
+.coach-text,
+.report-note {
+  color: #8a92aa;
 }
 
-.stat-badge {
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(31, 184, 120, 0.12);
-  color: #1fb878;
-  font-size: 12px;
+.report-helper {
+  display: block;
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.report-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.report-change {
+  font-size: 13px;
   font-weight: 800;
 }
 
-.chart-card {
-  display: block;
-  margin-top: 22px;
-  padding: 18px 16px 16px;
-  border-radius: 30px;
+.report-change.good,
+.trend-badge.good {
+  color: #1fb878;
+}
+
+.report-change.warn,
+.trend-badge.warn {
+  color: #ff855a;
+}
+
+.report-note {
+  font-size: 12px;
+}
+
+.summary-card,
+.trend-card,
+.detail-card,
+.actions-strip {
+  margin-top: 18px;
+}
+
+.summary-card,
+.trend-card,
+.detail-card {
+  padding: 18px 16px;
+}
+
+.section-heading {
+  align-items: flex-start;
+  justify-content: space-between;
 }
 
 .section-title {
   display: block;
   font-size: 18px;
-  color: #22283a;
 }
 
 .section-note {
-  margin-top: 8px;
-  color: #8d95ab;
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-.range-switch {
-  gap: 6px;
-  padding: 4px;
-  border-radius: 999px;
-  background: #f2f4f9;
+.diet-metrics,
+.workout-stats {
+  gap: 12px;
+  margin-top: 18px;
 }
 
-.range-chip {
-  min-width: 50px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  text-align: center;
-  font-size: 13px;
-  color: #7f88a0;
+.diet-metric,
+.workout-stat {
+  flex: 1;
+  min-width: 0;
+  padding: 14px;
+  border-radius: 22px;
+}
+
+.diet-metric.primary {
+  background: linear-gradient(180deg, rgba(242, 17, 98, 0.08), rgba(255, 228, 236, 0.56));
+  border: 1px solid rgba(242, 17, 98, 0.12);
+}
+
+.diet-metric.neutral {
+  background: linear-gradient(180deg, rgba(244, 247, 252, 0.9), rgba(236, 241, 248, 0.9));
+  border: 1px solid rgba(208, 216, 230, 0.56);
+}
+
+.diet-metric-label,
+.workout-stat-label,
+.macro-label,
+.week-day-label,
+.axis-label,
+.action-label {
+  color: #9098af;
+}
+
+.diet-metric-label,
+.workout-stat-label {
+  display: block;
+  font-size: 12px;
   font-weight: 700;
 }
 
-.range-chip.active {
-  background: #ffffff;
-  color: #22283a;
-  box-shadow: 0 8px 18px rgba(34, 40, 58, 0.08);
+.diet-metric-value-row,
+.workout-stat-value-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.diet-metric-value,
+.workout-stat-value {
+  font-size: 19px;
+  line-height: 1;
+  font-weight: 900;
+  color: var(--mobile-ink);
+}
+
+.diet-metric.primary .diet-metric-value {
+  color: var(--mobile-brand-primary);
+}
+
+.diet-metric-unit,
+.workout-stat-unit {
+  font-size: 12px;
+  color: #69728a;
+}
+
+.macro-row {
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.macro-item {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.macro-ring {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto;
+  padding: 5px;
+  border-radius: 50%;
+}
+
+.macro-ring-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.macro-percent {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--mobile-ink);
+}
+
+.macro-label {
+  display: block;
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.week-strip {
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.week-day {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.week-day-label {
+  display: block;
+  font-size: 11px;
+}
+
+.week-day-dot {
+  width: 8px;
+  height: 8px;
+  margin: 10px auto 0;
+  border-radius: 50%;
+  background: #d9dfeb;
+}
+
+.week-day.active .week-day-dot {
+  background: var(--mobile-brand-primary);
+}
+
+.week-day.emphasis .week-day-dot {
+  box-shadow: 0 0 0 4px rgba(242, 17, 98, 0.12);
+}
+
+.trend-badge {
+  background: rgba(242, 17, 98, 0.08);
 }
 
 .chart-shell {
@@ -769,7 +825,7 @@ onMounted(() => {
 .chart-svg {
   display: block;
   width: 100%;
-  height: 210px;
+  height: 206px;
 }
 
 .chart-area {
@@ -778,313 +834,190 @@ onMounted(() => {
 
 .chart-line {
   fill: none;
-  stroke: #ff855a;
-  stroke-width: 3.5;
+  stroke: var(--mobile-brand-primary);
+  stroke-width: 4;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .chart-marker {
-  fill: #ff855a;
+  fill: var(--mobile-brand-primary);
 }
 
 .chart-axis {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .axis-label {
   text-align: center;
-  font-size: 12px;
+  font-size: 11px;
 }
 
-.mode-strip,
-.quick-actions {
-  gap: 10px;
+.mini-link {
+  flex-shrink: 0;
+  background: rgba(242, 17, 98, 0.08);
+  color: var(--mobile-brand-primary);
+}
+
+.metric-tabs,
+.range-switch {
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 18px;
-  padding: 14px 12px;
-  border-radius: 28px;
 }
 
-.mode-item,
-.quick-item {
+.metric-chip,
+.range-chip {
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #7d859c;
+  background: #f4f6fb;
+}
+
+.metric-chip.active,
+.range-chip.active {
+  color: var(--mobile-brand-primary);
+  background: rgba(242, 17, 98, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(242, 17, 98, 0.08);
+}
+
+.detail-insight {
+  display: block;
+  margin-top: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.coach-card {
+  padding: 20px 18px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 180, 91, 0.16), transparent 30%),
+    linear-gradient(145deg, #f21162 0%, #f43f71 50%, #ff7a45 100%);
+  box-shadow: 0 28px 52px rgba(242, 17, 98, 0.24);
+}
+
+.coach-orb {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.coach-orb-large {
+  right: -18px;
+  top: -10px;
+  width: 92px;
+  height: 92px;
+}
+
+.coach-orb-small {
+  right: 18px;
+  top: 18px;
+  width: 12px;
+  height: 12px;
+  box-shadow: 26px 12px 0 rgba(255, 255, 255, 0.12), 42px 32px 0 rgba(255, 255, 255, 0.12);
+}
+
+.coach-title,
+.coach-text,
+.coach-tag {
+  position: relative;
+  z-index: 1;
+}
+
+.coach-title {
+  display: block;
+  font-size: 22px;
+  font-weight: 900;
+  color: #ffffff;
+}
+
+.coach-text {
+  display: block;
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.coach-tags {
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.coach-tag {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.actions-strip {
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 12px;
+}
+
+.action-item {
   flex: 1;
   min-width: 0;
   text-align: center;
 }
 
-.mode-icon,
-.quick-icon {
+.action-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 48px;
   height: 48px;
   margin: 0 auto;
   border-radius: 16px;
-  background: #f6f7fb;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  background: linear-gradient(180deg, rgba(242, 17, 98, 0.1), rgba(255, 180, 91, 0.1));
 }
 
-.mode-item.active .mode-icon {
-  background: linear-gradient(145deg, rgba(255, 151, 105, 0.16), rgba(255, 125, 99, 0.14));
+.action-glyph {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--mobile-brand-primary);
 }
 
-.mode-item.active .mode-label {
-  color: #ff855a;
-  font-weight: 800;
-}
-
-.mode-label,
-.quick-label {
+.action-label {
   display: block;
   margin-top: 8px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 
-.mode-icon::before,
-.mode-icon::after,
-.quick-icon::before,
-.quick-icon::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-}
-
-.mode-icon,
-.quick-icon {
-  position: relative;
-}
-
-.mode-icon-weight::before {
-  width: 20px;
-  height: 14px;
-  border-radius: 6px;
-  border: 2px solid #ff855a;
-}
-
-.mode-icon-weight::after {
-  width: 2px;
-  height: 8px;
-  background: #ff855a;
-  transform: translate(-50%, -45%) rotate(30deg);
-}
-
-.mode-icon-bodyFat::before {
-  width: 18px;
-  height: 24px;
-  border-radius: 12px 12px 14px 14px;
-  background: linear-gradient(180deg, #ffb071 0%, #ff855a 100%);
-  clip-path: polygon(50% 0%, 88% 42%, 68% 100%, 32% 100%, 12% 42%);
-}
-
-.mode-icon-measurement::before,
-.mode-icon-measurement::after {
-  width: 18px;
-  height: 2px;
-  background: #7f94ff;
-}
-
-.mode-icon-measurement::before {
-  transform: translate(-50%, -50%) rotate(90deg);
-}
-
-.mode-icon-measurement::after {
-  transform: translate(-50%, -50%);
-  box-shadow: 0 -6px 0 #7f94ff, 0 6px 0 #7f94ff;
-}
-
-.mode-icon-history::before {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 2px solid #24c37d;
-}
-
-.mode-icon-history::after {
-  width: 10px;
-  height: 2px;
-  background: #24c37d;
-  transform: translate(-20%, -60%) rotate(35deg);
-}
-
-.insight-card {
-  display: block;
-  position: relative;
-  overflow: hidden;
-  margin-top: 18px;
-  padding: 20px 18px;
-  border-radius: 34px;
-  background:
-    radial-gradient(circle at top left, rgba(255, 217, 179, 0.2), transparent 32%),
-    linear-gradient(145deg, #ff9d68 0%, #ff7b4f 100%);
-  box-shadow: 0 22px 42px rgba(255, 136, 103, 0.24);
-}
-
-.insight-card::after {
-  content: '';
-  position: absolute;
-  right: -22px;
-  bottom: -64px;
-  width: 180px;
-  height: 180px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.insight-title,
-.insight-text {
-  position: relative;
-  z-index: 1;
-  display: block;
-  color: #ffffff;
-}
-
-.insight-title {
-  font-size: 20px;
-  font-weight: 800;
-}
-
-.insight-text {
-  margin-top: 14px;
-  max-width: 270px;
-  font-size: 16px;
-  line-height: 1.75;
-}
-
-.insight-button {
-  position: relative;
-  z-index: 1;
-  align-self: flex-start;
-  margin-top: 22px;
-  padding: 12px 20px;
-  background: rgba(255, 255, 255, 0.16);
-  color: #ffffff;
-  font-size: 15px;
-  backdrop-filter: blur(10px);
-}
-
-.quick-icon-profile::before {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #8f97ad;
-  transform: translate(-50%, -90%);
-}
-
-.quick-icon-profile::after {
-  width: 20px;
-  height: 10px;
-  border-radius: 999px 999px 6px 6px;
-  background: #8f97ad;
-  transform: translate(-50%, 35%);
-}
-
-.quick-icon-reminder::before {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid #8f97ad;
-}
-
-.quick-icon-reminder::after {
-  width: 2px;
-  height: 8px;
-  background: #8f97ad;
-  transform: translate(-10%, -62%) rotate(40deg);
-  box-shadow: -5px 5px 0 #8f97ad;
-}
-
-.quick-icon-about::before {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #8f97ad;
-}
-
-.quick-icon-about::after {
-  width: 3px;
-  height: 9px;
-  background: #ffffff;
-  border-radius: 999px;
-  transform: translate(-50%, -10%);
-  box-shadow: 0 -11px 0 0 #ffffff;
-}
-
 .status-strip {
-  display: block;
-  margin-top: 16px;
-  padding: 12px 14px;
-  border-radius: 18px;
-  background: rgba(255, 136, 103, 0.09);
-  color: #7a4a3d;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-@keyframes rise-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.hero-card,
-.stats-grid,
-.chart-card,
-.mode-strip,
-.insight-card,
-.quick-actions {
-  animation: rise-in 420ms ease both;
-}
-
-.stats-grid {
-  animation-delay: 40ms;
-}
-
-.chart-card {
-  animation-delay: 80ms;
-}
-
-.mode-strip {
-  animation-delay: 120ms;
-}
-
-.insight-card {
-  animation-delay: 160ms;
-}
-
-.quick-actions {
-  animation-delay: 200ms;
+  background: rgba(255, 255, 255, 0.74);
 }
 
 @media (max-width: 375px) {
-  .hero-value {
-    font-size: 54px;
+  .report-head,
+  .trend-top,
+  .detail-top,
+  .diet-metrics,
+  .workout-stats {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .stats-grid {
-    gap: 10px;
+  .macro-row,
+  .week-strip,
+  .actions-strip {
+    gap: 8px;
   }
 
-  .stat-card {
-    width: calc(50% - 5px);
-    padding: 14px;
-  }
-
+  .metric-tabs,
   .range-switch {
-    width: 100%;
-    margin-top: 12px;
-  }
-
-  .chart-header {
-    display: block;
+    gap: 6px;
   }
 }
 </style>

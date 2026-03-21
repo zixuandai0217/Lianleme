@@ -1,17 +1,18 @@
 <template>
-  <view class="page">
-    <view class="phone-shell">
-      <view class="topbar">
-        <view class="brand-chip">
-          <view class="brand-mark">
+  <!-- unify the diet landing with the shared vibrant shell while preserving the calorie, meal, and AI dinner modules; diet home template only; verify by checking the hero, meal list, and AI dinner poster in localhost:5173. -->
+  <view class="page app-mobile-page app-mobile-page--with-tabbar">
+    <view class="phone-shell app-mobile-shell">
+      <view class="topbar app-mobile-topbar">
+        <view class="brand-chip app-mobile-brand">
+          <view class="brand-mark app-mobile-mark">
             <text class="brand-mark-dot">◔</text>
           </view>
-          <view class="brand-copy">
-            <text class="eyebrow">AI NUTRITION</text>
-            <text class="headline">嗨，今天吃了么？</text>
+          <view class="brand-copy app-mobile-copy">
+            <text class="eyebrow app-mobile-eyebrow">AI NUTRITION</text>
+            <text class="headline app-mobile-headline">嗨，今天吃了么？</text>
           </view>
         </view>
-        <view class="status-chip">
+        <view class="status-chip app-mobile-float-chip">
           <text>{{ pageModel.intakeTag }}</text>
         </view>
       </view>
@@ -45,7 +46,7 @@
         <view
           v-for="item in pageModel.nutrients"
           :key="item.key"
-          class="macro-card"
+          class="macro-card app-mobile-card"
           :class="item.tone"
         >
           <text class="macro-label">{{ item.label }}</text>
@@ -71,7 +72,7 @@
           <view
             v-for="meal in pageModel.meals"
             :key="meal.key"
-            class="meal-card"
+            class="meal-card app-mobile-card"
             :class="meal.tone"
           >
             <view class="meal-top">
@@ -142,24 +143,36 @@
         </view>
       </view>
 
-      <view class="status-strip" v-if="loading || error">
+      <view class="status-strip app-mobile-status-strip" v-if="loading || error">
         <text v-if="loading">正在同步今日饮食数据...</text>
         <text v-else>{{ error }}</text>
       </view>
     </view>
+    <MobileTabBar v-if="!previewShell" current-tab="diet" />
   </view>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 
 import { apiGet } from '../../api/client'
+import MobileTabBar from '../../components/MobileTabBar.vue'
+import { requireMobileAuth } from '../../lib/authSession'
+import { hideNativeTabBar } from '../../lib/tabbar'
 import { buildDietHomeViewModel, fallbackDietHomePayload, fallbackDietTodayPayload } from './view-model'
 
+const previewShell = inject('previewShell', null)
 const homeDiet = ref(fallbackDietHomePayload)
 const todayDiet = ref(fallbackDietTodayPayload)
 const loading = ref(false)
 const error = ref('')
+
+// hide the native runtime tab bar and show the shared floating design instead so the diet tab matches the provided reference; diet tab runtime shell only; verify by switching to `吃了么` in mini-program preview and checking the white floating nav.
+const syncRuntimeTabBar = () => {
+  if (!previewShell) {
+    hideNativeTabBar()
+  }
+}
 
 // Why: keep the page component focused on presentation while the view-model owns API-to-UI mapping and demo fallbacks; Scope: diet page fetch/render flow only; Verify: `uv run --with playwright python tests/e2e/mobile_diet_preview_smoke.py`.
 const pageModel = computed(() => {
@@ -229,7 +242,14 @@ const fetchDietDashboard = async () => {
   loading.value = false
 }
 
+// gate the diet home behind mobile session state before any data fetch starts; diet entry guard only; verify by opening the page without login in mini-program preview.
 onMounted(() => {
+  const session = requireMobileAuth()
+  if (!session) {
+    return
+  }
+
+  syncRuntimeTabBar()
   void fetchDietDashboard()
 })
 </script>
@@ -244,30 +264,15 @@ onMounted(() => {
 }
 
 .page {
-  display: block !important;
-  width: 100%;
-  min-height: 100vh;
-  padding: 28px 16px 20px;
   background:
-    radial-gradient(circle at top left, rgba(255, 178, 129, 0.18), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(242, 17, 98, 0.12), transparent 28%),
-    linear-gradient(180deg, #2c211f 0%, #352927 18%, #f7eee7 18%, #f4f6fb 100%);
-  font-family: 'MiSans', 'Source Han Sans CN', sans-serif;
+    radial-gradient(circle at top left, rgba(255, 170, 93, 0.22), transparent 28%),
+    radial-gradient(circle at top right, rgba(242, 17, 98, 0.16), transparent 26%),
+    radial-gradient(circle at bottom right, rgba(95, 215, 212, 0.14), transparent 26%),
+    linear-gradient(180deg, #2f2130 0%, #3a2b37 18%, #fff3ea 18%, #f3f6fb 100%);
 }
 
 .phone-shell {
-  display: block !important;
-  width: 100%;
-  max-width: 390px;
-  margin: 0 auto;
   padding: 18px 16px 20px;
-  border-radius: 32px;
-  background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.98), rgba(250, 247, 244, 0.98)),
-    #ffffff;
-  box-shadow:
-    0 30px 72px rgba(38, 26, 22, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.94);
 }
 
 .topbar,
@@ -308,12 +313,7 @@ onMounted(() => {
 }
 
 .brand-mark {
-  width: 44px;
-  height: 44px;
-  border-radius: 16px;
-  background: linear-gradient(145deg, rgba(248, 100, 72, 0.16), rgba(255, 173, 88, 0.24));
   color: #f86448;
-  box-shadow: 0 14px 26px rgba(248, 100, 72, 0.16);
 }
 
 .brand-mark-dot {
@@ -328,22 +328,14 @@ onMounted(() => {
 }
 
 .eyebrow {
-  font-size: 10px;
-  letter-spacing: 1.8px;
   color: #ff7f5d;
 }
 
 .headline {
-  font-size: 25px;
-  font-weight: 800;
-  line-height: 1.1;
-  color: #2a2d39;
+  color: var(--mobile-ink);
 }
 
 .status-chip {
-  padding: 9px 12px;
-  border-radius: 999px;
-  background: rgba(248, 100, 72, 0.08);
   color: #f86448;
   font-size: 11px;
   font-weight: 700;
@@ -360,9 +352,10 @@ onMounted(() => {
   gap: 14px;
   border-radius: 30px;
   background:
-    radial-gradient(circle at top right, rgba(255, 240, 217, 0.26), transparent 34%),
-    linear-gradient(145deg, #f15367 0%, #ff7d4e 55%, #ffb35b 100%);
-  box-shadow: 0 24px 48px rgba(241, 83, 103, 0.24);
+    radial-gradient(circle at top right, rgba(255, 242, 197, 0.28), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(255, 255, 255, 0.12), transparent 36%),
+    linear-gradient(145deg, #f15367 0%, #ff7d4e 52%, #ffb35b 100%);
+  box-shadow: 0 28px 52px rgba(241, 83, 103, 0.22);
 }
 
 .hero-card::after {
@@ -503,10 +496,6 @@ onMounted(() => {
 
 .macro-card {
   padding: 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 249, 252, 0.98));
-  box-shadow:
-    0 18px 30px rgba(42, 45, 57, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .macro-label,
@@ -603,7 +592,7 @@ onMounted(() => {
   flex-shrink: 0;
   padding: 9px 12px;
   border-radius: 999px;
-  background: rgba(248, 100, 72, 0.08);
+  background: rgba(241, 83, 103, 0.08);
   color: #f86448;
   font-size: 12px;
 }
@@ -615,10 +604,6 @@ onMounted(() => {
 
 .meal-card {
   padding: 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 253, 0.98));
-  box-shadow:
-    0 18px 32px rgba(42, 45, 57, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.88);
 }
 
 .tone-breakfast {
@@ -689,7 +674,7 @@ onMounted(() => {
 .meal-cta {
   padding: 10px 14px;
   border-radius: 999px;
-  background: linear-gradient(145deg, #f15367, #ff9250);
+  background: var(--mobile-brand-gradient);
   color: #ffffff;
   font-size: 12px;
 }
@@ -914,14 +899,8 @@ onMounted(() => {
 }
 
 .status-strip {
-  display: block;
-  margin-top: 18px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(248, 100, 72, 0.08);
+  background: rgba(255, 255, 255, 0.72);
   color: #7a4a3d;
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 @media (max-width: 375px) {

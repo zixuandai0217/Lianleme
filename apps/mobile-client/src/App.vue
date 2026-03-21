@@ -1,32 +1,42 @@
 <template>
   <view v-if="isBrowserPreview" class="preview-root">
-    <view v-if="showPreviewBackChip" class="preview-back-chip" @click="closePreviewPage">
-      返回
-    </view>
+    <template v-if="!isAuthenticated">
+      <LoginPage v-if="activeAuthPage === 'login'" />
+      <RegisterPage v-else />
+    </template>
 
-    <view class="preview-page">
-      <component :is="activePageComponent" />
-    </view>
-
-    <view v-if="!previewOverlayPage" class="preview-nav">
-      <view
-        v-for="tab in previewTabs"
-        :key="tab.key"
-        class="nav-item"
-        :class="{ active: tab.key === activeTab }"
-        :data-preview-tab="tab.key"
-        @click="setActiveTab(tab.key)"
-      >
-        <view class="nav-icon">{{ tab.icon }}</view>
-        <text class="nav-label">{{ tab.label }}</text>
+    <template v-else>
+      <view v-if="showPreviewBackChip" class="preview-back-chip" @click="closePreviewPage">
+        返回
       </view>
-    </view>
+
+      <view class="preview-page">
+        <WorkoutHome v-if="activePageKey === 'workout'" />
+        <DietHome v-else-if="activePageKey === 'diet'" />
+        <ProgressHome v-else-if="activePageKey === 'progress'" />
+        <ProfileHome v-else-if="activePageKey === 'profile'" />
+        <PhotoCustomizePage v-else-if="activePageKey === 'photoCustomize'" />
+      </view>
+
+      <MobileTabBar
+        v-if="!previewOverlayPage"
+        class="preview-nav"
+        mode="preview"
+        :current-tab="activeTab"
+        @change="setActiveTab"
+      />
+    </template>
   </view>
 </template>
 
 <script setup>
 import { computed, provide, ref } from 'vue'
 
+import MobileTabBar from './components/MobileTabBar.vue'
+import { clearMobileSession, loadMobileSession, loadPrefilledPhone } from './lib/authSession'
+import LoginPage from './pages/auth/login.vue'
+import RegisterPage from './pages/auth/register.vue'
+import { mobileTabs } from './lib/tabbar'
 import DietHome from './pages/diet/index.vue'
 import ProfileHome from './pages/profile/index.vue'
 import ProgressHome from './pages/progress/index.vue'
@@ -37,11 +47,9 @@ import WorkoutHome from './pages/workout/index.vue'
 const isBrowserPreview = typeof window !== 'undefined'
 const activeTab = ref('workout')
 const previewOverlayPage = ref('')
-const previewTabs = [
-  { key: 'workout', label: '练了么', icon: '✦' },
-  { key: 'diet', label: '吃了么', icon: '◔' },
-  { key: 'progress', label: '瘦了么', icon: '◎' },
-]
+const activeAuthPage = ref('login')
+const mobileSession = ref(loadMobileSession())
+const prefilledPhone = ref(loadPrefilledPhone())
 
 const previewPages = {
   workout: WorkoutHome,
@@ -54,12 +62,20 @@ const overlayPages = {
   photoCustomize: PhotoCustomizePage,
 }
 
+const isAuthenticated = computed(() => {
+  return Boolean(mobileSession.value?.userId)
+})
+
 const showPreviewBackChip = computed(() => {
-  return Boolean(previewOverlayPage.value) && previewOverlayPage.value !== 'photoCustomize'
+  return isAuthenticated.value && Boolean(previewOverlayPage.value) && previewOverlayPage.value !== 'photoCustomize'
 })
 
 // keep H5 preview-only deep pages local to the root shell so tabs still demo quickly without changing business routing contracts; browser preview shell only; verify by clicking `个人中心` from the progress tab and checking `我的资料` appears.
 const openPreviewPage = (pageKey) => {
+  if (!isAuthenticated.value) {
+    return
+  }
+
   if (!overlayPages[pageKey]) {
     return
   }
@@ -79,17 +95,58 @@ const closePreviewPage = () => {
   }
 }
 
+// keep the browser preview auth flow local to the root shell so login/register can switch without relying on uni routes; H5 auth gate only; verify by opening localhost:5173 and switching between login and register.
+const openAuthPage = (pageKey) => {
+  activeAuthPage.value = pageKey === 'register' ? 'register' : 'login'
+}
+
+const completeLogin = (session) => {
+  mobileSession.value = session
+  activeAuthPage.value = 'login'
+  prefilledPhone.value = ''
+  previewOverlayPage.value = ''
+  activeTab.value = mobileTabs[0].key
+
+  if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }
+}
+
+const logout = () => {
+  clearMobileSession()
+  mobileSession.value = null
+  prefilledPhone.value = ''
+  activeAuthPage.value = 'login'
+  previewOverlayPage.value = ''
+
+  if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }
+}
+
+const setPrefilledPhone = (phone) => {
+  prefilledPhone.value = phone
+}
+
 provide('previewShell', {
   openPreviewPage,
   closePreviewPage,
 })
 
-const activePageComponent = computed(() => {
+provide('mobileAuthShell', {
+  openAuthPage,
+  completeLogin,
+  logout,
+  setPrefilledPhone,
+  getPrefilledPhone: () => prefilledPhone.value || loadPrefilledPhone(),
+})
+
+const activePageKey = computed(() => {
   if (previewOverlayPage.value) {
-    return overlayPages[previewOverlayPage.value]
+    return previewOverlayPage.value
   }
 
-  return previewPages[activeTab.value] || WorkoutHome
+  return previewPages[activeTab.value] ? activeTab.value : mobileTabs[0].key
 })
 
 const setActiveTab = (tabKey) => {
@@ -134,7 +191,7 @@ page {
 }
 
 .preview-page {
-  padding-bottom: calc(118px + env(safe-area-inset-bottom));
+  padding-bottom: calc(152px + env(safe-area-inset-bottom));
 }
 
 .preview-back-chip {
@@ -144,72 +201,13 @@ page {
   transform: translateX(-50%);
   padding: 10px 16px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #4f566b;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--mobile-ink);
   font-size: 13px;
   font-weight: 800;
-  box-shadow: 0 16px 30px rgba(23, 28, 40, 0.14);
+  box-shadow: 0 18px 32px rgba(23, 28, 40, 0.14);
+  backdrop-filter: blur(14px);
   z-index: 24;
 }
 
-.preview-nav {
-  position: fixed;
-  left: 50%;
-  bottom: calc(18px + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  width: min(358px, calc(100vw - 28px));
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  padding: 10px;
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow:
-    0 22px 46px rgba(23, 28, 40, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(16px);
-  z-index: 20;
-}
-
-.nav-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 8px;
-  border-radius: 20px;
-  color: #8a90a5;
-  transition:
-    background 180ms ease,
-    color 180ms ease,
-    transform 180ms ease;
-}
-
-.nav-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 14px;
-  background: #f7f8fc;
-  font-size: 17px;
-}
-
-.nav-label {
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.nav-item.active {
-  background: linear-gradient(145deg, rgba(242, 17, 98, 0.12), rgba(255, 122, 69, 0.14));
-  color: #f21162;
-  transform: translateY(-1px);
-}
-
-.nav-item.active .nav-icon {
-  background: linear-gradient(145deg, #f21162, #ff7a45);
-  color: #ffffff;
-  box-shadow: 0 14px 24px rgba(242, 17, 98, 0.2);
-}
 </style>

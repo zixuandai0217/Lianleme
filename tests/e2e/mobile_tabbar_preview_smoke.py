@@ -3,7 +3,7 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 
-# Why: prove the H5 preview shell can switch to the diet home and reveal the refreshed nutrition landmarks; Scope: mobile H5 diet preview smoke coverage only; Verify: `uv run --with playwright python tests/e2e/mobile_diet_preview_smoke.py`.
+# Why: lock the shared mobile preview tab bar to the light floating design instead of the temporary dark glass shell; Scope: H5 preview bottom tab bar only; Verify: `uv run --with playwright python tests/e2e/mobile_tabbar_preview_smoke.py`.
 TARGET_URL = "http://localhost:5173"
 BROWSER_CANDIDATES = [
     Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
@@ -12,7 +12,6 @@ BROWSER_CANDIDATES = [
 ]
 
 
-# keep the preview smoke runnable on local macOS and Windows boxes; browser executable selection for H5 smoke only; verify by running the smoke without editing hard-coded paths.
 def launch_browser(playwright):
     for candidate in BROWSER_CANDIDATES:
         if candidate.exists():
@@ -27,13 +26,16 @@ def main() -> None:
         page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_load_state("networkidle", timeout=30_000)
 
-        page.locator("[data-preview-tab='diet']").click()
-        expect(page.locator("body")).to_contain_text("今日摄入")
-        expect(page.locator("body")).to_contain_text("今日饮食记录")
-        expect(page.locator("body")).to_contain_text("AI 推荐晚餐")
-        expect(page.locator("body")).to_contain_text("练了么")
-        expect(page.locator("body")).to_contain_text("吃了么")
-        expect(page.locator("body")).to_contain_text("瘦了么")
+        nav = page.locator(".preview-nav")
+        expect(nav).to_be_visible()
+
+        background = nav.evaluate("node => getComputedStyle(node).backgroundColor")
+        if background not in {"rgb(255, 255, 255)", "rgba(255, 255, 255, 0.94)", "rgba(255, 255, 255, 0.96)"}:
+          raise SystemExit(f"Preview tab bar is not light themed yet: {background}")
+
+        active_color = page.locator(".nav-item.active .nav-label").evaluate("node => getComputedStyle(node).color")
+        if active_color not in {"rgb(248, 100, 72)", "rgb(242, 17, 98)", "rgb(255, 122, 69)"}:
+          raise SystemExit(f"Active tab color is not the design accent yet: {active_color}")
 
         browser.close()
 

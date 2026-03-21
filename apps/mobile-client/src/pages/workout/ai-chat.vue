@@ -10,6 +10,14 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
+
+import { requireMobileAuth } from '../../lib/authSession'
+
+// guard the static AI chat demo behind the same mobile session gate as other business pages; workout AI chat access only; verify by opening the page without login in mini-program preview.
+onMounted(() => {
+  requireMobileAuth()
+})
 </script>
 
 <style scoped lang="scss">

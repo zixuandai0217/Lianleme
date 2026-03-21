@@ -1,17 +1,18 @@
 <template>
-  <view class="page">
-    <view class="phone-shell">
-      <view class="topbar">
-        <view class="brand-chip">
-          <view class="brand-mark">
+  <!-- unify the workout landing with the shared youthful shell while preserving training information hierarchy; workout home template only; verify by checking the topbar, hero, and section cards still render with the same content in localhost:5173. -->
+  <view class="page app-mobile-page app-mobile-page--with-tabbar">
+    <view class="phone-shell app-mobile-shell">
+      <view class="topbar app-mobile-topbar">
+        <view class="brand-chip app-mobile-brand">
+          <view class="brand-mark app-mobile-mark">
             <text class="brand-mark-cross">✦</text>
           </view>
-          <view class="brand-copy">
-            <text class="eyebrow">AI FITNESS</text>
-            <text class="headline">嗨，今天练了么？</text>
+          <view class="brand-copy app-mobile-copy">
+            <text class="eyebrow app-mobile-eyebrow">AI FITNESS</text>
+            <text class="headline app-mobile-headline">嗨，今天练了么？</text>
           </view>
         </view>
-        <view class="search-chip">
+        <view class="search-chip app-mobile-float-chip">
           <text class="search-icon">⌕</text>
         </view>
       </view>
@@ -37,7 +38,7 @@
         </view>
       </view>
 
-      <view class="section-card calendar-card">
+        <view class="section-card calendar-card app-mobile-card">
         <view class="section-header">
           <view>
             <text class="section-title">{{ calendarMonthLabel }}</text>
@@ -66,7 +67,7 @@
           <text class="section-helper">完成度 {{ progressPercent }}%</text>
         </view>
 
-        <view class="section-card workout-card">
+        <view class="section-card workout-card app-mobile-card">
           <view class="workout-top">
             <view class="workout-icon">
               <text class="workout-icon-glyph">✦</text>
@@ -82,7 +83,7 @@
             <view class="progress-fill" :style="{ width: `${progressPercent}%` }"></view>
           </view>
 
-          <view class="wide-button" @click="startWorkout">
+          <view class="wide-button app-mobile-pill-btn" @click="startWorkout">
             <text class="wide-button-icon">▶</text>
             <text>开始训练</text>
           </view>
@@ -99,7 +100,7 @@
           <view
             v-for="plan in planCards"
             :key="plan.title"
-            class="plan-card"
+            class="plan-card app-mobile-card"
             :class="plan.tone"
             @click="openPlan(plan)"
           >
@@ -115,11 +116,12 @@
         </view>
       </view>
 
-      <view class="status-strip" v-if="loading || error">
+      <view class="status-strip app-mobile-status-strip" v-if="loading || error">
         <text v-if="loading">正在同步今日训练计划...</text>
         <text v-else>{{ error }}</text>
       </view>
     </view>
+    <MobileTabBar v-if="!previewShell" current-tab="workout" />
   </view>
 </template>
 
@@ -127,6 +129,9 @@
 import { computed, inject, onMounted, ref } from 'vue'
 
 import { apiGet } from '../../api/client'
+import MobileTabBar from '../../components/MobileTabBar.vue'
+import { requireMobileAuth } from '../../lib/authSession'
+import { hideNativeTabBar } from '../../lib/tabbar'
 
 const fallbackHomeWorkout = {
   today_workout: { name: '胸背力量强化训练', duration_minutes: 45, intensity: '中等强度' },
@@ -143,6 +148,13 @@ const previewShell = inject('previewShell', null)
 const homeWorkout = ref(fallbackHomeWorkout)
 const loading = ref(false)
 const error = ref('')
+
+// keep the runtime tab pages on the custom floating nav so the mini-program and H5 preview share the same layout language; workout tab runtime shell only; verify by opening the workout tab in mini-program preview and checking the native tab bar stays hidden.
+const syncRuntimeTabBar = () => {
+  if (!previewShell) {
+    hideNativeTabBar()
+  }
+}
 
 // Why: expand the limited gateway payload into a richer consumer-home dashboard without adding new backend contracts; Scope: workout home hero, calendar, and training modules while the shared preview nav now lives in `App.vue`; Verify: `uv run --with playwright python tests/e2e/mobile_home_smoke.py` passes and localhost:5173 no longer looks like a sparse three-card stack.
 const todayWorkout = computed(() => {
@@ -250,7 +262,14 @@ const fetchHomeWorkout = async () => {
   }
 }
 
+// gate the workout home behind mobile session state before any data fetch starts; workout entry guard only; verify by opening the page without login in mini-program preview.
 onMounted(() => {
+  const session = requireMobileAuth()
+  if (!session) {
+    return
+  }
+
+  syncRuntimeTabBar()
   void fetchHomeWorkout()
 })
 </script>
@@ -265,30 +284,15 @@ onMounted(() => {
 }
 
 .page {
-  display: block !important;
-  width: 100%;
-  min-height: 100vh;
-  padding: 28px 16px 20px;
   background:
-    radial-gradient(circle at top left, rgba(244, 33, 103, 0.12), transparent 34%),
-    radial-gradient(circle at bottom right, rgba(255, 145, 77, 0.12), transparent 28%),
-    linear-gradient(180deg, #1f2028 0%, #252733 20%, #f4f5fb 20%, #eef1f8 100%);
-  font-family: 'MiSans', 'Source Han Sans CN', sans-serif;
+    radial-gradient(circle at top left, rgba(242, 17, 98, 0.18), transparent 30%),
+    radial-gradient(circle at top right, rgba(255, 180, 91, 0.22), transparent 26%),
+    radial-gradient(circle at bottom right, rgba(124, 137, 255, 0.14), transparent 28%),
+    linear-gradient(180deg, #1b2030 0%, #272d42 18%, #f7f4ff 18%, #eff2fb 100%);
 }
 
 .phone-shell {
-  display: block !important;
-  width: 100%;
-  max-width: 390px;
-  margin: 0 auto;
   padding: 18px 16px 18px;
-  border-radius: 32px;
-  background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.96), rgba(248, 249, 253, 0.98)),
-    #ffffff;
-  box-shadow:
-    0 28px 72px rgba(22, 25, 38, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .topbar,
@@ -323,12 +327,7 @@ onMounted(() => {
 }
 
 .brand-mark {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  background: linear-gradient(145deg, rgba(242, 17, 98, 0.16), rgba(255, 122, 69, 0.2));
-  color: #f21162;
-  box-shadow: 0 10px 22px rgba(242, 17, 98, 0.12);
+  color: var(--mobile-brand-primary);
 }
 
 .brand-mark-cross {
@@ -343,24 +342,15 @@ onMounted(() => {
 }
 
 .eyebrow {
-  font-size: 10px;
-  letter-spacing: 1.8px;
-  color: #f45886;
+  color: #ff6a95;
 }
 
 .headline {
-  font-size: 25px;
-  font-weight: 800;
-  line-height: 1.1;
-  color: #1c2233;
+  color: var(--mobile-ink);
 }
 
 .search-chip {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  background: #f7f8fc;
-  color: #727a92;
+  color: #69728a;
   font-size: 20px;
 }
 
@@ -374,9 +364,10 @@ onMounted(() => {
   gap: 12px;
   border-radius: 28px;
   background:
-    radial-gradient(circle at top right, rgba(255, 196, 214, 0.28), transparent 36%),
-    linear-gradient(145deg, #ef1f63, #ff4f73 58%, #ff6d54 100%);
-  box-shadow: 0 24px 46px rgba(242, 17, 98, 0.28);
+    radial-gradient(circle at top right, rgba(255, 232, 169, 0.22), transparent 36%),
+    radial-gradient(circle at bottom left, rgba(255, 255, 255, 0.12), transparent 34%),
+    linear-gradient(145deg, #f21162 0%, #ff4e73 52%, #ff7a45 100%);
+  box-shadow: 0 28px 50px rgba(242, 17, 98, 0.24);
 }
 
 .hero-card::after {
@@ -446,7 +437,7 @@ onMounted(() => {
   min-width: 88px;
   padding: 9px 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.16);
   backdrop-filter: blur(8px);
   font-size: 13px;
 }
@@ -529,11 +520,7 @@ onMounted(() => {
 .section-card {
   display: block;
   padding: 18px 16px;
-  border-radius: 24px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 250, 253, 0.98));
-  box-shadow:
-    0 18px 34px rgba(28, 34, 51, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  border-radius: var(--mobile-card-radius);
 }
 
 .section-title,
@@ -565,8 +552,8 @@ onMounted(() => {
 .accent-note {
   padding: 7px 10px;
   border-radius: 999px;
-  background: rgba(242, 17, 98, 0.08);
-  color: #f21162;
+  background: rgba(242, 17, 98, 0.1);
+  color: var(--mobile-brand-primary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -594,7 +581,7 @@ onMounted(() => {
 }
 
 .calendar-cell.emphasis {
-  background: linear-gradient(180deg, rgba(242, 17, 98, 0.14), rgba(255, 122, 69, 0.08));
+  background: linear-gradient(180deg, rgba(242, 17, 98, 0.16), rgba(255, 180, 91, 0.1));
   box-shadow: inset 0 0 0 1px rgba(242, 17, 98, 0.08);
 }
 
@@ -621,7 +608,7 @@ onMounted(() => {
 
 .calendar-cell.active .calendar-dot,
 .calendar-cell.emphasis .calendar-dot {
-  background: #f21162;
+  background: var(--mobile-brand-primary);
 }
 
 .section-heading {
@@ -650,8 +637,8 @@ onMounted(() => {
   height: 46px;
   flex-shrink: 0;
   border-radius: 14px;
-  background: linear-gradient(145deg, rgba(242, 17, 98, 0.16), rgba(255, 122, 69, 0.14));
-  color: #f21162;
+  background: linear-gradient(145deg, rgba(242, 17, 98, 0.16), rgba(255, 180, 91, 0.16));
+  color: var(--mobile-brand-primary);
 }
 
 .workout-icon-glyph {
@@ -678,7 +665,7 @@ onMounted(() => {
 .workout-progress {
   font-size: 22px;
   font-weight: 800;
-  color: #f21162;
+  color: var(--mobile-brand-primary);
 }
 
 .progress-track {
@@ -695,7 +682,7 @@ onMounted(() => {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #f21162, #ff7a45);
+  background: var(--mobile-brand-gradient);
 }
 
 .wide-button {
@@ -703,9 +690,6 @@ onMounted(() => {
   gap: 8px;
   margin-top: 18px;
   padding: 14px 0;
-  border-radius: 999px;
-  background: linear-gradient(145deg, #f21162 0%, #ff5f6d 56%, #ff7a45 100%);
-  box-shadow: 0 16px 26px rgba(242, 17, 98, 0.22);
   font-size: 16px;
 }
 
@@ -726,8 +710,6 @@ onMounted(() => {
   min-height: 140px;
   padding: 16px 14px;
   border-radius: 22px;
-  background: #ffffff;
-  box-shadow: 0 16px 26px rgba(28, 34, 51, 0.08);
 }
 
 .plan-card::after {
@@ -761,11 +743,11 @@ onMounted(() => {
 }
 
 .tone-camera .plan-icon {
-  color: #f21162;
+  color: var(--mobile-brand-primary);
 }
 
 .tone-demand .plan-icon {
-  color: #ff7a45;
+  color: var(--mobile-brand-secondary);
 }
 
 .plan-icon-text {
@@ -796,14 +778,7 @@ onMounted(() => {
 }
 
 .status-strip {
-  display: block;
-  margin-top: 18px;
-  padding: 12px 14px;
-  border-radius: 18px;
-  background: rgba(28, 34, 51, 0.06);
-  color: #616981;
-  font-size: 12px;
-  line-height: 1.45;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 </style>

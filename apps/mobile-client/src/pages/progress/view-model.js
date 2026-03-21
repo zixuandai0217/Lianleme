@@ -63,6 +63,8 @@ const WEEKDAY_MAP = {
   Sun: '周日',
 }
 
+const WORKOUT_DAY_PRIORITY = [0, 1, 3, 4, 5, 2, 6]
+
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
@@ -80,6 +82,10 @@ const roundTo = (value, digits = 1) => {
 const formatValue = (value, digits = 1) => {
   const normalized = roundTo(value, digits).toFixed(digits)
   return normalized.replace(/\.0$/, '')
+}
+
+const formatInteger = (value) => {
+  return Math.round(toNumber(value)).toLocaleString('en-US')
 }
 
 const formatSignedValue = (value, unit, digits = 1) => {
@@ -205,10 +211,6 @@ const resolveWeeklyReport = (weeklyReportPayload, homePayload) => {
   }
 }
 
-const buildStatCard = (label, value, unit, badge = '', tone = 'neutral') => {
-  return { label, value, unit, badge, tone }
-}
-
 const buildChartSummary = (modeKey, values, unit, rangeLabel) => {
   const diff = roundTo(values[values.length - 1] - values[0])
 
@@ -221,7 +223,58 @@ const buildChartSummary = (modeKey, values, unit, rangeLabel) => {
   return `近${rangeLabel}${verb} ${formatValue(Math.abs(diff))}${unit}`
 }
 
-// keep real progress payloads and local demo metric modes in one builder; progress home data shaping only; verify with `uv run --with playwright python tests/e2e/mobile_progress_preview_smoke.py`.
+const buildMacroBreakdown = (goalProgressPercent, weeklyChange) => {
+  const protein = clamp(Math.round(54 + goalProgressPercent * 0.18), 48, 82)
+  const carb = clamp(Math.round(42 + Math.max(-weeklyChange, 0) * 4), 32, 68)
+  const fat = clamp(Math.round(24 + Math.max(weeklyChange, -1.2) * 2), 18, 42)
+
+  return [
+    { key: 'protein', label: '蛋白质', percent: protein, tone: 'protein' },
+    { key: 'carb', label: '碳水', percent: carb, tone: 'carb' },
+    { key: 'fat', label: '脂肪', percent: fat, tone: 'fat' },
+  ]
+}
+
+const buildWorkoutWeek = (activeCount) => {
+  const activeIndexes = new Set(WORKOUT_DAY_PRIORITY.slice(0, activeCount))
+  const lastActive = WORKOUT_DAY_PRIORITY[Math.max(activeCount - 1, 0)]
+
+  return buildDefaultWeekdayLabels().map((label, index) => {
+    return {
+      label,
+      active: activeIndexes.has(index),
+      emphasis: activeIndexes.has(index) && index === lastActive,
+    }
+  })
+}
+
+const buildCoachTags = (weeklyChange, avgIntake, workoutDays) => {
+  const tags = weeklyChange <= 0 ? ['# 晨间称重', '# 高蛋白'] : ['# 稳住节奏', '# 控油晚餐']
+
+  if (avgIntake <= 1800) {
+    tags.push('# 热量平衡')
+  }
+
+  if (workoutDays >= 5) {
+    tags.push('# 力量训练')
+  }
+
+  return tags.slice(0, 3)
+}
+
+const buildWeeklyHeadline = (weeklyChange) => {
+  if (weeklyChange < 0) {
+    return `嗨，本周你瘦了 ${formatValue(Math.abs(weeklyChange))}kg！`
+  }
+
+  if (weeklyChange === 0) {
+    return '嗨，本周你稳住了！'
+  }
+
+  return `嗨，这周波动了 ${formatValue(weeklyChange)}kg`
+}
+
+// keep the progress page driven by existing gateway payloads while reshaping them into a weekly-report-first experience; progress home data shaping only; verify with `uv run --with playwright python tests/e2e/mobile_progress_preview_smoke.py`.
 export const buildProgressHomeViewModel = ({
   homePayload,
   profilePayload,
@@ -248,6 +301,10 @@ export const buildProgressHomeViewModel = ({
   const weeklyChange = roundTo(resolvedWeekly.weight_change_kg)
   const goalProgressPercent = currentWeight <= targetWeight ? 100 : fallbackHistoryState.goalProgressPercent
   const distanceToGoal = roundTo(Math.max(0, currentWeight - targetWeight))
+  const calorieTarget = Math.max(Math.round((resolvedWeekly.calories_in * 1.12) / 50) * 50, resolvedWeekly.calories_in + 400)
+  const workoutMinutes = Math.max(120, Math.round((resolvedWeekly.calories_out / 9.2) / 10) * 10)
+  const workoutDays = clamp(Math.round(workoutMinutes / 84), 3, 6)
+  const weeklyPercentChange = roundTo((weeklyChange / currentWeight) * 100, 1)
 
   const weightSeriesByRange = buildWeightSeriesByRange(resolvedTrend, currentWeight)
   const bodyFatCurrent = roundTo(clamp(24.6 + Math.max(currentWeight - 70, 0) * 0.25, 18.8, 29.5))
@@ -277,149 +334,105 @@ export const buildProgressHomeViewModel = ({
 
   const metricStates = {
     weight: {
-      headerSubtitle: '继续加油，离目标更近了',
-      hero: {
-        label: '今日体重',
-        value: formatValue(currentWeight),
-        unit: 'kg',
-        progressText: `目标进度: ${goalProgressPercent}%`,
-        progressPercent: goalProgressPercent,
-        changeText: `较上周 ${formatSignedValue(weeklyChange, 'kg')}`,
-        changeTone: weeklyChange <= 0 ? 'good' : 'warn',
-        helper: distanceToGoal > 0 ? `距离目标还差 ${formatValue(distanceToGoal)} kg` : '已经达到阶段目标，继续保持',
-        ctaLabel: '+ 记录体重',
-      },
-      statCards: [
-        buildStatCard('连续记录', `${streakDays}`, '天'),
-        buildStatCard('平均摄入', `${avgIntake}`, 'kcal'),
-        buildStatCard('平均消耗', `${avgBurn}`, 'kcal'),
-        buildStatCard('当前 BMI', formatValue(bmiValue), '', bmiStatus, 'good'),
-      ],
-      chart: {
-        title: '体重趋势图',
-        unit: 'kg',
-        values: weightSeriesByRange[activeRange],
-        axisLabels: sampleLabels(rangeLabels),
-        summary: buildChartSummary('weight', weightSeriesByRange[activeRange], 'kg', rangeLabel),
-      },
-      insight: {
-        title: '智能建议 (AI)',
-        text: resolvedWeekly.ai_suggestion || '继续保持稳定记录，晚餐优先蛋白和蔬菜的组合，会更容易把体重曲线压低。',
-      },
+      title: '体重趋势',
+      summary: `当前 ${formatValue(currentWeight)} kg · 目标 ${formatValue(targetWeight)} kg`,
+      helper: distanceToGoal > 0 ? `距离目标还差 ${formatValue(distanceToGoal)} kg` : '已经达到阶段目标，继续稳定记录',
+      values: weightSeriesByRange[activeRange],
+      insight: '体重是周报主线，建议固定晨起称重时段。',
     },
     bodyFat: {
-      headerSubtitle: '体脂曲线继续向理想区间靠近',
-      hero: {
-        label: '当前体脂',
-        value: formatValue(bodyFatCurrent),
-        unit: '%',
-        progressText: '减脂进度: 61%',
-        progressPercent: 61,
-        changeText: `较上周 ${formatSignedValue(-0.6, '%')}`,
-        changeTone: 'good',
-        helper: '继续保持力量训练和蛋白摄入，体脂会更稳地往下走',
-        ctaLabel: '+ 记录体脂',
-      },
-      statCards: [
-        buildStatCard('减脂效率', formatValue(0.6), '%'),
-        buildStatCard('平均摄入', `${avgIntake}`, 'kcal'),
-        buildStatCard('力量训练', '4', '次'),
-        buildStatCard('体脂分区', formatValue(bodyFatCurrent), '', bodyFatCurrent < 25 ? '轻盈' : '稳态', 'good'),
-      ],
-      chart: {
-        title: '体脂趋势图',
-        unit: '%',
-        values: bodyFatSeriesByRange[activeRange],
-        axisLabels: sampleLabels(rangeLabels),
-        summary: buildChartSummary('bodyFat', bodyFatSeriesByRange[activeRange], '%', rangeLabel),
-      },
-      insight: {
-        title: '智能建议 (AI)',
-        text: `近${rangeLabel}体脂走势比体重更稳，建议把晚餐的优质蛋白固定下来，恢复日也别忽略轻量活动。`,
-      },
+      title: '体脂趋势',
+      summary: `当前体脂 ${formatValue(bodyFatCurrent)}%`,
+      helper: '体脂变化会比体重更平稳，继续保留力量训练。',
+      values: bodyFatSeriesByRange[activeRange],
+      insight: '体脂走势稳步回落，恢复日也别忽略轻量活动。',
     },
     measurement: {
-      headerSubtitle: '围度正在悄悄收紧，状态很稳',
-      hero: {
-        label: '当前围度',
-        value: formatValue(measurementCurrent),
-        unit: 'cm',
-        progressText: '围度进度: 58%',
-        progressPercent: 58,
-        changeText: `较上周 ${formatSignedValue(-1.6, 'cm')}`,
-        changeTone: 'good',
-        helper: '腰围的变化通常比体重更敏感，继续保持作息会更容易看见反馈',
-        ctaLabel: '+ 记录围度',
-      },
-      statCards: [
-        buildStatCard('腰围变化', formatValue(-1.6), 'cm'),
-        buildStatCard('腰臀比', '0.82', ''),
-        buildStatCard('平均消耗', `${avgBurn}`, 'kcal'),
-        buildStatCard('紧致状态', formatValue(measurementCurrent), '', '收紧', 'good'),
-      ],
-      chart: {
-        title: '围度趋势图',
-        unit: 'cm',
-        values: measurementSeriesByRange[activeRange],
-        axisLabels: sampleLabels(rangeLabels),
-        summary: buildChartSummary('measurement', measurementSeriesByRange[activeRange], 'cm', rangeLabel),
-      },
-      insight: {
-        title: '智能建议 (AI)',
-        text: `围度回落比秤上的数字更能说明状态变化，建议本周继续保持核心训练并把夜宵压到最少。`,
-      },
+      title: '围度趋势',
+      summary: `当前围度 ${formatValue(measurementCurrent)} cm`,
+      helper: '围度回落往往比秤上的数字更早给你反馈。',
+      values: measurementSeriesByRange[activeRange],
+      insight: '围度正在收紧，建议继续保持核心训练与规律作息。',
     },
     history: {
-      headerSubtitle: '记录越稳定，趋势判断越准确',
-      hero: {
-        label: '记录完整度',
-        value: `${historyCurrent}`,
-        unit: '%',
-        progressText: '完成度: 86%',
-        progressPercent: historyCurrent,
-        changeText: `较上周 ${formatSignedValue(8, '%', 0)}`,
-        changeTone: 'good',
-        helper: `本周已经完成 ${weeklyCheckins}/7 次关键记录，继续保持明早空腹称重会更稳`,
-        ctaLabel: '+ 记录历史',
-      },
-      statCards: [
-        buildStatCard('连续记录', `${streakDays}`, '天'),
-        buildStatCard('本周打卡', `${weeklyCheckins}`, '次'),
-        buildStatCard('最长连续', `${longestStreak}`, '天'),
-        buildStatCard('下次提醒', fallbackHistoryState.reminderTime, '', '已开启', 'good'),
-      ],
-      chart: {
-        title: '记录趋势图',
-        unit: '%',
-        values: historySeriesByRange[activeRange],
-        axisLabels: sampleLabels(rangeLabels),
-        summary: buildChartSummary('history', historySeriesByRange[activeRange], '%', rangeLabel),
-      },
-      insight: {
-        title: '智能建议 (AI)',
-        text: '记录频率越稳定，后续给你的建议就越精准。建议固定晨起和晚饭后两个打点时刻，减少遗漏。',
-      },
+      title: '记录趋势',
+      summary: `本周打卡 ${weeklyCheckins}/7 次`,
+      helper: `最长连续 ${longestStreak} 天 · 下次提醒 ${fallbackHistoryState.reminderTime}`,
+      values: historySeriesByRange[activeRange],
+      insight: '记录越稳定，后续给你的建议就越精准。',
     },
   }
 
   const activeState = metricStates[activeMetric] || metricStates.weight
+  const macroBreakdown = buildMacroBreakdown(goalProgressPercent, weeklyChange)
 
   return {
-    headerTitle: '嗨，今天瘦了么？',
-    headerSubtitle: activeState.headerSubtitle,
-    hero: activeState.hero,
-    statCards: activeState.statCards,
-    chart: activeState.chart,
-    insight: activeState.insight,
+    headerEyebrow: 'WEEKLY REPORT',
+    headerTitle: '数据周报',
+    headerSubtitle: weeklyChange <= 0 ? '这一周的减脂节奏很稳，继续保持。' : '这周先稳住节奏，下一周再把曲线拉回来。',
+    weeklyHero: {
+      label: '本周数据周报',
+      badge: `目标完成 ${goalProgressPercent}%`,
+      headline: buildWeeklyHeadline(weeklyChange),
+      emoji: weeklyChange <= 0 ? '🥳' : '💪',
+      helper: distanceToGoal > 0 ? `继续保持，离你的目标还差 ${formatValue(distanceToGoal)} kg。` : '已经达到阶段目标，继续稳定记录会更容易守住结果。',
+      changeText: `较上周 ${formatSignedValue(weeklyChange, 'kg')}`,
+      changeTone: weeklyChange <= 0 ? 'good' : 'warn',
+      footerNote: `连续记录 ${streakDays} 天 · BMI ${formatValue(bmiValue)} ${bmiStatus}`,
+    },
+    dietSummary: {
+      title: '饮食总结',
+      helper: `日均摄入 ${avgIntake} kcal`,
+      cards: [
+        { key: 'intake', label: '摄入热量', value: formatInteger(resolvedWeekly.calories_in), unit: 'kcal', tone: 'primary' },
+        { key: 'target', label: '目标热量', value: formatInteger(calorieTarget), unit: 'kcal', tone: 'neutral' },
+      ],
+      macros: macroBreakdown,
+    },
+    workoutSummary: {
+      title: '运动总结',
+      helper: `本周完成 ${workoutDays}/7 天关键活动`,
+      stats: [
+        { key: 'duration', label: '累计时长', value: `${workoutMinutes}`, unit: 'min' },
+        { key: 'burn', label: '消耗热量', value: formatInteger(resolvedWeekly.calories_out), unit: 'kcal' },
+      ],
+      days: buildWorkoutWeek(workoutDays),
+    },
+    trendSnapshot: {
+      title: '体重趋势',
+      badge: `${weeklyPercentChange > 0 ? '+' : ''}${formatValue(weeklyPercentChange)}%`,
+      badgeTone: weeklyPercentChange <= 0 ? 'good' : 'warn',
+      helper: `7 天曲线持续 ${weeklyChange <= 0 ? '回落' : '波动'}，${distanceToGoal > 0 ? `距离目标还有 ${formatValue(distanceToGoal)} kg` : '已经进入维稳阶段'}`,
+    },
+    chart: {
+      title: activeState.title,
+      unit: activeMetric === 'history' ? '%' : activeMetric === 'bodyFat' ? '%' : activeMetric === 'measurement' ? 'cm' : 'kg',
+      values: activeState.values,
+      axisLabels: sampleLabels(rangeLabels),
+      summary: buildChartSummary(activeMetric, activeState.values, activeMetric === 'history' ? '%' : activeMetric === 'bodyFat' ? '%' : activeMetric === 'measurement' ? 'cm' : 'kg', rangeLabel),
+      helper: activeState.helper,
+    },
+    detailPanel: {
+      title: '详细趋势',
+      helper: activeState.summary,
+      insight: activeState.insight,
+      ctaLabel: '查看详细趋势',
+    },
+    coachRecommendation: {
+      title: 'AI 教练建议',
+      text: pickText(
+        resolvedWeekly.ai_suggestion,
+        '继续保持稳定记录，晚餐优先蛋白和蔬菜的组合，会更容易把体重曲线压低。',
+      ),
+      tags: buildCoachTags(weeklyChange, avgIntake, workoutDays),
+    },
     metricTabs: METRIC_TABS.map((item) => ({ ...item, active: item.key === activeMetric })),
     rangeTabs: RANGE_TABS.map((item) => ({ ...item, active: item.key === activeRange })),
-    quickActions: [
+    secondaryActions: [
       { key: 'profile', label: '个人中心', action: 'profile', path: resolvedHome.my_entry?.path || fallbackProgressHomePayload.my_entry.path },
       { key: 'reminder', label: '记录提醒', action: 'toast', toast: '记录提醒即将开放' },
-      { key: 'about', label: '关于', action: 'toast', toast: '关于页即将开放' },
+      { key: 'history', label: '查看历史', action: 'toast', toast: '历史趋势页即将开放' },
     ],
-    secondaryActionLabel: activeMetric === 'history' ? '查看周报' : '分享进展',
-    footerNote: `昵称 ${pickText(resolvedProfile.nickname, fallbackProfilePayload.nickname)} · 目标 ${formatValue(targetWeight)} kg`,
   }
 }
 
