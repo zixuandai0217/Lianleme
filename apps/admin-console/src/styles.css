@@ -1132,19 +1132,21 @@ button {
   z-index: 40;
 }
 
-/* add the split-screen admin auth gate while reusing the existing brand gradients and type tokens; login shell and responsive states only; verify with npm --workspace apps/admin-console run build */
+/* remove the auth-shell outer gutter so the split login layout fills the viewport; admin login shell only; verify with node apps/admin-console/src/styles.auth-layout.test.mjs and npm --workspace apps/admin-console run build */
 .app-frame--auth {
   display: grid;
-  place-items: center;
+  min-height: 100vh;
+  padding: 0;
+  place-items: stretch;
 }
 
 .admin-auth-shell {
-  width: min(1480px, 100%);
-  min-height: calc(100vh - 48px);
+  width: 100%;
+  min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(420px, 0.95fr);
   overflow: hidden;
-  border-radius: 32px;
+  border-radius: 0;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, rgba(255, 248, 250, 0.98), rgba(252, 248, 250, 0.96));
   box-shadow: 0 32px 90px rgba(7, 9, 18, 0.28);
@@ -1152,152 +1154,135 @@ button {
 
 .admin-auth-visual {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 40px 42px;
+  display: grid;
+  place-items: center;
+  padding: clamp(40px, 6vw, 88px);
+  overflow: hidden;
+  isolation: isolate;
   color: #fff;
   background:
-    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.16), transparent 22%),
-    linear-gradient(180deg, rgba(132, 0, 41, 0.5), rgba(33, 9, 20, 0.4)),
-    linear-gradient(135deg, #92002f 0%, #d61563 48%, #f45d78 100%);
+    radial-gradient(circle at 24% 20%, rgba(255, 255, 255, 0.12), transparent 22%),
+    radial-gradient(circle at 78% 74%, rgba(255, 205, 225, 0.18), transparent 28%),
+    linear-gradient(180deg, rgba(132, 0, 41, 0.42), rgba(33, 9, 20, 0.28)),
+    linear-gradient(145deg, #8f022f 0%, #cb0f5c 46%, #ef5d82 100%);
 }
 
-.admin-auth-brand,
+/* keep login panel utility flex rules focused on the form once the auth hero becomes a single spotlight; login form only; verify with node apps/admin-console/src/admin-login-visual.test.mjs */
 .admin-login-header,
 .admin-login-row,
-.admin-login-footer,
-.admin-auth-meter__row,
-.admin-auth-footnote {
+.admin-login-footer {
   display: flex;
   align-items: center;
 }
 
-.admin-auth-brand {
-  gap: 14px;
+/* center one memorable lockup instead of multiple supporting widgets; admin auth visual only; verify with node apps/admin-console/src/admin-login-visual.test.mjs */
+.admin-auth-visual::before,
+.admin-auth-visual::after {
+  content: '';
+  position: absolute;
+  inset: auto;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.admin-auth-visual::before {
+  top: 10%;
+  left: 8%;
+  width: min(22vw, 280px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(255, 236, 244, 0.18);
+  border-radius: 36px;
+  transform: rotate(45deg);
+}
+
+.admin-auth-visual::after {
+  right: 10%;
+  bottom: 12%;
+  width: min(18vw, 220px);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.2), transparent 70%);
+  filter: blur(6px);
+}
+
+.admin-auth-spotlight {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: start;
+  gap: clamp(26px, 3vw, 40px);
+  max-width: 560px;
+}
+
+.admin-auth-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  padding: 22px 28px 22px 22px;
+  border-radius: 34px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 28px 60px rgba(54, 7, 27, 0.22);
+  backdrop-filter: blur(18px);
+}
+
+.admin-auth-mark::before {
+  content: '';
+  position: absolute;
+  inset: -20px auto auto -20px;
+  width: 86px;
+  height: 86px;
+  border-radius: 28px;
+  border: 1px solid rgba(255, 241, 246, 0.16);
+}
+
+.admin-auth-mark__core {
+  display: grid;
+  place-items: center;
+  width: 102px;
+  height: 102px;
+  border-radius: 30px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.06));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .admin-auth-brand__logo {
-  width: 52px;
-  height: 52px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
-  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.18);
+  width: 74px;
+  height: 74px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.1));
+  box-shadow: 0 20px 42px rgba(0, 0, 0, 0.18);
 }
 
 .admin-auth-eyebrow {
   display: block;
-  margin-bottom: 6px;
-  font-size: 11px;
-  letter-spacing: 2px;
-  color: rgba(255, 239, 245, 0.82);
+  margin-bottom: 10px;
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: rgba(255, 239, 245, 0.76);
 }
 
-.admin-auth-brand strong {
+.admin-auth-wordmark {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-auth-wordmark strong {
   display: block;
-  font-size: 22px;
+  font-size: clamp(28px, 2.5vw, 36px);
   font-family: var(--font-display), var(--font-body), sans-serif;
 }
 
-.admin-auth-hero {
-  max-width: 520px;
-  display: grid;
-  gap: 18px;
-}
-
-.admin-auth-pill {
-  display: inline-flex;
-  width: fit-content;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(255, 242, 247, 0.16);
-  color: rgba(255, 243, 247, 0.88);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-
-.admin-auth-hero h1 {
+.admin-auth-slogan {
   margin: 0;
-  font-size: clamp(42px, 4.2vw, 64px);
-  line-height: 1.04;
-}
-
-.admin-auth-hero p {
-  margin: 0;
-  max-width: 430px;
-  color: rgba(255, 237, 243, 0.84);
-  font-size: 17px;
-  line-height: 1.7;
-}
-
-.admin-auth-scorecard {
-  display: inline-flex;
-  align-items: center;
-  gap: 18px;
-  width: fit-content;
-  padding: 18px 22px;
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(14px);
-}
-
-.admin-auth-scorecard__brand {
-  padding: 14px 18px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.12);
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  font-style: italic;
-}
-
-.admin-auth-scorecard__body {
-  display: grid;
-  gap: 6px;
-}
-
-.admin-auth-scorecard__body strong {
-  font-size: 22px;
-}
-
-.admin-auth-scorecard__body span {
-  color: rgba(255, 239, 245, 0.82);
-}
-
-.admin-auth-meter {
-  display: grid;
-  gap: 14px;
-  max-width: 420px;
-}
-
-.admin-auth-meter__row {
-  justify-content: space-between;
-  color: rgba(255, 242, 247, 0.86);
-}
-
-.admin-auth-meter__track {
-  width: 100%;
-  height: 6px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.24);
-}
-
-.admin-auth-meter__track span {
-  display: block;
-  width: 99.9%;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.88), rgba(255, 214, 228, 0.94));
-}
-
-.admin-auth-footnote {
-  justify-content: space-between;
-  gap: 24px;
-  color: rgba(255, 239, 245, 0.78);
-  font-size: 13px;
+  max-width: 7ch;
+  font-size: clamp(50px, 5.6vw, 88px);
+  line-height: 0.96;
+  letter-spacing: -0.06em;
+  font-family: var(--font-display), var(--font-body), sans-serif;
+  text-wrap: balance;
 }
 
 .admin-login-panel {
@@ -1470,6 +1455,16 @@ button {
     grid-template-columns: 1fr;
   }
 
+  /* keep the minimalist auth hero centered when the split layout stacks vertically; auth visual only; verify with node apps/admin-console/src/admin-login-visual.test.mjs and responsive preview */
+  .admin-auth-spotlight {
+    justify-items: center;
+    text-align: center;
+  }
+
+  .admin-auth-slogan {
+    max-width: 10ch;
+  }
+
   .admin-login-panel {
     padding: 40px 28px;
   }
@@ -1507,12 +1502,29 @@ button {
     padding: 12px;
   }
 
+  /* keep auth full-bleed on mobile after the shared app-frame padding rule kicks in; auth viewport only; verify with node apps/admin-console/src/styles.auth-layout.test.mjs and responsive preview */
+  .app-frame--auth {
+    padding: 0;
+  }
+
+  /* stack the logo lockup vertically on small screens to preserve the minimalist composition; auth visual only; verify with node apps/admin-console/src/admin-login-visual.test.mjs and responsive preview */
+  .admin-auth-mark {
+    flex-direction: column;
+    width: min(100%, 340px);
+    padding: 20px;
+    text-align: center;
+  }
+
+  .admin-auth-slogan {
+    max-width: 9ch;
+    font-size: clamp(38px, 11vw, 54px);
+  }
+
   .admin-auth-visual,
   .admin-login-panel {
     padding: 28px 20px;
   }
 
-  .admin-auth-footnote,
   .admin-login-row,
   .admin-login-footer {
     flex-direction: column;

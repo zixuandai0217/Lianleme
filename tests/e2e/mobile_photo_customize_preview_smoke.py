@@ -3,7 +3,7 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 
-# Why: lock the workout-to-photo-customize preview flow before the new camera page lands so the entry and key camera UI copy are covered together; Scope: mobile H5 photo-customize preview smoke only; Verify: `uv run --with playwright python tests/e2e/mobile_photo_customize_preview_smoke.py`.
+# keep the photo-customize smoke focused on the authenticated preview flow instead of the auth gate; H5 photo-customize smoke only; verify with `uv run --with playwright python tests/e2e/mobile_photo_customize_preview_smoke.py`.
 TARGET_URL = "http://localhost:5173"
 BROWSER_CANDIDATES = [
     Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
@@ -26,6 +26,19 @@ def main() -> None:
         page = browser.new_page(viewport={"width": 1440, "height": 900})
         page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_load_state("networkidle", timeout=30_000)
+        page.evaluate(
+            """
+            () => {
+              window.localStorage.setItem('lianleme.mobile.session', JSON.stringify({
+                accessToken: 'tok_photo_smoke',
+                userId: 'u_demo',
+                email: 'demo@example.com'
+              }))
+            }
+            """
+        )
+        page.reload(wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_load_state("networkidle", timeout=30_000)
 
         page.get_by_text("拍照定制").first.click()
         body = page.locator("body")
@@ -36,7 +49,6 @@ def main() -> None:
         expect(body).to_contain_text("点击拍照")
         expect(body).to_contain_text("体态分析")
         expect(body).to_contain_text("器械识别")
-        # keep the desktop H5 preview locked to a centered mobile shell instead of stretching edge-to-edge; photo-customize layout width only; verify by asserting the shell width stays under phone-sized bounds.
         shell_box = phone_shell.bounding_box()
         if shell_box is None:
             raise SystemExit("Phone shell not found")

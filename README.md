@@ -95,6 +95,7 @@ Lianleme/
 ---
 
 ## 6. 快速开始
+<!-- 补充当前仓库实际可用的根目录安装命令与小程序启动命令；影响快速启动说明；通过核对 package.json 与 docker-compose.yml 验证。 -->
 
 ### 6.1 环境要求
 - Node.js 20+
@@ -105,6 +106,7 @@ Lianleme/
 ### 6.2 安装前端依赖
 
 ```bash
+npm install
 npm install --workspace apps/mobile-client --legacy-peer-deps
 npm install --workspace apps/admin-console --legacy-peer-deps
 ```
@@ -122,6 +124,7 @@ cd services/api-gateway && uv run python -m app.main
 
 ```bash
 npm run dev:mobile:h5
+npm run dev:mobile:mp
 npm run dev:admin
 ```
 

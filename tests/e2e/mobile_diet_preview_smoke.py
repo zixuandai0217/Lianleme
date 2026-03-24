@@ -3,7 +3,7 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 
-# Why: prove the H5 preview shell can switch to the diet home and reveal the refreshed nutrition landmarks; Scope: mobile H5 diet preview smoke coverage only; Verify: `uv run --with playwright python tests/e2e/mobile_diet_preview_smoke.py`.
+# keep the diet landing smoke focused on authenticated page content instead of the auth gate; H5 diet smoke only; verify with `uv run --with playwright python tests/e2e/mobile_diet_preview_smoke.py`.
 TARGET_URL = "http://localhost:5173"
 BROWSER_CANDIDATES = [
     Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
@@ -12,7 +12,6 @@ BROWSER_CANDIDATES = [
 ]
 
 
-# keep the preview smoke runnable on local macOS and Windows boxes; browser executable selection for H5 smoke only; verify by running the smoke without editing hard-coded paths.
 def launch_browser(playwright):
     for candidate in BROWSER_CANDIDATES:
         if candidate.exists():
@@ -25,6 +24,19 @@ def main() -> None:
         browser = launch_browser(playwright)
         page = browser.new_page(viewport={"width": 430, "height": 932})
         page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_load_state("networkidle", timeout=30_000)
+        page.evaluate(
+            """
+            () => {
+              window.localStorage.setItem('lianleme.mobile.session', JSON.stringify({
+                accessToken: 'tok_diet_smoke',
+                userId: 'u_demo',
+                email: 'demo@example.com'
+              }))
+            }
+            """
+        )
+        page.reload(wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_load_state("networkidle", timeout=30_000)
 
         page.locator("[data-preview-tab='diet']").click()

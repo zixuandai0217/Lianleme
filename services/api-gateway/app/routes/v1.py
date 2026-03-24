@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Header
 
@@ -11,6 +11,7 @@ from app.schemas import (
     PhotoAnalyzeRequest,
     PlanGenerateRequest,
     ProfileRequest,
+    RegisterRequest,
     WorkoutLogRequest,
     store,
 )
@@ -18,10 +19,28 @@ from app.schemas import (
 router = APIRouter(prefix="/v1", tags=["v1"])
 
 
+def build_auth_response(email: str) -> dict:
+    # simplify auth responses to one email/password contract so the mobile H5 shell can treat login and register the same way; gateway auth endpoints only; verify with `uv run --with pytest pytest tests/test_gateway.py -k auth -q`.
+    normalized_email = store.normalize_email(email)
+    token = store.issue_token(normalized_email)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user_id": store.build_user_id(normalized_email),
+        "email": normalized_email,
+    }
+
+
 @router.post("/auth/login")
 async def login(payload: LoginRequest):
-    token = store.issue_token(payload.phone)
-    return {"access_token": token, "token_type": "bearer", "user_id": f"u_{payload.phone[-4:]}"}
+    return build_auth_response(payload.email)
+
+
+@router.post("/auth/register")
+async def register(payload: RegisterRequest):
+    # keep registration auto-login for now so the simplified client flow has no second auth step; gateway auth endpoints only; verify with `uv run --with pytest pytest tests/test_gateway.py -k auth -q`.
+    store.register_account(payload.email, payload.password)
+    return build_auth_response(payload.email)
 
 
 @router.post("/auth/logout")
@@ -189,5 +208,3 @@ async def admin_ai_config():
         "voice_enabled": False,
         "safety_mode": "health_management_only",
     }
-
-

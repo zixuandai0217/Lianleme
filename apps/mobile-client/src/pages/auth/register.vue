@@ -1,5 +1,5 @@
 <template>
-  <!-- provide a matching registration flow so the mobile auth experience feels complete without adding new backend contracts; mobile registration page only; verify with npm run build:mobile:h5 -->
+  <!-- simplify auth to email/password only for the current demo flow; mobile register form only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`. -->
   <view class="auth-page auth-page--register">
     <view class="auth-shell auth-shell--register">
       <view class="auth-topbar">
@@ -10,59 +10,34 @@
 
       <view class="auth-register-head">
         <text class="auth-pill">FITNESS ECOSYSTEM</text>
-        <text class="auth-title auth-title--left">加入练了么</text>
-        <text class="auth-subtitle auth-subtitle--left">创建账号，开启更稳定的训练节奏</text>
+        <text class="auth-title auth-title--left">创建账号</text>
+        <text class="auth-subtitle auth-subtitle--left">使用邮箱和密码，快速进入练了么</text>
       </view>
 
       <view class="auth-form auth-form--register">
         <view class="auth-field">
-          <text class="auth-label">手机号</text>
-          <input v-model="phone" class="auth-input" type="number" maxlength="11" placeholder="请输入手机号" />
-        </view>
-
-        <view class="auth-field auth-field--inline">
-          <view class="auth-field-grow">
-            <text class="auth-label">验证码</text>
-            <input v-model="verifyCode" class="auth-input" type="number" maxlength="6" placeholder="请输入验证码" />
-          </view>
-          <view class="auth-mini-btn" @click="handlePlaceholder('发送验证码')">发送验证码</view>
+          <text class="auth-label">邮箱</text>
+          <input v-model="email" class="auth-input" type="text" placeholder="请输入邮箱" />
         </view>
 
         <view class="auth-field">
-          <text class="auth-label">设置密码</text>
-          <input v-model="password" class="auth-input" password placeholder="至少 8 位字符" />
+          <text class="auth-label">密码</text>
+          <input v-model="password" class="auth-input" password placeholder="请输入密码" />
         </view>
 
         <view class="auth-field">
           <text class="auth-label">确认密码</text>
-          <input v-model="confirmPassword" class="auth-input" password placeholder="再次输入密码" />
+          <input v-model="confirmPassword" class="auth-input" password placeholder="请再次输入密码" />
         </view>
-      </view>
-
-      <view class="auth-agreement" @click="agreed = !agreed">
-        <view class="auth-check" :class="{ 'auth-check--active': agreed }">{{ agreed ? '✓' : '' }}</view>
-        <text class="auth-agreement-text">我已阅读并同意</text>
-        <text class="auth-link" @click.stop="handlePlaceholder('用户协议')">用户协议</text>
-        <text class="auth-agreement-text">与</text>
-        <text class="auth-link" @click.stop="handlePlaceholder('隐私政策')">隐私政策</text>
       </view>
 
       <text v-if="errorMessage" class="auth-error">{{ errorMessage }}</text>
 
-      <button class="auth-submit" @click="handleRegister">立即注册</button>
+      <button class="auth-submit" :loading="submitting" @click="handleRegister">注册并进入</button>
 
       <view class="auth-links auth-links--stack">
         <text class="auth-helper">已有账号？</text>
         <text class="auth-link auth-link--strong" @click="goLogin">去登录</text>
-      </view>
-
-      <view class="auth-divider">
-        <text>快捷登录</text>
-      </view>
-
-      <view class="auth-social-row auth-social-row--two">
-        <view class="auth-social-chip" @click="handlePlaceholder('微信快捷登录')">微信</view>
-        <view class="auth-social-chip" @click="handlePlaceholder('QQ 快捷登录')">QQ</view>
       </view>
     </view>
   </view>
@@ -71,17 +46,18 @@
 <script setup>
 import { inject, ref } from 'vue'
 
-import { loadMobileSession, savePrefilledPhone } from '../../lib/authSession'
+import { apiPost } from '../../api/client'
+import { loadMobileSession, saveMobileSession } from '../../lib/authSession'
 
 const mobileAuthShell = inject('mobileAuthShell', null)
-const phone = ref('')
-const verifyCode = ref('')
+const email = ref('')
 const password = ref('')
 const confirmPassword = ref('')
-const agreed = ref(false)
+const submitting = ref(false)
 const errorMessage = ref('')
 
-const normalizePhone = (value) => value.replace(/\s+/g, '')
+const normalizeEmail = (value) => value.trim().toLowerCase()
+const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 
 const showToast = (title) => {
   if (typeof uni !== 'undefined' && typeof uni.showToast === 'function') {
@@ -113,47 +89,54 @@ const goLogin = () => {
   }
 }
 
-const handlePlaceholder = (label) => {
-  showToast(`${label} 入口先保留占位`)
-}
+// simplify demo registration to email/password so first-time users can enter the app without a second login step; mobile register submit only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`.
+const handleRegister = async () => {
+  const normalizedEmail = normalizeEmail(email.value)
+  const normalizedPassword = password.value.trim()
+  const normalizedConfirmPassword = confirmPassword.value.trim()
 
-// keep registration local-only for now while preserving realistic field validation and back-to-login prefill behavior; mobile registration submit only; verify with npm run build:mobile:h5
-const handleRegister = () => {
-  const normalizedPhone = normalizePhone(phone.value)
-
-  if (!/^1\d{10}$/.test(normalizedPhone)) {
-    errorMessage.value = '请输入正确的 11 位手机号'
+  if (!isValidEmail(normalizedEmail)) {
+    errorMessage.value = '请输入有效邮箱地址'
     return
   }
 
-  if (verifyCode.value.trim().length < 4) {
-    errorMessage.value = '请输入至少 4 位验证码'
+  if (!normalizedPassword) {
+    errorMessage.value = '请输入密码'
     return
   }
 
-  if (password.value.trim().length < 8) {
-    errorMessage.value = '密码至少需要 8 位字符'
-    return
-  }
-
-  if (password.value !== confirmPassword.value) {
+  if (normalizedPassword !== normalizedConfirmPassword) {
     errorMessage.value = '两次输入的密码不一致'
     return
   }
 
-  if (!agreed.value) {
-    errorMessage.value = '请先同意用户协议与隐私政策'
-    return
+  submitting.value = true
+  errorMessage.value = ''
+
+  try {
+    const response = await apiPost('/auth/register', {
+      email: normalizedEmail,
+      password: normalizedPassword,
+    })
+
+    if (!response?.access_token || !response?.user_id) {
+      throw new Error('注册返回缺少会话信息')
+    }
+
+    const session = {
+      accessToken: response.access_token,
+      userId: response.user_id,
+      email: response.email || normalizedEmail,
+    }
+
+    saveMobileSession(session)
+    showToast('注册成功')
+    goWorkoutHome(session)
+  } catch (error) {
+    errorMessage.value = error?.message || error?.errMsg || '注册失败，请稍后重试'
+  } finally {
+    submitting.value = false
   }
-
-  savePrefilledPhone(normalizedPhone)
-
-  if (mobileAuthShell?.setPrefilledPhone) {
-    mobileAuthShell.setPrefilledPhone(normalizedPhone)
-  }
-
-  showToast('注册成功，请登录')
-  goLogin()
 }
 
 const existingSession = loadMobileSession()
@@ -163,7 +146,7 @@ if (existingSession?.userId) {
 </script>
 
 <style scoped lang="scss">
-/* match the registration page to the login language while fitting the longer field stack and agreement row; mobile register page styling only; verify in H5 preview and mini-program login flow. */
+/* keep the simplified registration page on the same centered card shell so the H5 preview stays phone-sized on desktop; mobile register page only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`. */
 .auth-page,
 .auth-page *,
 .auth-page *::before,
@@ -171,7 +154,9 @@ if (existingSession?.userId) {
   box-sizing: border-box;
 }
 
+// keep the auth wrapper in block formatting on H5 so the shared shell can stay centered instead of expanding across the viewport; mobile register shell only; verify with `node tests/e2e/mobile_auth_layout_smoke.mjs`.
 .auth-page {
+  display: block;
   min-height: 100vh;
   padding: 24px 18px;
   background:
@@ -181,6 +166,7 @@ if (existingSession?.userId) {
 }
 
 .auth-shell {
+  display: block;
   width: 100%;
   max-width: 390px;
   margin: 0 auto;
@@ -193,40 +179,30 @@ if (existingSession?.userId) {
 }
 
 .auth-topbar,
-.auth-field--inline,
-.auth-agreement,
-.auth-links,
-.auth-social-chip {
+.auth-links {
   display: flex;
   align-items: center;
 }
 
-.auth-topbar,
-.auth-field--inline {
+.auth-topbar {
   justify-content: space-between;
 }
 
-.auth-back,
-.auth-mini-btn,
-.auth-check,
-.auth-social-chip {
+.auth-back {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.auth-back,
-.auth-topbar-spacer {
   width: 32px;
-}
-
-.auth-back {
   height: 32px;
   border-radius: 999px;
   background: rgba(243, 245, 249, 0.96);
   color: #35405a;
   font-size: 18px;
   font-weight: 700;
+}
+
+.auth-topbar-spacer {
+  width: 32px;
 }
 
 .auth-brand {
@@ -266,9 +242,7 @@ if (existingSession?.userId) {
 }
 
 .auth-subtitle,
-.auth-helper,
-.auth-agreement-text,
-.auth-divider {
+.auth-helper {
   color: #6e7485;
 }
 
@@ -279,12 +253,6 @@ if (existingSession?.userId) {
 }
 
 .auth-field {
-  display: grid;
-  gap: 10px;
-}
-
-.auth-field-grow {
-  flex: 1;
   display: grid;
   gap: 10px;
 }
@@ -303,36 +271,6 @@ if (existingSession?.userId) {
   border-radius: 18px;
   background: rgba(243, 245, 249, 0.96);
   color: #1c2233;
-}
-
-.auth-mini-btn {
-  min-width: 102px;
-  height: 52px;
-  margin-top: 26px;
-  border-radius: 999px;
-  color: #f21162;
-  font-size: 13px;
-  font-weight: 700;
-  background: rgba(243, 245, 249, 0.96);
-}
-
-.auth-agreement {
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 18px;
-}
-
-.auth-check {
-  width: 22px;
-  height: 22px;
-  border-radius: 8px;
-  border: 1px solid rgba(110, 116, 133, 0.32);
-  color: #fff;
-}
-
-.auth-check--active {
-  border-color: #f21162;
-  background: #f21162;
 }
 
 .auth-error {
@@ -369,49 +307,5 @@ if (existingSession?.userId) {
 
 .auth-link--strong {
   font-size: 16px;
-}
-
-.auth-divider {
-  position: relative;
-  margin-top: 28px;
-  text-align: center;
-  font-size: 12px;
-}
-
-.auth-divider::before,
-.auth-divider::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  width: 30%;
-  height: 1px;
-  background: rgba(110, 116, 133, 0.18);
-}
-
-.auth-divider::before {
-  left: 0;
-}
-
-.auth-divider::after {
-  right: 0;
-}
-
-.auth-social-row {
-  display: grid;
-  gap: 12px;
-  margin-top: 22px;
-}
-
-.auth-social-row--two {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.auth-social-chip {
-  min-height: 48px;
-  border-radius: 999px;
-  color: #35405a;
-  font-size: 14px;
-  font-weight: 700;
-  background: rgba(243, 245, 249, 0.96);
 }
 </style>

@@ -1,6 +1,5 @@
-// centralize mobile auth session persistence and guarded entry behavior; mobile login/register and protected-page gate only; verify with npm run build:mobile:h5
+// centralize mobile email-session persistence and guarded entry behavior; mobile login/register and protected-page gate only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`.
 const MOBILE_SESSION_KEY = 'lianleme.mobile.session'
-const MOBILE_PREFILL_PHONE_KEY = 'lianleme.mobile.prefill-phone'
 
 const canUseUniStorage = () => {
   return typeof uni !== 'undefined' && typeof uni.getStorageSync === 'function'
@@ -57,23 +56,10 @@ export const loadMobileSession = () => {
 
 export const saveMobileSession = (session) => {
   writeStorage(MOBILE_SESSION_KEY, JSON.stringify(session))
-  clearPrefilledPhone()
 }
 
 export const clearMobileSession = () => {
   removeStorage(MOBILE_SESSION_KEY)
-}
-
-export const loadPrefilledPhone = () => {
-  return readStorage(MOBILE_PREFILL_PHONE_KEY)
-}
-
-export const savePrefilledPhone = (phone) => {
-  writeStorage(MOBILE_PREFILL_PHONE_KEY, phone.trim())
-}
-
-export const clearPrefilledPhone = () => {
-  removeStorage(MOBILE_PREFILL_PHONE_KEY)
 }
 
 export const getMobileAuthHeaders = () => {

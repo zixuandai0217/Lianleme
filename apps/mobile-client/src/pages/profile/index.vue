@@ -1,9 +1,9 @@
-﻿<template>
+<template>
   <view class="page">
     <view class="card block profile-hero">
       <view>
         <text class="title">我的资料</text>
-        <text class="sub">当前账号：{{ sessionPhoneLabel }}</text>
+        <text class="sub">当前账号：{{ sessionAccountLabel }}</text>
       </view>
       <view class="logout-chip" @click="handleLogout">退出登录</view>
     </view>
@@ -30,8 +30,9 @@ import { clearMobileSession, loadMobileSession, requireMobileAuth } from '../../
 const mobileAuthShell = inject('mobileAuthShell', null)
 const session = ref(loadMobileSession())
 
-const sessionPhoneLabel = computed(() => {
-  return session.value?.phone || '未登录'
+const sessionAccountLabel = computed(() => {
+  // show the simplified email-based identity in profile while keeping backward compatibility for older local sessions; mobile profile summary only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`.
+  return session.value?.email || session.value?.phone || '未登录'
 })
 
 const showToast = (title) => {

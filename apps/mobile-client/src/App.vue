@@ -33,7 +33,7 @@
 import { computed, provide, ref } from 'vue'
 
 import MobileTabBar from './components/MobileTabBar.vue'
-import { clearMobileSession, loadMobileSession, loadPrefilledPhone } from './lib/authSession'
+import { clearMobileSession, loadMobileSession } from './lib/authSession'
 import LoginPage from './pages/auth/login.vue'
 import RegisterPage from './pages/auth/register.vue'
 import { mobileTabs } from './lib/tabbar'
@@ -43,13 +43,12 @@ import ProgressHome from './pages/progress/index.vue'
 import PhotoCustomizePage from './pages/workout/photo-customize.vue'
 import WorkoutHome from './pages/workout/index.vue'
 
-// Why: keep H5 tab switching local to the browser preview shell so mini-program routes stay driven by `pages.json`; Scope: App root rendering and local preview navigation only; Verify: localhost:5173 opens on `练了么` and the diet smoke script can switch with `[data-preview-tab='diet']`.
+// keep H5 tab switching local to the browser preview shell so mini-program routes stay driven by `pages.json`; app root preview navigation only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`.
 const isBrowserPreview = typeof window !== 'undefined'
 const activeTab = ref('workout')
 const previewOverlayPage = ref('')
 const activeAuthPage = ref('login')
 const mobileSession = ref(loadMobileSession())
-const prefilledPhone = ref(loadPrefilledPhone())
 
 const previewPages = {
   workout: WorkoutHome,
@@ -95,7 +94,7 @@ const closePreviewPage = () => {
   }
 }
 
-// keep the browser preview auth flow local to the root shell so login/register can switch without relying on uni routes; H5 auth gate only; verify by opening localhost:5173 and switching between login and register.
+// keep the browser preview auth flow local to the root shell so login/register can switch without relying on uni routes; H5 auth gate only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`.
 const openAuthPage = (pageKey) => {
   activeAuthPage.value = pageKey === 'register' ? 'register' : 'login'
 }
@@ -103,7 +102,6 @@ const openAuthPage = (pageKey) => {
 const completeLogin = (session) => {
   mobileSession.value = session
   activeAuthPage.value = 'login'
-  prefilledPhone.value = ''
   previewOverlayPage.value = ''
   activeTab.value = mobileTabs[0].key
 
@@ -115,7 +113,6 @@ const completeLogin = (session) => {
 const logout = () => {
   clearMobileSession()
   mobileSession.value = null
-  prefilledPhone.value = ''
   activeAuthPage.value = 'login'
   previewOverlayPage.value = ''
 
@@ -124,21 +121,16 @@ const logout = () => {
   }
 }
 
-const setPrefilledPhone = (phone) => {
-  prefilledPhone.value = phone
-}
-
 provide('previewShell', {
   openPreviewPage,
   closePreviewPage,
 })
 
+// keep the preview auth shell minimal so login/register only need page switching plus session completion; H5 auth shell only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`.
 provide('mobileAuthShell', {
   openAuthPage,
   completeLogin,
   logout,
-  setPrefilledPhone,
-  getPrefilledPhone: () => prefilledPhone.value || loadPrefilledPhone(),
 })
 
 const activePageKey = computed(() => {
@@ -209,5 +201,4 @@ page {
   backdrop-filter: blur(14px);
   z-index: 24;
 }
-
 </style>

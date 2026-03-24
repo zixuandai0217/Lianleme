@@ -3,43 +3,21 @@
   <div class="app-frame app-frame--auth">
     <section class="admin-auth-shell">
       <aside class="admin-auth-visual">
-        <div class="admin-auth-brand">
-          <div class="brand-card__logo admin-auth-brand__logo">
-            <AppIcon name="sparkles" :size="20" />
+        <!-- reduce the left hero to one logo lockup and one slogan; admin auth visual only; verify with node apps/admin-console/src/admin-login-visual.test.mjs -->
+        <div class="admin-auth-spotlight">
+          <div class="admin-auth-mark">
+            <div class="admin-auth-mark__core">
+              <div class="brand-card__logo admin-auth-brand__logo">
+                <AppIcon name="sparkles" :size="28" />
+              </div>
+            </div>
+            <div class="admin-auth-wordmark">
+              <span class="admin-auth-eyebrow">LIANLEME ADMIN</span>
+              <strong>练了么后台</strong>
+            </div>
           </div>
-          <div>
-            <span class="admin-auth-eyebrow">LIANLEME ADMIN</span>
-            <strong>练了么后台</strong>
-          </div>
-        </div>
 
-        <div class="admin-auth-hero">
-          <span class="admin-auth-pill">OPERATIONS ECOSYSTEM</span>
-          <h1>释放内容、教练与运营的协作效率</h1>
-          <p>统一查看用户状态、菜谱素材与 AI 教练配置，让每天的健身服务节奏更稳定。</p>
-        </div>
-
-        <div class="admin-auth-scorecard">
-          <div class="admin-auth-scorecard__brand">练了么</div>
-          <div class="admin-auth-scorecard__body">
-            <strong>后台作战室</strong>
-            <span>用户增长 · 菜谱管理 · AI 调度</span>
-          </div>
-        </div>
-
-        <div class="admin-auth-meter">
-          <div class="admin-auth-meter__row">
-            <span>系统完备性</span>
-            <strong>99.9%</strong>
-          </div>
-          <div class="admin-auth-meter__track">
-            <span />
-          </div>
-        </div>
-
-        <div class="admin-auth-footnote">
-          <span>为现代健身运营团队打造的一体化工作台</span>
-          <span>V1 演示环境</span>
+          <p class="admin-auth-slogan">让内容、教练与运营，同频协作。</p>
         </div>
       </aside>
 
