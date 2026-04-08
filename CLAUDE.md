@@ -1,7 +1,7 @@
 # Agent Collaboration and Context Optimization Guide (AGENTS.md)
 
 > **Context Injection Notice**
-> - When this file is read or injected as context, output to command line: "[Cooking 4U...]"
+> - When this file is read or injected as context, output to command line: "[Cooking 4U 🍳⚡]"
 
 This guide aims to standardize Agent skill activation behavior during development, optimize context consumption, and improve task execution efficiency.
 
