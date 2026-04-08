@@ -1,5 +1,9 @@
 <template>
   <view v-if="isBrowserPreview" class="preview-root">
+    <!-- add a lightweight ambient backdrop to the H5 preview shell so the mobile tabs sit inside the same atmosphere as the APK-facing UI; browser preview shell only; verify with build:h5 and visual preview. -->
+    <view class="preview-ambient preview-ambient--north"></view>
+    <view class="preview-ambient preview-ambient--east"></view>
+
     <template v-if="!isAuthenticated">
       <LoginPage v-if="activeAuthPage === 'login'" />
       <RegisterPage v-else />
@@ -177,12 +181,42 @@ page {
   font-family: 'Source Han Sans CN', sans-serif;
 }
 
-/* Why: anchor the shared H5 preview tab bar at the bottom of the viewport without changing page route behavior on non-browser targets; Scope: App root preview shell only; Verify: localhost:5173 keeps the tab bar visible while the workout and diet pages scroll underneath it. */
+/* Why: anchor the shared H5 preview tab bar at the bottom of the viewport without changing page route behavior on non-browser targets; Scope: App root preview shell only; Verify: localhost:5273 keeps the tab bar visible while the workout and diet pages scroll underneath it. */
 .preview-root {
   min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(255, 196, 158, 0.28), transparent 24%),
+    radial-gradient(circle at top right, rgba(242, 17, 98, 0.14), transparent 20%),
+    linear-gradient(180deg, #f4f5fb 0%, #f8f8fc 100%);
+}
+
+.preview-ambient {
+  position: fixed;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(8px);
+}
+
+.preview-ambient--north {
+  inset: 20px auto auto 14px;
+  width: 128px;
+  height: 128px;
+  border-radius: 38px;
+  background: linear-gradient(145deg, rgba(255, 154, 84, 0.22), rgba(255, 255, 255, 0));
+  transform: rotate(24deg);
+}
+
+.preview-ambient--east {
+  inset: auto 6px 92px auto;
+  width: 110px;
+  height: 110px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(242, 17, 98, 0.18), rgba(242, 17, 98, 0));
 }
 
 .preview-page {
+  position: relative;
+  z-index: 1;
   padding-bottom: calc(152px + env(safe-area-inset-bottom));
 }
 

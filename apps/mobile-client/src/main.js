@@ -4,7 +4,7 @@ import App from './App.vue'
 
 // Why: keep uni-compatible app factory while enabling direct H5 entry mounting.
 // Scope: mobile-client startup path for browser and shared uni createApp contract.
-// Verify: opening `http://localhost:5173/` renders visible content instead of a blank page.
+// Verify: opening `http://localhost:5273/` renders visible content instead of a blank page.
 export function createApp() {
   const app = createSSRApp(App)
   app.use(createPinia())

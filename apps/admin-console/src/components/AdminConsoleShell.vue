@@ -21,10 +21,34 @@
         />
 
         <div class="console-content">
-          <section class="section-head">
-            <div>
+          <!-- frame each admin module with a high-level command hero so the console feels intentional before operators reach the dense tables and forms; admin shell chrome only; verify with npm --workspace apps/admin-console run build and visual tests. -->
+          <section class="console-hero">
+            <div class="console-hero__copy">
+              <span class="console-hero__eyebrow">{{ activeModule.toUpperCase() }}</span>
               <h1>{{ activeMeta.title }}</h1>
               <p>{{ activeMeta.subtitle }}</p>
+            </div>
+
+            <div class="console-hero__stats">
+              <article class="console-hero__stat">
+                <span>当前会话</span>
+                <strong>{{ currentStatusLabel }}</strong>
+              </article>
+              <article class="console-hero__stat">
+                <span>数据入口</span>
+                <strong>/v1/admin/*</strong>
+              </article>
+              <article class="console-hero__stat">
+                <span>操作身份</span>
+                <strong>{{ props.operator.roleLabel }}</strong>
+              </article>
+            </div>
+          </section>
+
+          <section class="section-head">
+            <div>
+              <h1>模块工作台</h1>
+              <p>围绕当前模块的主操作、筛选和反馈在这里完成。</p>
             </div>
             <button v-if="primaryActionLabel" class="primary-button" type="button" @click="handlePrimaryAction">
               <AppIcon name="plus" :size="16" />
@@ -240,6 +264,17 @@ const {
 } = useAdminConsole()
 
 const activeMeta = computed(() => pageMeta[activeModule.value])
+const currentStatusLabel = computed(() => {
+  if (currentStatus.value === 'loading') {
+    return '同步中'
+  }
+
+  if (currentStatus.value === 'error') {
+    return '需重试'
+  }
+
+  return '已就绪'
+})
 const filteredRecipesCount = computed(() => {
   const keyword = recipeFilters.keyword.trim().toLowerCase()
   return recipes.value.filter((record) => {

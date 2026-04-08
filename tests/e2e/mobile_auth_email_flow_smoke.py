@@ -5,7 +5,7 @@ from playwright.sync_api import expect, sync_playwright
 
 
 # simplify the mobile auth experience to email/password while keeping a browser-level regression for the authenticated shell; H5 auth flow only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`.
-TARGET_URL = "http://localhost:5173"
+TARGET_URL = "http://localhost:5273"
 BROWSER_CANDIDATES = [
     Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
     Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),

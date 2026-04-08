@@ -11,6 +11,12 @@
       </div>
     </div>
 
+    <!-- keep the sidebar grounded in the demo scope so the polished console still tells operators what environment they are in; admin sidebar context only; verify with npm --workspace apps/admin-console run build. -->
+    <div class="sidebar__badge">
+      <span>运营指挥台</span>
+      <strong>前后台联动演示环境</strong>
+    </div>
+
     <nav class="sidebar__nav">
       <button
         v-for="module in modules"

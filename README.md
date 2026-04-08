@@ -128,13 +128,18 @@ npm run dev:mobile:mp
 npm run dev:admin
 ```
 
+<!-- shift the documented local ports away from common defaults; quick-start URLs only; verify by opening the frontend and gateway URLs below after startup -->
+- Mobile H5: `http://localhost:5273`
+- Admin Console: `http://localhost:5274`
+- API Gateway Docs: `http://localhost:18000/docs`
+
 ### 6.5 Docker 一键启动
 
 ```bash
 docker compose up --build
 ```
 
-网关文档：`http://localhost:8000/docs`
+网关文档：`http://localhost:18000/docs`
 
 ---
 

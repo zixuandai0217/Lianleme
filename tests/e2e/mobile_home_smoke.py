@@ -4,7 +4,7 @@ from playwright.sync_api import sync_playwright
 
 
 # keep the workout landing smoke focused on authenticated homepage content instead of the auth gate; H5 workout smoke only; verify with `uv run --with playwright python tests/e2e/mobile_home_smoke.py`.
-TARGET_URL = "http://localhost:5173"
+TARGET_URL = "http://localhost:5273"
 BROWSER_CANDIDATES = [
     Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
     Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),

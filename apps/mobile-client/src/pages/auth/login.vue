@@ -1,7 +1,7 @@
 <template>
   <!-- simplify auth to email/password only for the current demo flow; mobile login form only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`. -->
-  <view class="auth-page auth-page--login">
-    <view class="auth-shell auth-shell--login">
+  <view class="auth-page auth-page--login" :class="{ 'auth-page--browser': isBrowserPreview, 'auth-page--immersive': !isBrowserPreview }">
+    <view class="auth-shell auth-shell--login" :class="{ 'auth-shell--browser': isBrowserPreview, 'auth-shell--immersive': !isBrowserPreview }">
       <view class="auth-brand-mark">✦</view>
 
       <view class="auth-head">
@@ -44,6 +44,7 @@ const email = ref('')
 const password = ref('')
 const submitting = ref(false)
 const errorMessage = ref('')
+const isBrowserPreview = typeof window !== 'undefined'
 
 const normalizeEmail = (value) => value.trim().toLowerCase()
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
@@ -57,6 +58,19 @@ const showToast = (title) => {
 const goWorkoutHome = (session) => {
   if (mobileAuthShell?.completeLogin) {
     mobileAuthShell.completeLogin(session)
+    return
+  }
+
+  // harden the post-login tab entry for mini-program runtime by falling back to reLaunch when switchTab fails, instead of leaving the user on the auth screen after a successful toast; auth success navigation only; verify with `node tests/e2e/mobile_mp_auth_contract.mjs` and wx devtools login.
+  if (typeof uni !== 'undefined' && typeof uni.switchTab === 'function') {
+    uni.switchTab({
+      url: '/pages/workout/index',
+      fail: () => {
+        if (typeof uni.reLaunch === 'function') {
+          uni.reLaunch({ url: '/pages/workout/index' })
+        }
+      },
+    })
     return
   }
 
@@ -133,25 +147,44 @@ onMounted(() => {
 
 <style scoped lang="scss">
 /* keep the simplified login page on the same centered card shell so the H5 preview stays phone-sized on desktop; mobile login page only; verify with `node tests/e2e/mobile_auth_layout_smoke.mjs`. */
+/* keep the auth-page box-sizing reset mp-weixin-safe by targeting supported uni elements instead of scoped universal selectors; login page layout only; verify with `npm --workspace apps/mobile-client run build:mp-weixin && node tests/e2e/mobile_mp_style_contract.mjs`. */
 .auth-page,
-.auth-page *,
-.auth-page *::before,
-.auth-page *::after {
+.auth-page view,
+.auth-page text,
+.auth-page button,
+.auth-page input,
+.auth-page textarea,
+.auth-page image,
+.auth-page navigator,
+.auth-page scroll-view,
+.auth-page swiper,
+.auth-page swiper-item {
   box-sizing: border-box;
 }
 
-// keep the auth wrapper in block formatting on H5 so max-width centering works instead of stretching full-width; mobile login shell only; verify with `node tests/e2e/mobile_auth_layout_smoke.mjs`.
-.auth-page {
-  display: block;
+// keep the browser preview on a centered card while allowing mini-program runtime to switch to a full-bleed shell; login page layout only; verify with `node tests/e2e/mobile_auth_layout_smoke.mjs` and `node tests/e2e/mobile_mp_auth_contract.mjs`.
+.auth-page--browser {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-height: 100vh;
-  padding: 28px 18px;
+  padding: calc(28px + env(safe-area-inset-top)) 18px calc(32px + env(safe-area-inset-bottom));
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.32), transparent 24%),
     radial-gradient(circle at bottom right, rgba(242, 17, 98, 0.14), transparent 28%),
     linear-gradient(180deg, #f2f4fa 0%, #f8f7fb 100%);
 }
 
-.auth-shell {
+.auth-page--immersive {
+  min-height: 100vh;
+  padding: calc(20px + env(safe-area-inset-top)) 0 calc(24px + env(safe-area-inset-bottom));
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.32), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(242, 17, 98, 0.14), transparent 28%),
+    linear-gradient(180deg, #f2f4fa 0%, #f8f7fb 100%);
+}
+
+.auth-shell--browser {
   display: block;
   width: 100%;
   max-width: 390px;
@@ -162,6 +195,17 @@ onMounted(() => {
   box-shadow:
     0 28px 60px rgba(29, 35, 55, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+.auth-shell--immersive {
+  display: grid;
+  align-content: center;
+  width: 100%;
+  min-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  padding: 26px 28px 20px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .auth-brand-mark,

@@ -4,7 +4,7 @@ from playwright.sync_api import expect, sync_playwright
 
 
 # keep the preview nav smoke focused on the authenticated shared tab bar instead of the auth gate; H5 tab-bar smoke only; verify with `uv run --with playwright python tests/e2e/mobile_tabbar_preview_smoke.py`.
-TARGET_URL = "http://localhost:5173"
+TARGET_URL = "http://localhost:5273"
 BROWSER_CANDIDATES = [
     Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
     Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),

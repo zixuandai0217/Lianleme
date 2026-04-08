@@ -1,5 +1,5 @@
 <template>
-  <!-- keep the progress home focused on a weekly-report-first story while preserving access to detailed trend filters and profile entry; progress home template only; verify by opening the progress tab in localhost:5173 and checking the report, summary, trend, and coach sections. -->
+  <!-- keep the progress home focused on a weekly-report-first story while preserving access to detailed trend filters and profile entry; progress home template only; verify by opening the progress tab in localhost:5273 and checking the report, summary, trend, and coach sections. -->
   <view class="page app-mobile-page app-mobile-page--with-tabbar">
     <view class="phone-shell app-mobile-shell">
       <view class="topbar app-mobile-topbar">
@@ -121,7 +121,7 @@
           <text class="trend-badge" :class="pageModel.trendSnapshot.badgeTone">{{ pageModel.trendSnapshot.badge }}</text>
         </view>
 
-        <!-- keep the trend plot on-device and driven by the active metric/range state so the weekly report still exposes detailed progress context; progress chart module only; verify by switching metric and range chips in localhost:5173. -->
+        <!-- keep the trend plot on-device and driven by the active metric/range state so the weekly report still exposes detailed progress context; progress chart module only; verify by switching metric and range chips in localhost:5273. -->
         <view class="chart-shell">
           <svg class="chart-svg" :viewBox="`0 0 ${chartGeometry.width} ${chartGeometry.height}`" preserveAspectRatio="none">
             <defs>
@@ -467,11 +467,19 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
-/* Why: rebuild the progress tab into a weekly-report-first dashboard that mirrors the provided reference while still exposing deeper trend filters; Scope: progress page presentation only in H5 and mini-program previews; Verify: localhost:5173 progress tab shows the weekly report, diet/workout summaries, trend chart, detail chips, and AI coach card. */
+/* Why: rebuild the progress tab into a weekly-report-first dashboard that mirrors the provided reference while still exposing deeper trend filters; Scope: progress page presentation only in H5 and mini-program previews; Verify: localhost:5273 progress tab shows the weekly report, diet/workout summaries, trend chart, detail chips, and AI coach card. */
+/* keep the progress page box-sizing reset mp-weixin-safe by targeting supported uni elements instead of scoped universal selectors; progress layout only; verify with `npm --workspace apps/mobile-client run build:mp-weixin && node tests/e2e/mobile_mp_style_contract.mjs`. */
 .page,
-.page *,
-.page *::before,
-.page *::after {
+.page view,
+.page text,
+.page button,
+.page input,
+.page textarea,
+.page image,
+.page navigator,
+.page scroll-view,
+.page swiper,
+.page swiper-item {
   box-sizing: border-box;
 }
 
@@ -518,6 +526,8 @@ onMounted(() => {
 
 .report-card,
 .coach-card {
+  /* keep the two progress-specific hero cards block-level because they do not inherit the shared card primitive; progress report and coach surfaces only; verify with the progress smoke plus the screenshot of the AI card in localhost:5273. */
+  display: block;
   position: relative;
   overflow: hidden;
   margin-top: 18px;

@@ -4,10 +4,24 @@
 import { getMobileAuthHeaders } from '../lib/authSession'
 
 const API_PREFIX = '/v1'
+const MINI_PROGRAM_DIRECT_API_ORIGIN = 'http://127.0.0.1:18000'
+
+const normalizeOrigin = (value) => {
+  return typeof value === 'string' ? value.trim().replace(/\/+$/, '') : ''
+}
+
+const resolveApiOrigin = () => {
+  if (typeof window !== 'undefined') {
+    return window.location.origin
+  }
+
+  // keep mini-program requests off the H5 preview proxy so login and tab data load in wx devtools without depending on localhost:5273; non-browser mobile runtime only; verify with `node tests/e2e/mobile_mp_auth_contract.mjs` plus mp-weixin login.
+  return normalizeOrigin(globalThis?.__LIANLEME_API_ORIGIN__) || MINI_PROGRAM_DIRECT_API_ORIGIN
+}
 
 const buildUrl = (path) => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
+  const origin = resolveApiOrigin()
   return `${origin}${API_PREFIX}${normalizedPath}`
 }
 

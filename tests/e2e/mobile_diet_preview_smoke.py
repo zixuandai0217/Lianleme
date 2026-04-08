@@ -4,7 +4,7 @@ from playwright.sync_api import expect, sync_playwright
 
 
 # keep the diet landing smoke focused on authenticated page content instead of the auth gate; H5 diet smoke only; verify with `uv run --with playwright python tests/e2e/mobile_diet_preview_smoke.py`.
-TARGET_URL = "http://localhost:5173"
+TARGET_URL = "http://localhost:5273"
 BROWSER_CANDIDATES = [
     Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
     Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
@@ -46,6 +46,18 @@ def main() -> None:
         expect(page.locator("body")).to_contain_text("练了么")
         expect(page.locator("body")).to_contain_text("吃了么")
         expect(page.locator("body")).to_contain_text("瘦了么")
+        # keep the diet tab visually crimson rather than orange so the theme remains distinct from the workout and progress tabs; diet hero and CTA only; verify this smoke fails if the gradients drift away from the approved red palette.
+        rendered_theme = page.evaluate(
+            """
+            () => {
+              const hero = window.getComputedStyle(document.querySelector('.hero-card')).backgroundImage
+              const cta = window.getComputedStyle(document.querySelector('.meal-cta')).backgroundImage
+              return { hero, cta }
+            }
+            """
+        )
+        assert "rgb(143, 15, 46)" in rendered_theme["hero"], rendered_theme["hero"]
+        assert "rgb(184, 18, 59)" in rendered_theme["cta"], rendered_theme["cta"]
 
         browser.close()
 

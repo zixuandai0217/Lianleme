@@ -9,7 +9,7 @@ const CHROME_CANDIDATES = [
 ]
 
 const DEVTOOLS_PORT = 9333 + Math.floor(Math.random() * 1000)
-const TARGET_URL = 'http://localhost:5173'
+const TARGET_URL = 'http://localhost:5273'
 const VIEWPORT = { width: 1365, height: 768 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -141,7 +141,7 @@ async function inspectAuthLayout() {
 
     socket.close()
 
-    assert(evaluation.result?.value, 'Auth shell or brand mark not found on localhost:5173')
+    assert(evaluation.result?.value, 'Auth shell or brand mark not found on localhost:5273')
     succeeded = true
     return evaluation.result.value
   } finally {

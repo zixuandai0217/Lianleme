@@ -1,5 +1,5 @@
 <template>
-  <!-- unify the workout landing with the shared youthful shell while preserving training information hierarchy; workout home template only; verify by checking the topbar, hero, and section cards still render with the same content in localhost:5173. -->
+  <!-- unify the workout landing with the shared youthful shell while preserving training information hierarchy; workout home template only; verify by checking the topbar, hero, and section cards still render with the same content in localhost:5273. -->
   <view class="page app-mobile-page app-mobile-page--with-tabbar">
     <view class="phone-shell app-mobile-shell">
       <view class="topbar app-mobile-topbar">
@@ -156,7 +156,7 @@ const syncRuntimeTabBar = () => {
   }
 }
 
-// Why: expand the limited gateway payload into a richer consumer-home dashboard without adding new backend contracts; Scope: workout home hero, calendar, and training modules while the shared preview nav now lives in `App.vue`; Verify: `uv run --with playwright python tests/e2e/mobile_home_smoke.py` passes and localhost:5173 no longer looks like a sparse three-card stack.
+// Why: expand the limited gateway payload into a richer consumer-home dashboard without adding new backend contracts; Scope: workout home hero, calendar, and training modules while the shared preview nav now lives in `App.vue`; Verify: `uv run --with playwright python tests/e2e/mobile_home_smoke.py` passes and localhost:5273 no longer looks like a sparse three-card stack.
 const todayWorkout = computed(() => {
   return homeWorkout.value.today_workout || fallbackHomeWorkout.today_workout
 })
@@ -275,11 +275,19 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
-/* Why: turn the workout home into a focused mobile-first showcase with a stronger product identity; Scope: workout home presentation only in H5 and mini-program previews; Verify: localhost:5173 matches the richer card hierarchy and the smoke test tokens all appear. */
+/* Why: turn the workout home into a focused mobile-first showcase with a stronger product identity; Scope: workout home presentation only in H5 and mini-program previews; Verify: localhost:5273 matches the richer card hierarchy and the smoke test tokens all appear. */
+/* keep the workout page box-sizing reset mp-weixin-safe by targeting supported uni elements instead of scoped universal selectors; workout home layout only; verify with `npm --workspace apps/mobile-client run build:mp-weixin && node tests/e2e/mobile_mp_style_contract.mjs`. */
 .page,
-.page *,
-.page *::before,
-.page *::after {
+.page view,
+.page text,
+.page button,
+.page input,
+.page textarea,
+.page image,
+.page navigator,
+.page scroll-view,
+.page swiper,
+.page swiper-item {
   box-sizing: border-box;
 }
 

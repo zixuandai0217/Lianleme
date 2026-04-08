@@ -18,6 +18,18 @@
           </div>
 
           <p class="admin-auth-slogan">让内容、教练与运营，同频协作。</p>
+
+          <!-- extend the login hero into a lightweight command-center teaser without introducing fake product metrics; admin auth visual copy only; verify with npm --workspace apps/admin-console run test. -->
+          <div class="admin-auth-telemetry">
+            <article class="admin-auth-telemetry-card">
+              <span>四个模块</span>
+              <strong>总览、用户、菜谱、配置</strong>
+            </article>
+            <article class="admin-auth-telemetry-card">
+              <span>当前定位</span>
+              <strong>APK 内测与运营演示后台</strong>
+            </article>
+          </div>
         </div>
       </aside>
 
@@ -77,6 +89,7 @@
 
         <p class="admin-login-helper">演示环境：账号任意，密码至少 8 位即可进入后台。</p>
         <p v-if="hint" class="admin-login-feedback">{{ hint }}</p>
+        <p class="admin-login-surface-note">当前后台只演示前端交互与视觉流程，不会写入真实生产数据。</p>
 
         <button class="primary-button admin-login-submit" type="submit" :disabled="submitting">
           <span>{{ submitting ? '登录中...' : '登录' }}</span>

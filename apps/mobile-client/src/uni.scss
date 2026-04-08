@@ -35,7 +35,7 @@ page {
   font-family: 'MiSans', 'Source Han Sans CN', sans-serif;
 }
 
-/* Why: reserve bottom space for the shared floating custom tab bar on the three primary tabs so content never hides behind it; Scope: workout, diet, and progress page roots that mount the custom tab bar; Verify: mini-program preview and localhost:5173 keep the last card fully visible above the nav. */
+/* Why: reserve bottom space for the shared floating custom tab bar on the three primary tabs so content never hides behind it; Scope: workout, diet, and progress page roots that mount the custom tab bar; Verify: mini-program preview and localhost:5273 keep the last card fully visible above the nav. */
 .app-mobile-page--with-tabbar {
   padding-bottom: calc(156px + env(safe-area-inset-bottom));
 }
@@ -111,7 +111,9 @@ page {
   backdrop-filter: blur(12px);
 }
 
+/* Why: force shared mobile cards to paint as full block surfaces in H5 so gradients and shadows do not collapse into inline line boxes; Scope: all shared mobile card containers that opt into the app-mobile-card primitive; Verify: `uv run --with playwright python tests/e2e/mobile_progress_preview_smoke.py` reports non-inline progress cards. */
 .app-mobile-card {
+  display: block;
   border-radius: var(--mobile-card-radius);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 249, 253, 0.98));
   box-shadow: var(--mobile-card-shadow), var(--mobile-soft-border);
@@ -143,7 +145,7 @@ page {
 
 /* Why: add H5 px fallback because current browser chain does not reliably apply rpx declarations. */
 /* Scope: shared card/button primitives used by all user mobile pages. */
-/* Verify: localhost:5173 shows rounded cards, shadows, and pill buttons instead of plain blocks. */
+/* Verify: localhost:5273 shows rounded cards, shadows, and pill buttons instead of plain blocks. */
 .card {
   display: block;
   background: var(--mobile-surface);
@@ -167,7 +169,7 @@ page {
 
 /* Why: keep px fallback in a feature-query block so css optimizer won't drop it as duplicate declarations. */
 /* Scope: H5-only fallback for shared card/button primitives. */
-/* Verify: built CSS still contains this block and localhost:5173 cards/buttons are visibly styled. */
+/* Verify: built CSS still contains this block and localhost:5273 cards/buttons are visibly styled. */
 @supports not (width: 1rpx) {
   .card {
     border-radius: 24px;
@@ -177,5 +179,160 @@ page {
   .pill-btn {
     padding: 10px 18px;
     border-radius: 999px;
+  }
+}
+
+/* lift the shared mobile system toward a more atmospheric beta-app look while keeping all page shells compatible with the existing tabs; shared mobile shell primitives only; verify with build:h5 plus the mobile surface contract script. */
+.app-mobile-shell--aurora {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 16% 14%, rgba(255, 160, 120, 0.24), transparent 26%),
+    radial-gradient(circle at 84% 12%, rgba(242, 17, 98, 0.18), transparent 22%),
+    radial-gradient(circle at 50% 100%, rgba(255, 255, 255, 0.82), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 248, 252, 0.98));
+}
+
+.app-mobile-shell--aurora::before {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border-radius: calc(var(--mobile-shell-radius) - 12px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+}
+
+.app-mobile-shell--aurora::after {
+  content: '';
+  position: absolute;
+  inset: auto 24px 22px auto;
+  width: 96px;
+  height: 96px;
+  border-radius: 28px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0));
+  transform: rotate(16deg);
+  pointer-events: none;
+}
+
+.app-mobile-section-kicker {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(28, 34, 51, 0.06);
+  color: #5b6378;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+}
+
+.app-mobile-chip-btn,
+.app-mobile-outline-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.app-mobile-chip-btn {
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.94),
+    0 10px 22px rgba(28, 34, 51, 0.08);
+}
+
+.app-mobile-outline-btn {
+  border: 1px solid rgba(28, 34, 51, 0.08);
+  color: var(--mobile-ink);
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.app-mobile-signal-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 26px;
+  background: linear-gradient(145deg, rgba(28, 34, 51, 0.98), rgba(59, 66, 92, 0.96));
+  color: #fff;
+  box-shadow: 0 24px 42px rgba(28, 34, 51, 0.24);
+}
+
+.app-mobile-signal-card::after {
+  content: '';
+  position: absolute;
+  inset: auto -28px -32px auto;
+  width: 140px;
+  height: 140px;
+  border-radius: 42px;
+  background: radial-gradient(circle, rgba(255, 130, 84, 0.42), transparent 66%);
+}
+
+.app-mobile-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.app-mobile-metric-card {
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 14px 24px rgba(28, 34, 51, 0.08);
+}
+
+.app-mobile-metric-card strong,
+.app-mobile-inline-note strong {
+  display: block;
+  font-size: 26px;
+  line-height: 1.05;
+  color: var(--mobile-ink);
+}
+
+.app-mobile-metric-card span,
+.app-mobile-inline-note span {
+  display: block;
+  margin-top: 6px;
+  color: #6d7487;
+  font-size: 12px;
+}
+
+.app-mobile-inline-note {
+  padding: 16px 18px;
+  border-radius: 22px;
+  background: rgba(28, 34, 51, 0.05);
+}
+
+.app-mobile-floating-note {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.94),
+    0 12px 24px rgba(28, 34, 51, 0.08);
+}
+
+.app-mobile-floating-note strong {
+  font-size: 14px;
+  color: var(--mobile-ink);
+}
+
+.app-mobile-floating-note span {
+  color: #6b7287;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 420px) {
+  .app-mobile-metric-grid {
+    grid-template-columns: 1fr;
   }
 }

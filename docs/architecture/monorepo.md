@@ -13,10 +13,11 @@
 
 ## 端口与责任
 
-- `:8000` `api-gateway`: 客户端唯一入口，聚合 `/v1/*`
-- `:8010` `profile-service`: 用户资料读写
-- `:8020` `ai-coach-service`: 对话/计划生成
-- `:8030` `task-service`: 拍照任务、周报异步能力
+<!-- shift the documented local service ports away from common defaults; architecture port map only; verify by matching docker-compose and runtime config defaults -->
+- `:18000` `api-gateway`: 客户端唯一入口，聚合 `/v1/*`
+- `:18010` `profile-service`: 用户资料读写
+- `:18020` `ai-coach-service`: 对话/计划生成
+- `:18030` `task-service`: 拍照任务、周报异步能力
 
 ## 用户端 IA（3 Tab）
 

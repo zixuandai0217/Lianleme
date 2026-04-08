@@ -18,12 +18,21 @@ cd services/task-service && uv run python -m app.main
 cd services/api-gateway && uv run python -m app.main
 ```
 
+<!-- shift the local runbook URLs away from common defaults; startup reference only; verify each /health endpoint on the ports below -->
+- Profile: `http://localhost:18010/health`
+- AI Coach: `http://localhost:18020/health`
+- Task: `http://localhost:18030/health`
+- Gateway: `http://localhost:18000/health`
+
 ## 3. 启动前端
 
 ```bash
 npm run dev:mobile:h5
 npm run dev:admin
 ```
+
+- Mobile H5: `http://localhost:5273`
+- Admin Console: `http://localhost:5274`
 
 ## 4. 运行测试
 

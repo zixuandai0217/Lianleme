@@ -235,10 +235,18 @@ onMounted(() => {
 
 <style scoped lang="scss">
 /* rebuild the photo customize page as a centered mobile camera card close to the reference; H5 layout and styling only; verify with the photo smoke test and browser screenshot. */
+/* keep the camera-page box-sizing reset mp-weixin-safe by targeting supported uni elements instead of scoped universal selectors; photo customize layout only; verify with `npm --workspace apps/mobile-client run build:mp-weixin && node tests/e2e/mobile_mp_style_contract.mjs`. */
 .camera-page,
-.camera-page *,
-.camera-page *::before,
-.camera-page *::after {
+.camera-page view,
+.camera-page text,
+.camera-page button,
+.camera-page input,
+.camera-page textarea,
+.camera-page image,
+.camera-page navigator,
+.camera-page scroll-view,
+.camera-page swiper,
+.camera-page swiper-item {
   box-sizing: border-box;
 }
 

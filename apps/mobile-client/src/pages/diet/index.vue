@@ -1,5 +1,5 @@
 <template>
-  <!-- unify the diet landing with the shared vibrant shell while preserving the calorie, meal, and AI dinner modules; diet home template only; verify by checking the hero, meal list, and AI dinner poster in localhost:5173. -->
+  <!-- unify the diet landing with the shared vibrant shell while preserving the calorie, meal, and AI dinner modules; diet home template only; verify by checking the hero, meal list, and AI dinner poster in localhost:5273. -->
   <view class="page app-mobile-page app-mobile-page--with-tabbar">
     <view class="phone-shell app-mobile-shell">
       <view class="topbar app-mobile-topbar">
@@ -179,10 +179,11 @@ const pageModel = computed(() => {
   return buildDietHomeViewModel(homeDiet.value, todayDiet.value)
 })
 
+// shift the diet progress ring into the same crimson palette as the page hero so the entire tab reads as one red-themed surface; diet hero ring only; verify with `uv run --with playwright python tests/e2e/mobile_diet_preview_smoke.py`.
 const calorieRingStyle = computed(() => {
   const progressDegrees = Math.round((pageModel.value.progressPercent / 100) * 360)
   return {
-    background: `conic-gradient(#f86448 0deg, #ff8d4d ${progressDegrees}deg, rgba(255, 255, 255, 0.16) ${progressDegrees}deg 360deg)`,
+    background: `conic-gradient(#8f0f2e 0deg, #c51645 ${progressDegrees}deg, rgba(255, 223, 231, 0.32) ${progressDegrees}deg 360deg)`,
   }
 })
 
@@ -255,20 +256,41 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
-/* Why: rebuild the diet tab into a dense, mobile-first nutrition dashboard that matches the richer workout-home family; Scope: diet page presentation only in H5 and mini-program previews; Verify: localhost:5173 diet tab shows the calorie ring, nutrient cards, meal list, and AI dinner poster instead of two sparse placeholders. */
+/* Why: rebuild the diet tab into a dense, mobile-first nutrition dashboard that matches the richer workout-home family; Scope: diet page presentation only in H5 and mini-program previews; Verify: localhost:5273 diet tab shows the calorie ring, nutrient cards, meal list, and AI dinner poster instead of two sparse placeholders. */
+/* keep the diet page box-sizing reset mp-weixin-safe by targeting supported uni elements instead of scoped universal selectors; diet layout only; verify with `npm --workspace apps/mobile-client run build:mp-weixin && node tests/e2e/mobile_mp_style_contract.mjs`. */
 .page,
-.page *,
-.page *::before,
-.page *::after {
+.page view,
+.page text,
+.page button,
+.page input,
+.page textarea,
+.page image,
+.page navigator,
+.page scroll-view,
+.page swiper,
+.page swiper-item {
   box-sizing: border-box;
 }
 
+/* Why: localize a deeper crimson palette to the diet tab so it feels visually distinct from workout/progress without mutating shared mobile tokens; Scope: diet page descendants only; Verify: localhost:5273 diet tab shows berry-red hero/button surfaces while the other tabs keep their existing colors. */
 .page {
+  --diet-red-950: #4f091b;
+  --diet-red-900: #6f0b24;
+  --diet-red-800: #8f0f2e;
+  --diet-red-700: #b8123b;
+  --diet-red-600: #c51645;
+  --diet-red-500: #e5335f;
+  --diet-red-400: #ff5c78;
+  --diet-red-300: #ff93aa;
+  --diet-rose-100: #fff1f4;
+  --diet-rose-200: #ffe1e8;
+  --diet-rose-300: #ffcbd7;
+  --diet-rose-400: #ffb2c1;
   background:
-    radial-gradient(circle at top left, rgba(255, 170, 93, 0.22), transparent 28%),
-    radial-gradient(circle at top right, rgba(242, 17, 98, 0.16), transparent 26%),
-    radial-gradient(circle at bottom right, rgba(95, 215, 212, 0.14), transparent 26%),
-    linear-gradient(180deg, #2f2130 0%, #3a2b37 18%, #fff3ea 18%, #f3f6fb 100%);
+    radial-gradient(circle at top left, rgba(255, 128, 150, 0.18), transparent 26%),
+    radial-gradient(circle at top right, rgba(229, 51, 95, 0.18), transparent 26%),
+    radial-gradient(circle at bottom right, rgba(255, 181, 197, 0.22), transparent 24%),
+    linear-gradient(180deg, #33111b 0%, #5a1427 18%, #fff2f5 18%, #fcf7f9 100%);
 }
 
 .phone-shell {
@@ -313,7 +335,9 @@ onMounted(() => {
 }
 
 .brand-mark {
-  color: #f86448;
+  background: linear-gradient(145deg, rgba(197, 22, 69, 0.16), rgba(255, 147, 170, 0.22));
+  box-shadow: 0 14px 28px rgba(197, 22, 69, 0.16);
+  color: var(--diet-red-600);
 }
 
 .brand-mark-dot {
@@ -328,7 +352,7 @@ onMounted(() => {
 }
 
 .eyebrow {
-  color: #ff7f5d;
+  color: var(--diet-red-500);
 }
 
 .headline {
@@ -336,7 +360,12 @@ onMounted(() => {
 }
 
 .status-chip {
-  color: #f86448;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 244, 247, 0.94));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 14px 26px rgba(184, 18, 59, 0.1);
+  color: var(--diet-red-600);
   font-size: 11px;
   font-weight: 700;
   text-align: center;
@@ -352,10 +381,10 @@ onMounted(() => {
   gap: 14px;
   border-radius: 30px;
   background:
-    radial-gradient(circle at top right, rgba(255, 242, 197, 0.28), transparent 34%),
-    radial-gradient(circle at bottom left, rgba(255, 255, 255, 0.12), transparent 36%),
-    linear-gradient(145deg, #f15367 0%, #ff7d4e 52%, #ffb35b 100%);
-  box-shadow: 0 28px 52px rgba(241, 83, 103, 0.22);
+    radial-gradient(circle at top right, rgba(255, 196, 212, 0.22), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(255, 255, 255, 0.1), transparent 36%),
+    linear-gradient(145deg, #8f0f2e 0%, #c51645 52%, #ff5c78 100%);
+  box-shadow: 0 28px 52px rgba(143, 15, 46, 0.24);
 }
 
 .hero-card::after {
@@ -365,7 +394,7 @@ onMounted(() => {
   width: 200px;
   height: 200px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 193, 208, 0.12);
 }
 
 .hero-copy {
@@ -423,7 +452,7 @@ onMounted(() => {
 }
 
 .metric-chip.emphasis {
-  background: rgba(42, 18, 13, 0.18);
+  background: rgba(79, 9, 27, 0.26);
 }
 
 .metric-label {
@@ -444,7 +473,7 @@ onMounted(() => {
   justify-content: center;
   box-shadow:
     inset 0 0 0 8px rgba(255, 255, 255, 0.12),
-    0 18px 36px rgba(120, 26, 17, 0.18);
+    0 18px 36px rgba(111, 11, 36, 0.24);
 }
 
 .calorie-ring::after {
@@ -464,7 +493,7 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 233, 239, 0.12);
   backdrop-filter: blur(10px);
 }
 
@@ -496,6 +525,7 @@ onMounted(() => {
 
 .macro-card {
   padding: 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 245, 248, 0.98));
 }
 
 .macro-label,
@@ -539,23 +569,23 @@ onMounted(() => {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #f86448, #ffb35b);
+  background: linear-gradient(90deg, #b8123b, #ff5c78);
 }
 
 .tone-protein .macro-fill {
-  background: linear-gradient(90deg, #f15367, #ff8451);
+  background: linear-gradient(90deg, #8f0f2e, #d92f59);
 }
 
 .tone-carb .macro-fill {
-  background: linear-gradient(90deg, #ff9b4a, #ffc45e);
+  background: linear-gradient(90deg, #b8123b, #ff5c78);
 }
 
 .tone-fat .macro-fill {
-  background: linear-gradient(90deg, #ff8260, #ffab79);
+  background: linear-gradient(90deg, #a50f33, #ef6a86);
 }
 
 .tone-water .macro-fill {
-  background: linear-gradient(90deg, #59b9ff, #4fdddf);
+  background: linear-gradient(90deg, #d92f59, #ff93aa);
 }
 
 .section-block {
@@ -592,8 +622,8 @@ onMounted(() => {
   flex-shrink: 0;
   padding: 9px 12px;
   border-radius: 999px;
-  background: rgba(241, 83, 103, 0.08);
-  color: #f86448;
+  background: rgba(197, 22, 69, 0.09);
+  color: var(--diet-red-600);
   font-size: 12px;
 }
 
@@ -606,16 +636,36 @@ onMounted(() => {
   padding: 16px;
 }
 
+/* keep the meal and nutrient surfaces red-led without turning them into flat solid blocks; diet content cards only; verify in localhost:5273 that breakfast/lunch/dinner and macro cards stay readable while carrying a rose tint. */
+.tone-protein {
+  background: linear-gradient(180deg, rgba(255, 245, 248, 0.98), rgba(255, 236, 241, 0.98));
+}
+
+.tone-carb {
+  background: linear-gradient(180deg, rgba(255, 244, 247, 0.98), rgba(255, 233, 239, 0.98));
+}
+
+.tone-fat {
+  background: linear-gradient(180deg, rgba(255, 247, 249, 0.98), rgba(255, 239, 243, 0.98));
+}
+
+.tone-water {
+  background: linear-gradient(180deg, rgba(255, 247, 249, 0.98), rgba(255, 242, 246, 0.98));
+}
+
 .tone-breakfast {
-  border: 1px solid rgba(255, 183, 117, 0.18);
+  background: linear-gradient(180deg, rgba(255, 248, 250, 0.98), rgba(255, 240, 244, 0.98));
+  border: 1px solid rgba(255, 178, 193, 0.34);
 }
 
 .tone-lunch {
-  border: 1px solid rgba(241, 83, 103, 0.14);
+  background: linear-gradient(180deg, rgba(255, 244, 247, 0.98), rgba(255, 233, 239, 0.98));
+  border: 1px solid rgba(229, 51, 95, 0.2);
 }
 
 .tone-dinner {
-  border: 1px solid rgba(125, 204, 163, 0.18);
+  background: linear-gradient(180deg, rgba(255, 241, 245, 0.98), rgba(255, 229, 235, 0.98));
+  border: 1px solid rgba(197, 22, 69, 0.18);
 }
 
 .meal-top {
@@ -646,7 +696,7 @@ onMounted(() => {
   flex-shrink: 0;
   font-size: 19px;
   font-weight: 800;
-  color: #f15367;
+  color: var(--diet-red-600);
 }
 
 .meal-desc {
@@ -666,15 +716,16 @@ onMounted(() => {
   align-items: center;
   padding: 8px 11px;
   border-radius: 999px;
-  background: #f6f7fb;
-  color: #6d7387;
+  background: var(--diet-rose-100);
+  color: var(--diet-red-700);
   font-size: 12px;
 }
 
 .meal-cta {
   padding: 10px 14px;
   border-radius: 999px;
-  background: var(--mobile-brand-gradient);
+  background: linear-gradient(135deg, #b8123b, #f03862 68%, #ff7f95);
+  box-shadow: 0 12px 22px rgba(184, 18, 59, 0.16);
   color: #ffffff;
   font-size: 12px;
 }
@@ -688,9 +739,9 @@ onMounted(() => {
   padding: 20px 18px;
   border-radius: 28px;
   background:
-    radial-gradient(circle at top right, rgba(255, 227, 190, 0.28), transparent 36%),
-    linear-gradient(155deg, #26273a 0%, #403349 56%, #f16f50 100%);
-  box-shadow: 0 24px 44px rgba(38, 39, 58, 0.22);
+    radial-gradient(circle at top right, rgba(255, 193, 208, 0.18), transparent 36%),
+    linear-gradient(155deg, #4f091b 0%, #7f102b 56%, #d92f59 100%);
+  box-shadow: 0 24px 44px rgba(79, 9, 27, 0.26);
 }
 
 .ai-card::after {
@@ -756,13 +807,13 @@ onMounted(() => {
 .ai-kcal {
   font-size: 22px;
   font-weight: 800;
-  color: #ffd38c;
+  color: #ffd2dc;
 }
 
 .primary-button {
   padding: 10px 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 236, 241, 0.18);
   backdrop-filter: blur(10px);
   color: #ffffff;
   font-size: 12px;
@@ -899,8 +950,8 @@ onMounted(() => {
 }
 
 .status-strip {
-  background: rgba(255, 255, 255, 0.72);
-  color: #7a4a3d;
+  background: rgba(255, 244, 247, 0.88);
+  color: #8f0f2e;
 }
 
 @media (max-width: 375px) {

@@ -1,7 +1,7 @@
 <template>
   <!-- simplify auth to email/password only for the current demo flow; mobile register form only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`. -->
-  <view class="auth-page auth-page--register">
-    <view class="auth-shell auth-shell--register">
+  <view class="auth-page auth-page--register" :class="{ 'auth-page--browser': isBrowserPreview, 'auth-page--immersive': !isBrowserPreview }">
+    <view class="auth-shell auth-shell--register" :class="{ 'auth-shell--browser': isBrowserPreview, 'auth-shell--immersive': !isBrowserPreview }">
       <view class="auth-topbar">
         <view class="auth-back" @click="goLogin">←</view>
         <text class="auth-brand">练了么</text>
@@ -55,6 +55,7 @@ const password = ref('')
 const confirmPassword = ref('')
 const submitting = ref(false)
 const errorMessage = ref('')
+const isBrowserPreview = typeof window !== 'undefined'
 
 const normalizeEmail = (value) => value.trim().toLowerCase()
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
@@ -68,6 +69,19 @@ const showToast = (title) => {
 const goWorkoutHome = (session) => {
   if (mobileAuthShell?.completeLogin) {
     mobileAuthShell.completeLogin(session)
+    return
+  }
+
+  // harden the post-register tab entry for mini-program runtime by falling back to reLaunch when switchTab fails, instead of leaving the user on the auth screen after a successful toast; auth success navigation only; verify with `node tests/e2e/mobile_mp_auth_contract.mjs` and wx devtools register flow.
+  if (typeof uni !== 'undefined' && typeof uni.switchTab === 'function') {
+    uni.switchTab({
+      url: '/pages/workout/index',
+      fail: () => {
+        if (typeof uni.reLaunch === 'function') {
+          uni.reLaunch({ url: '/pages/workout/index' })
+        }
+      },
+    })
     return
   }
 
@@ -147,25 +161,44 @@ if (existingSession?.userId) {
 
 <style scoped lang="scss">
 /* keep the simplified registration page on the same centered card shell so the H5 preview stays phone-sized on desktop; mobile register page only; verify with `uv run --with playwright python tests/e2e/mobile_auth_email_flow_smoke.py`. */
+/* keep the auth-page box-sizing reset mp-weixin-safe by targeting supported uni elements instead of scoped universal selectors; register page layout only; verify with `npm --workspace apps/mobile-client run build:mp-weixin && node tests/e2e/mobile_mp_style_contract.mjs`. */
 .auth-page,
-.auth-page *,
-.auth-page *::before,
-.auth-page *::after {
+.auth-page view,
+.auth-page text,
+.auth-page button,
+.auth-page input,
+.auth-page textarea,
+.auth-page image,
+.auth-page navigator,
+.auth-page scroll-view,
+.auth-page swiper,
+.auth-page swiper-item {
   box-sizing: border-box;
 }
 
-// keep the auth wrapper in block formatting on H5 so the shared shell can stay centered instead of expanding across the viewport; mobile register shell only; verify with `node tests/e2e/mobile_auth_layout_smoke.mjs`.
-.auth-page {
-  display: block;
+// keep the browser preview on a centered card while allowing mini-program runtime to switch to a full-bleed shell; register page layout only; verify with `node tests/e2e/mobile_auth_layout_smoke.mjs` and `node tests/e2e/mobile_mp_auth_contract.mjs`.
+.auth-page--browser {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-height: 100vh;
-  padding: 24px 18px;
+  padding: calc(24px + env(safe-area-inset-top)) 18px calc(32px + env(safe-area-inset-bottom));
   background:
     radial-gradient(circle at bottom left, rgba(242, 17, 98, 0.12), transparent 28%),
     radial-gradient(circle at top right, rgba(255, 183, 91, 0.18), transparent 24%),
     linear-gradient(180deg, #f7f3f1 0%, #f6f7fb 100%);
 }
 
-.auth-shell {
+.auth-page--immersive {
+  min-height: 100vh;
+  padding: calc(16px + env(safe-area-inset-top)) 0 calc(24px + env(safe-area-inset-bottom));
+  background:
+    radial-gradient(circle at bottom left, rgba(242, 17, 98, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 183, 91, 0.18), transparent 24%),
+    linear-gradient(180deg, #f7f3f1 0%, #f6f7fb 100%);
+}
+
+.auth-shell--browser {
   display: block;
   width: 100%;
   max-width: 390px;
@@ -176,6 +209,17 @@ if (existingSession?.userId) {
   box-shadow:
     0 28px 60px rgba(29, 35, 55, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+.auth-shell--immersive {
+  display: grid;
+  align-content: center;
+  width: 100%;
+  min-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  padding: 24px 28px 20px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .auth-topbar,

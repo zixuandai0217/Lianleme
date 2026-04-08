@@ -1,17 +1,26 @@
 <template>
   <!-- top chrome for search, refresh and operator context; module pages share one interaction pattern; verify with vite build -->
   <header class="topbar">
-    <label class="search-field">
-      <AppIcon name="search" :size="16" />
-      <input
-        :value="search"
-        type="text"
-        :placeholder="placeholder"
-        @input="emit('update:search', ($event.target as HTMLInputElement).value)"
-      />
-    </label>
+    <div class="topbar__workspace">
+      <!-- add a live-console context strip above search so the backend demo reads like an operations surface instead of a plain CRUD header; admin topbar context only; verify with npm --workspace apps/admin-console run build. -->
+      <div class="topbar__context">
+        <span class="topbar__eyebrow">OPERATIONS CONSOLE</span>
+        <span class="topbar__timestamp">{{ busy ? '正在同步模块数据' : '演示数据流已就绪' }}</span>
+      </div>
+
+      <label class="search-field">
+        <AppIcon name="search" :size="16" />
+        <input
+          :value="search"
+          type="text"
+          :placeholder="placeholder"
+          @input="emit('update:search', ($event.target as HTMLInputElement).value)"
+        />
+      </label>
+    </div>
 
     <div class="topbar__actions">
+      <span class="topbar__pill">{{ busy ? 'SYNCING' : 'LIVE DEMO' }}</span>
       <button class="icon-button icon-button--soft" type="button" :disabled="busy" @click="emit('refresh')">
         <AppIcon name="refresh" :size="16" />
       </button>
