@@ -1,0 +1,10 @@
+/* 进度环组件样式 */
+.ring-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ring-canvas {
+  display: block;
+}

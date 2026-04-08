@@ -1,0 +1,9 @@
+<!-- 环形进度图组件 -->
+<view class="ring-wrap">
+  <canvas
+    id="ring-canvas"
+    type="2d"
+    class="ring-canvas"
+    style="width:{{radius * 2 + lineWidth * 2}}px; height:{{radius * 2 + lineWidth * 2}}px;"
+  />
+</view>

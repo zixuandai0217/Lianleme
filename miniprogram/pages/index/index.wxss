@@ -1,0 +1,91 @@
+/* 首页样式 */
+.container {
+  min-height: 100vh;
+  background: var(--color-bg);
+  padding: 48rpx 32rpx;
+}
+
+.header { margin-bottom: 40rpx; }
+
+.greeting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.greeting {
+  font-size: 44rpx;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.streak-badge {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  background: var(--color-primary-dim);
+  border: 1rpx solid var(--color-primary);
+  border-radius: 100rpx;
+  padding: 8rpx 20rpx;
+}
+.streak-fire { font-size: 28rpx; }
+.streak-text { color: var(--color-primary); font-size: 26rpx; font-weight: 600; }
+
+/* 今日任务卡 */
+.today-card {
+  margin-bottom: 32rpx;
+  background: linear-gradient(135deg, #16213E, #1A1A2E);
+}
+.today-tag {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-bottom: 32rpx;
+}
+.today-meta { color: var(--color-text-3); font-size: 26rpx; }
+.start-btn { margin-top: 32rpx; width: 100%; }
+
+/* 休息日 */
+.rest-card {
+  text-align: center;
+  margin-bottom: 32rpx;
+  padding: 60rpx;
+}
+.rest-icon { font-size: 80rpx; display: block; margin-bottom: 16rpx; }
+.rest-text { font-size: 36rpx; font-weight: 600; display: block; }
+.rest-sub { color: var(--color-text-3); font-size: 26rpx; margin-top: 12rpx; display: block; }
+
+/* 无计划 */
+.no-plan-card { text-align: center; margin-bottom: 32rpx; padding: 60rpx; }
+.no-plan-text { font-size: 32rpx; color: var(--color-text-2); display: block; margin-bottom: 32rpx; }
+
+/* 快速入口 */
+.quick-entry {
+  display: flex;
+  gap: 20rpx;
+  margin-bottom: 32rpx;
+}
+.entry-item {
+  flex: 1;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: 32rpx 16rpx;
+  text-align: center;
+  border: 1rpx solid var(--color-border);
+}
+.entry-icon { font-size: 48rpx; display: block; margin-bottom: 12rpx; }
+.entry-label { font-size: 24rpx; color: var(--color-text-2); }
+
+/* 本周打卡 */
+.week-bar { }
+.section-title { font-size: 28rpx; color: var(--color-text-3); display: block; margin-bottom: 24rpx; }
+.week-row { display: flex; justify-content: space-between; }
+.week-day { flex: 1; text-align: center; }
+.day-num { font-size: 24rpx; color: var(--color-text-3); display: block; margin-bottom: 12rpx; }
+.day-dot {
+  width: 32rpx; height: 32rpx; border-radius: 50%;
+  background: var(--color-border);
+  margin: 0 auto;
+}
+.week-day.checked .day-dot { background: var(--color-primary); }
+.week-day.today .day-num { color: var(--color-primary); font-weight: 700; }

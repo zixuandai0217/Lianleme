@@ -1,0 +1,86 @@
+<view class="container">
+  <view class="page-title">体型分析</view>
+
+  <!-- 图片选择区 -->
+  <view class="photo-area" wx:if="{{status === 'idle' || status === 'failed'}}">
+    <view class="photo-box {{imageUrl ? 'has-image' : ''}}" wx:if="{{!imageUrl}}">
+      <text class="camera-icon">📷</text>
+      <text class="photo-hint">拍摄或选择全身照</text>
+      <text class="photo-tip">确保光线充足、站姿自然</text>
+    </view>
+    <image wx:if="{{imageUrl}}" src="{{imageUrl}}" class="preview-image" mode="aspectFit" />
+
+    <view class="btn-row">
+      <button class="btn-outline" data-source="camera" bindtap="chooseImage">📷 拍照</button>
+      <button class="btn-outline" data-source="album" bindtap="chooseImage">🖼️ 相册</button>
+    </view>
+
+    <button
+      class="btn-primary analyze-btn"
+      disabled="{{!imageBase64}}"
+      bindtap="startAnalysis"
+    >开始 AI 分析</button>
+
+    <view class="error-tip" wx:if="{{status === 'failed'}}">
+      <text>分析失败，请重新尝试</text>
+    </view>
+  </view>
+
+  <!-- 分析中动画 -->
+  <view class="scanning-area" wx:if="{{status === 'uploading' || status === 'processing'}}">
+    <image src="{{imageUrl}}" class="scan-image" mode="aspectFit" />
+    <view class="scan-overlay">
+      <view class="scan-line"></view>
+    </view>
+    <text class="scan-text">
+      {{status === 'uploading' ? '上传中...' : 'AI 正在分析体型...'}}
+    </text>
+    <text class="scan-sub">通常需要 5-15 秒，请耐心等待</text>
+  </view>
+
+  <!-- 分析结果 -->
+  <view class="result-area" wx:if="{{status === 'completed' && result}}">
+    <!-- 体型标签 -->
+    <view class="card result-header">
+      <text class="result-label">体型分类</text>
+      <view class="body-type-badge">
+        <text class="badge-neon body-type">{{result.body_type}}</text>
+        <text class="body-fat">体脂 {{result.body_fat_range}}</text>
+      </view>
+      <text class="summary-text">{{result.summary}}</text>
+    </view>
+
+    <!-- 弱势肌群 + 优势 -->
+    <view class="card muscle-card">
+      <view class="muscle-section">
+        <text class="muscle-title">⚠️ 需要加强</text>
+        <view class="tag-row">
+          <text
+            class="muscle-tag weak"
+            wx:for="{{result.weak_muscles}}"
+            wx:key="index"
+          >{{item}}</text>
+        </view>
+      </view>
+      <view class="divider"></view>
+      <view class="muscle-section">
+        <text class="muscle-title">✅ 优势部位</text>
+        <view class="tag-row">
+          <text
+            class="muscle-tag strong"
+            wx:for="{{result.strengths}}"
+            wx:key="index"
+          >{{item}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 提示训练计划 -->
+    <view class="plan-notice card">
+      <text class="plan-notice-text">🎉 个性化训练计划已自动生成！</text>
+      <button class="btn-primary" bindtap="navigateToApp.navigateTo" data-url="/pages/plan/plan">
+        查看训练计划 →
+      </button>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,20 @@
+<!-- 训练动作卡片组件 -->
+<view class="card {{done ? 'card-done' : ''}}" bindtap="onToggleDone">
+  <view class="card-left">
+    <view class="index-badge">{{index + 1}}</view>
+  </view>
+  <view class="card-body">
+    <text class="exercise-name">{{exercise.name}}</text>
+    <view class="tags">
+      <text class="tag tag-set">{{exercise.sets}} 组</text>
+      <text class="tag tag-rep">× {{exercise.reps}}</text>
+      <text wx:if="{{exercise.weight_suggestion}}" class="tag tag-weight">{{exercise.weight_suggestion}}</text>
+    </view>
+    <text wx:if="{{exercise.tips}}" class="tips">{{exercise.tips}}</text>
+  </view>
+  <view class="card-right">
+    <view class="check {{done ? 'check-done' : ''}}">
+      <text wx:if="{{done}}" class="check-icon">✓</text>
+    </view>
+  </view>
+</view>

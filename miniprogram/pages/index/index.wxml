@@ -1,0 +1,66 @@
+<view class="container">
+  <!-- Header：打招呼 + 连续打卡徽章 -->
+  <view class="header">
+    <view class="greeting-row">
+      <text class="greeting">{{greeting}}</text>
+      <view class="streak-badge" wx:if="{{streak > 0}}">
+        <text class="streak-fire">🔥</text>
+        <text class="streak-text">{{streak}} 天</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 今日任务卡 -->
+  <view class="card today-card" wx:if="{{!isRestDay && todayWorkout}}">
+    <view class="today-tag">
+      <text class="badge-neon">{{todayWorkout.focus}}</text>
+      <text class="today-meta">{{todayWorkout.estimated_duration}} 分钟 · {{todayWorkout.exercises.length}} 个动作</text>
+    </view>
+    <progress-ring total="{{todayWorkout.exercises.length * 3}}" completed="{{completedSets}}" />
+    <button class="btn-primary start-btn" bindtap="goStartWorkout">开始训练</button>
+  </view>
+
+  <!-- 休息日提示 -->
+  <view class="card rest-card" wx:if="{{isRestDay}}">
+    <text class="rest-icon">😴</text>
+    <text class="rest-text">今日休息，充分恢复</text>
+    <text class="rest-sub">肌肉在休息中生长，好好睡觉！</text>
+  </view>
+
+  <!-- 无计划提示 -->
+  <view class="card no-plan-card" wx:if="{{!isRestDay && !todayWorkout}}">
+    <text class="no-plan-text">还没有训练计划</text>
+    <button class="btn-outline" bindtap="goAnalysis">立即体型分析 →</button>
+  </view>
+
+  <!-- 快速入口 -->
+  <view class="quick-entry">
+    <view class="entry-item" bindtap="goAnalysis">
+      <text class="entry-icon">📸</text>
+      <text class="entry-label">体型分析</text>
+    </view>
+    <view class="entry-item" bindtap="goPlan">
+      <text class="entry-icon">📋</text>
+      <text class="entry-label">训练计划</text>
+    </view>
+    <view class="entry-item" bindtap="goStartWorkout">
+      <text class="entry-icon">🤖</text>
+      <text class="entry-label">AI 教练</text>
+    </view>
+  </view>
+
+  <!-- 本周打卡条 -->
+  <view class="card week-bar">
+    <text class="section-title">本周打卡</text>
+    <view class="week-row">
+      <view
+        class="week-day {{item.checked ? 'checked' : ''}} {{item.isToday ? 'today' : ''}}"
+        wx:for="{{weekCheckins}}"
+        wx:key="index"
+      >
+        <text class="day-num">{{item.date}}</text>
+        <view class="day-dot"></view>
+      </view>
+    </view>
+  </view>
+</view>

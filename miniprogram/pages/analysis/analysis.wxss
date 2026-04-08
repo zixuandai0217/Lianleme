@@ -1,0 +1,76 @@
+/* 体型分析页样式 */
+.container { padding: 48rpx 32rpx; min-height: 100vh; }
+.page-title { font-size: 44rpx; font-weight: 700; margin-bottom: 40rpx; }
+
+/* 图片选择 */
+.photo-box {
+  width: 100%;
+  height: 480rpx;
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  border: 2rpx dashed var(--color-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 32rpx;
+}
+.camera-icon { font-size: 80rpx; margin-bottom: 20rpx; }
+.photo-hint { font-size: 32rpx; color: var(--color-text-2); }
+.photo-tip { font-size: 24rpx; color: var(--color-text-3); margin-top: 12rpx; }
+
+.preview-image {
+  width: 100%; height: 480rpx;
+  border-radius: var(--radius-xl);
+  margin-bottom: 32rpx;
+}
+.btn-row { display: flex; gap: 24rpx; margin-bottom: 32rpx; }
+.btn-row button { flex: 1; }
+.analyze-btn { width: 100%; }
+.error-tip { text-align: center; color: var(--color-danger); font-size: 26rpx; margin-top: 20rpx; }
+
+/* 扫描动画 */
+.scanning-area { position: relative; text-align: center; }
+.scan-image { width: 100%; height: 480rpx; border-radius: var(--radius-xl); }
+.scan-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 480rpx;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+.scan-line {
+  position: absolute;
+  left: 0; right: 0; height: 4rpx;
+  background: linear-gradient(90deg, transparent, var(--color-primary), transparent);
+  animation: scan 2s linear infinite;
+}
+@keyframes scan {
+  0% { top: 0; }
+  100% { top: 480rpx; }
+}
+.scan-text { font-size: 32rpx; color: var(--color-primary); margin-top: 40rpx; display: block; }
+.scan-sub { font-size: 24rpx; color: var(--color-text-3); margin-top: 12rpx; display: block; }
+
+/* 分析结果 */
+.result-area { }
+.result-header { margin-bottom: 24rpx; }
+.result-label { font-size: 24rpx; color: var(--color-text-3); display: block; margin-bottom: 16rpx; }
+.body-type-badge { display: flex; align-items: center; gap: 24rpx; margin-bottom: 24rpx; }
+.body-type { font-size: 28rpx; text-transform: uppercase; }
+.body-fat { color: var(--color-text-2); font-size: 26rpx; }
+.summary-text { font-size: 28rpx; color: var(--color-text-2); line-height: 1.6; }
+
+.muscle-card { margin-bottom: 24rpx; }
+.muscle-section { }
+.muscle-title { font-size: 28rpx; font-weight: 600; display: block; margin-bottom: 20rpx; }
+.tag-row { display: flex; flex-wrap: wrap; gap: 12rpx; }
+.muscle-tag {
+  padding: 8rpx 24rpx;
+  border-radius: 100rpx;
+  font-size: 24rpx;
+}
+.muscle-tag.weak { background: rgba(255,77,109,0.15); color: var(--color-danger); border: 1rpx solid var(--color-danger); }
+.muscle-tag.strong { background: var(--color-primary-dim); color: var(--color-primary); border: 1rpx solid var(--color-primary); }
+
+.plan-notice { text-align: center; }
+.plan-notice-text { font-size: 30rpx; display: block; margin-bottom: 32rpx; }

@@ -1,0 +1,94 @@
+<!-- 训练计划页：周视图 + 动作卡片列表 + 难度调节 -->
+<view class="container">
+
+  <!-- 周视图 Tab -->
+  <view class="week-tab">
+    <view
+      wx:for="{{weekDays}}"
+      wx:key="index"
+      class="day-item {{selectedDay === index ? 'active' : ''}}"
+      data-index="{{index}}"
+      bindtap="onDaySelect"
+    >
+      <text class="day-label">{{item}}</text>
+      <view class="day-dot {{selectedDay === index ? 'dot-active' : ''}}"></view>
+    </view>
+  </view>
+
+  <!-- 加载状态 -->
+  <view wx:if="{{loading}}" class="loading-wrap">
+    <view class="loading-spinner"></view>
+    <text class="loading-text">加载计划...</text>
+  </view>
+
+  <!-- 动作列表 -->
+  <view wx:elif="{{exercises.length > 0}}" class="exercise-list">
+    <view class="section-title">
+      <text>今日动作</text>
+      <text class="count-badge">{{exercises.length}} 个</text>
+    </view>
+
+    <view
+      wx:for="{{exercises}}"
+      wx:key="index"
+      class="exercise-card"
+    >
+      <!-- 动作图示占位 -->
+      <view class="exercise-thumb">
+        <text class="thumb-icon">💪</text>
+      </view>
+      <view class="exercise-info">
+        <text class="exercise-name">{{item.name}}</text>
+        <view class="exercise-tags">
+          <text class="tag tag-set">{{item.sets}}组</text>
+          <text class="tag tag-rep">×{{item.reps}}</text>
+          <text wx:if="{{item.weight_suggestion}}" class="tag tag-weight">{{item.weight_suggestion}}</text>
+        </view>
+        <text class="exercise-tips">{{item.tips}}</text>
+      </view>
+      <view class="exercise-check">
+        <view class="check-circle {{item.done ? 'checked' : ''}}">
+          <text wx:if="{{item.done}}" class="check-icon">✓</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view wx:else class="empty-state">
+    <text class="empty-icon">🗓️</text>
+    <text class="empty-text">今天休息，好好恢复</text>
+  </view>
+
+  <!-- 难度调节区 -->
+  <view class="intensity-section">
+    <view class="section-title">
+      <text>强度调节</text>
+      <text class="intensity-value">{{intensityLevel}}%</text>
+    </view>
+    <slider
+      class="intensity-slider"
+      value="{{intensityLevel}}"
+      min="20"
+      max="100"
+      step="5"
+      activeColor="#00FF88"
+      backgroundColor="#2A2A2A"
+      block-color="#00FF88"
+      bindchange="onIntensityChange"
+    />
+    <view class="intensity-labels">
+      <text>轻松</text>
+      <text>适中</text>
+      <text>挑战</text>
+    </view>
+    <button class="btn-adjust" bindtap="onAdjustIntensity">AI 智能调整</button>
+    <text wx:if="{{adjustFeedback}}" class="adjust-feedback">{{adjustFeedback}}</text>
+  </view>
+
+  <!-- 开始训练 -->
+  <button wx:if="{{exercises.length > 0}}" class="btn-start" bindtap="onStartWorkout">
+    开始训练 →
+  </button>
+
+</view>

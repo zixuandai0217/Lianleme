@@ -1,0 +1,55 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/analysis/analysis",
+    "pages/plan/plan",
+    "pages/coach/coach",
+    "pages/profile/profile"
+  ],
+  "tabBar": {
+    "color": "#8A8A8E",
+    "selectedColor": "#00F5C4",
+    "backgroundColor": "#1A1A2E",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页",
+        "iconPath": "assets/icons/home.png",
+        "selectedIconPath": "assets/icons/home-active.png"
+      },
+      {
+        "pagePath": "pages/plan/plan",
+        "text": "计划",
+        "iconPath": "assets/icons/plan.png",
+        "selectedIconPath": "assets/icons/plan-active.png"
+      },
+      {
+        "pagePath": "pages/coach/coach",
+        "text": "陪练",
+        "iconPath": "assets/icons/coach.png",
+        "selectedIconPath": "assets/icons/coach-active.png"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的",
+        "iconPath": "assets/icons/profile.png",
+        "selectedIconPath": "assets/icons/profile-active.png"
+      }
+    ]
+  },
+  "window": {
+    "backgroundTextStyle": "dark",
+    "navigationBarBackgroundColor": "#0D0D1A",
+    "navigationBarTitleText": "链了么",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#0D0D1A"
+  },
+  "permission": {
+    "scope.camera": {
+      "desc": "用于拍摄体型照片进行 AI 分析"
+    }
+  },
+  "requiredPrivateInfos": ["chooseMedia"],
+  "sitemapLocation": "sitemap.json"
+}

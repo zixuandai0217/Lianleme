@@ -1,0 +1,120 @@
+/* AI 陪练对话页样式 */
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--color-bg);
+}
+
+/* 训练状态栏 */
+.workout-bar {
+  padding: 24rpx 32rpx;
+  background: var(--color-surface);
+  border-bottom: 1rpx solid var(--color-border);
+}
+.exercise-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16rpx; }
+.exercise-name { font-size: 32rpx; font-weight: 700; color: var(--color-primary); }
+.sets-progress { font-size: 26rpx; color: var(--color-text-3); }
+.sets-track { display: flex; gap: 12rpx; }
+.set-dot {
+  width: 20rpx; height: 20rpx; border-radius: 50%;
+  background: var(--color-border);
+  transition: background 0.3s;
+}
+.set-dot.done { background: var(--color-primary); }
+
+/* 消息滚动区 */
+.chat-scroll { flex: 1; padding: 24rpx 32rpx; }
+
+/* 消息气泡 */
+.msg-item {
+  display: flex;
+  align-items: flex-end;
+  margin-bottom: 24rpx;
+  gap: 16rpx;
+}
+.msg-item.user { flex-direction: row-reverse; }
+
+.avatar {
+  width: 64rpx; height: 64rpx;
+  background: var(--color-surface-2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36rpx;
+  flex-shrink: 0;
+}
+
+.bubble {
+  max-width: 70%;
+  padding: 20rpx 28rpx;
+  border-radius: var(--radius-lg);
+  font-size: 28rpx;
+  line-height: 1.6;
+}
+.bubble.ai {
+  background: var(--color-surface);
+  border: 1rpx solid var(--color-border);
+  border-bottom-left-radius: 4rpx;
+}
+.bubble.user {
+  background: linear-gradient(135deg, #00F5C4, #7B2FFF);
+  border-bottom-right-radius: 4rpx;
+}
+.bubble.user .bubble-text { color: #0D0D1A; font-weight: 600; }
+.bubble-text { color: var(--color-text); }
+
+/* 打字动效 */
+.dot-typing { display: flex; gap: 8rpx; align-items: center; padding: 4rpx 0; }
+.dot {
+  width: 12rpx; height: 12rpx; border-radius: 50%;
+  background: var(--color-text-3);
+  animation: bounce 1.2s ease-in-out infinite;
+}
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-12rpx); } }
+
+/* 快捷操作 */
+.quick-scroll { white-space: nowrap; padding: 16rpx 32rpx; border-top: 1rpx solid var(--color-border); }
+.quick-row { display: inline-flex; gap: 16rpx; }
+.quick-btn {
+  display: inline-block;
+  padding: 12rpx 28rpx;
+  border: 1rpx solid var(--color-primary);
+  border-radius: 100rpx;
+  color: var(--color-primary);
+  font-size: 26rpx;
+  background: var(--color-primary-dim);
+  white-space: nowrap;
+}
+
+/* 输入栏 */
+.input-bar {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 16rpx 32rpx 32rpx;
+  background: var(--color-surface);
+  border-top: 1rpx solid var(--color-border);
+}
+.chat-input {
+  flex: 1;
+  background: var(--color-surface-2);
+  border-radius: var(--radius-xl);
+  padding: 20rpx 28rpx;
+  font-size: 28rpx;
+  color: var(--color-text);
+  border: 1rpx solid var(--color-border);
+}
+.send-btn {
+  background: linear-gradient(135deg, #00F5C4, #7B2FFF);
+  color: #0D0D1A;
+  font-weight: 700;
+  border-radius: var(--radius-xl);
+  padding: 20rpx 36rpx;
+  font-size: 28rpx;
+  line-height: 1;
+}
+.send-btn[disabled] { opacity: 0.4; }

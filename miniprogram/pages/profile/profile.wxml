@@ -1,0 +1,159 @@
+<!-- 个人中心页 -->
+<view class="container">
+
+  <!-- 用户信息头部 -->
+  <view class="profile-header">
+    <view class="avatar-wrap">
+      <image class="avatar" src="{{userInfo.avatar_url || '/assets/default-avatar.png'}}" mode="aspectFill"/>
+    </view>
+    <view class="user-meta">
+      <text class="username">{{userInfo.nickname || '训练者'}}</text>
+      <view class="level-badge">
+        <text class="level-icon">⚡</text>
+        <text class="level-text">{{expOptions[expIndex]}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 数据统计卡 -->
+  <view class="stats-card">
+    <view class="stat-item">
+      <text class="stat-value">{{stats.totalDays}}</text>
+      <text class="stat-label">总打卡天数</text>
+    </view>
+    <view class="stat-divider"></view>
+    <view class="stat-item">
+      <text class="stat-value">{{stats.totalMinutes}}</text>
+      <text class="stat-label">累计分钟</text>
+    </view>
+    <view class="stat-divider"></view>
+    <view class="stat-item">
+      <text class="stat-value">{{stats.monthRate}}%</text>
+      <text class="stat-label">本月完成率</text>
+    </view>
+  </view>
+
+  <!-- 打卡日历 -->
+  <view class="section-card">
+    <view class="section-title">
+      <text>{{currentMonth}} 打卡记录</text>
+    </view>
+    <view class="calendar-grid">
+      <view
+        wx:for="{{calendarDays}}"
+        wx:key="day"
+        class="cal-day {{item.checked ? 'day-checked' : ''}} {{item.isToday ? 'day-today' : ''}} {{item.isFuture ? 'day-future' : ''}}"
+      >
+        <text>{{item.day}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 档案编辑 -->
+  <view class="section-card">
+    <view class="section-title">训练档案</view>
+
+    <view class="form-row">
+      <text class="form-label">身高</text>
+      <view class="slider-wrap">
+        <slider
+          value="{{profile.height}}"
+          min="140" max="220" step="1"
+          activeColor="#00FF88" backgroundColor="#2A2A2A" block-color="#00FF88"
+          bindchange="onHeightChange"
+        />
+        <text class="slider-val">{{profile.height}} cm</text>
+      </view>
+    </view>
+
+    <view class="form-row">
+      <text class="form-label">体重</text>
+      <view class="slider-wrap">
+        <slider
+          value="{{profile.weight}}"
+          min="30" max="150" step="0.5"
+          activeColor="#00FF88" backgroundColor="#2A2A2A" block-color="#00FF88"
+          bindchange="onWeightChange"
+        />
+        <text class="slider-val">{{profile.weight}} kg</text>
+      </view>
+    </view>
+
+    <view class="form-row">
+      <text class="form-label">目标</text>
+      <picker range="{{goalOptions}}" value="{{goalIndex}}" bindchange="onGoalChange">
+        <view class="picker-value">
+          <text>{{goalOptions[goalIndex]}}</text>
+          <text class="picker-arrow">›</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="form-row">
+      <text class="form-label">经验</text>
+      <picker range="{{expOptions}}" value="{{expIndex}}" bindchange="onExpChange">
+        <view class="picker-value">
+          <text>{{expOptions[expIndex]}}</text>
+          <text class="picker-arrow">›</text>
+        </view>
+      </picker>
+    </view>
+
+    <button class="btn-save {{saving ? 'btn-disabled' : ''}}" bindtap="onSaveProfile" disabled="{{saving}}">
+      {{saving ? '保存中...' : '保存档案'}}
+    </button>
+  </view>
+
+  <!-- API Key 配置区 -->
+  <view class="section-card api-key-section">
+    <view class="section-title">
+      <text>AI Key 配置</text>
+      <view class="key-status {{hasApiKey ? 'key-active' : ''}}">
+        <text>{{hasApiKey ? '● 已配置' : '○ 使用系统默认'}}</text>
+      </view>
+    </view>
+    <text class="section-desc">配置自己的 API Key，享有独立调用额度</text>
+
+    <!-- Provider 选择 -->
+    <view class="provider-tabs">
+      <view
+        class="provider-tab {{apiProvider === 'openai' ? 'tab-active' : ''}}"
+        data-provider="openai"
+        bindtap="onProviderChange"
+      >OpenAI</view>
+      <view
+        class="provider-tab {{apiProvider === 'qwen' ? 'tab-active' : ''}}"
+        data-provider="qwen"
+        bindtap="onProviderChange"
+      >通义千问</view>
+    </view>
+
+    <!-- 已配置状态 -->
+    <view wx:if="{{hasApiKey && !showApiKeyInput}}" class="key-saved-row">
+      <text class="key-masked">{{apiKeyMasked || 'sk-****...****'}}</text>
+      <view class="key-actions">
+        <text class="key-btn" bindtap="onToggleApiKeyInput">修改</text>
+        <text class="key-btn key-btn-danger" bindtap="onClearApiKey">清除</text>
+      </view>
+    </view>
+
+    <!-- 输入 Key -->
+    <view wx:if="{{!hasApiKey || showApiKeyInput}}" class="key-input-wrap">
+      <input
+        class="key-input"
+        placeholder="粘贴你的 API Key"
+        placeholder-style="color:#555"
+        value="{{apiKey}}"
+        bindinput="onApiKeyInput"
+        password="{{true}}"
+      />
+      <button class="btn-save-key" bindtap="onSaveApiKey">保存</button>
+    </view>
+  </view>
+
+  <!-- 退出登录 -->
+  <view class="logout-wrap">
+    <button class="btn-logout" bindtap="onLogout">退出登录</button>
+  </view>
+
+</view>

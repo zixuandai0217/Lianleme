@@ -1,0 +1,78 @@
+<view class="container">
+  <!-- 训练状态栏 -->
+  <view class="workout-bar" wx:if="{{currentExercise}}">
+    <view class="exercise-info">
+      <text class="exercise-name">{{currentExercise}}</text>
+      <text class="sets-progress">{{completedSets}} / {{totalSets}} 组</text>
+    </view>
+    <view class="sets-track">
+      <view
+        class="set-dot {{index < completedSets ? 'done' : ''}}"
+        wx:for="{{totalSets}}"
+        wx:key="index"
+      ></view>
+    </view>
+  </view>
+
+  <!-- 消息列表 -->
+  <scroll-view
+    class="chat-scroll"
+    scroll-y
+    scroll-into-view="{{scrollToId}}"
+    scroll-with-animation
+  >
+    <view
+      class="msg-item {{item.role === 'user' ? 'user' : 'ai'}}"
+      wx:for="{{messages}}"
+      wx:key="id"
+      id="{{item.id}}"
+    >
+      <view class="avatar" wx:if="{{item.role === 'ai'}}">
+        <text>🤖</text>
+      </view>
+      <view class="bubble {{item.role}}">
+        <text class="bubble-text">{{item.text}}</text>
+      </view>
+    </view>
+    <!-- loading 气泡 -->
+    <view class="msg-item ai" wx:if="{{sending}}">
+      <view class="avatar"><text>🤖</text></view>
+      <view class="bubble ai loading-bubble">
+        <view class="dot-typing">
+          <view class="dot"></view>
+          <view class="dot"></view>
+          <view class="dot"></view>
+        </view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- 快捷操作 -->
+  <scroll-view class="quick-scroll" scroll-x>
+    <view class="quick-row">
+      <view
+        class="quick-btn"
+        wx:for="{{quickReplies}}"
+        wx:key="index"
+        data-text="{{item}}"
+        bindtap="sendQuickReply"
+      >{{item}}</view>
+    </view>
+  </scroll-view>
+
+  <!-- 输入框 -->
+  <view class="input-bar">
+    <input
+      class="chat-input"
+      value="{{inputText}}"
+      placeholder="和教练说点什么..."
+      placeholder-style="color: rgba(255,255,255,0.3)"
+      bindinput="onInputChange"
+      confirm-type="send"
+      bindconfirm="sendInput"
+    />
+    <button class="send-btn" bindtap="sendInput" disabled="{{sending || !inputText}}">
+      <text>发送</text>
+    </button>
+  </view>
+</view>
