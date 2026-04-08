@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="链了么 - AI 健身教练",
+    title="练了么 - AI 健身教练",
     version="0.1.0",
     lifespan=lifespan,
 )
