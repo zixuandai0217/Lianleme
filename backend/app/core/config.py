@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = []
 
     # 数据库
-    DATABASE_URL: str = "postgresql+asyncpg://lianleme:lianleme123@localhost:5432/lianleme"
+    DATABASE_URL: str = "postgresql+asyncpg://lianleme:lianle@localhost:5432/lianleme"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # MinIO / 对象存储
     MINIO_ENDPOINT: str = "localhost:9000"
     MINIO_ROOT_USER: str = "minioadmin"
-    MINIO_ROOT_PASSWORD: str = "minioadmin123"
+    MINIO_ROOT_PASSWORD: str = "minio"
     MINIO_BUCKET: str = "lianleme-photos"
 
     # 微信
@@ -31,8 +31,12 @@ class Settings(BaseSettings):
     # LLM 系统默认 Key
     DEFAULT_LLM_PROVIDER: str = "qwen"
     OPENAI_API_KEY: str = ""
+    OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
+    OPENAI_VISION_MODEL: str = "gpt-4o"
     QWEN_API_KEY: str = ""
     QWEN_API_BASE: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    QWEN_CHAT_MODEL: str = "qwen3.5-flash-2026-02-23"
+    QWEN_VISION_MODEL: str = "qwen3.5-flash-2026-02-23"
 
     # AES-256 用于加密用户 API Key（必须 32 字节）
     AES_SECRET_KEY: str = "default-32-byte-secret-key!!!!!!"

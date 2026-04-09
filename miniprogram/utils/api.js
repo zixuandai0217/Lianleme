@@ -1,5 +1,6 @@
 // 封装 wx.request，统一鉴权 Header 与错误处理
-const BASE_URL = 'https://your-api-domain.com'; // 替换为实际后端地址
+// 从 app.js globalData 读取，统一在一处维护后端地址
+const BASE_URL = () => getApp().globalData.baseUrl;
 
 /**
  * 通用请求封装，自动附加 Authorization Header
@@ -11,7 +12,7 @@ function request(method, path, data = {}) {
   return new Promise((resolve, reject) => {
     const token = wx.getStorageSync('auth_token');
     wx.request({
-      url: `${BASE_URL}${path}`,
+      url: `${BASE_URL()}${path}`,
       method,
       data,
       header: {
@@ -44,7 +45,7 @@ function uploadFile(path, filePath, formData = {}) {
   return new Promise((resolve, reject) => {
     const token = wx.getStorageSync('auth_token');
     wx.uploadFile({
-      url: `${BASE_URL}${path}`,
+      url: `${BASE_URL()}${path}`,
       filePath,
       name: 'file',
       formData,

@@ -1,30 +1,52 @@
 .DS_Store
+Thumbs.db
 
+# Node / frontend build artifacts
 node_modules/
 dist/
-coverage/
-
-__pycache__/
-*.pyc
-.pytest_cache/
-.venv/
-
-.env
-.env.*
-!.env.example
-
+.npm-cache/
 apps/**/dist/
 apps/**/.vite/
+
+# Python caches and virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
 services/**/.mypy_cache/
 services/**/.ruff_cache/
-
-*.log
-
 services/**/.venv/
 services/**/*.egg-info/
 services/**/uv.lock
 
-tmp/
-docs/
+# Python coverage artifacts
+.coverage
+.coverage.*
+coverage/
+htmlcov/
 
-.npm-cache/
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# WeChat Mini Program local artifacts
+miniprogram/project.private.config.json
+miniprogram/node_modules/
+miniprogram/miniprogram_npm/
+miniprogram/dist/
+
+# Temporary notes and scratch files
+tmp/
+docs/notes/
+
+# IDE
+.vscode/
+.idea/

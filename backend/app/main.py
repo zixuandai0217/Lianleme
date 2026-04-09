@@ -8,15 +8,17 @@ from fastapi.responses import JSONResponse
 from app.api import coach, plan, user, vision, workout
 from app.core.config import settings
 from app.core.database import engine
+from app.core.storage import ensure_bucket_exists
 from app.models import record, plan as plan_model, user as user_model  # noqa: F401 触发 ORM 注册
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时建表，关闭时释放连接池"""
+    """应用生命周期：启动时建表 + 确保 MinIO bucket，关闭时释放连接池"""
     from app.core.database import Base
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    ensure_bucket_exists()
     yield
     await engine.dispose()
 

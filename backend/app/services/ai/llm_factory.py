@@ -52,7 +52,9 @@ class LLMClientFactory:
     ) -> ChatOpenAI:
         """根据 provider 构造 ChatOpenAI 实例（通义千问兼容 OpenAI 格式）"""
         if provider == "qwen":
-            model_name = "qwen-vl-plus" if model_type == "vision" else "qwen-turbo"
+            model_name = (
+                settings.QWEN_VISION_MODEL if model_type == "vision" else settings.QWEN_CHAT_MODEL
+            )
             return ChatOpenAI(
                 model=model_name,
                 api_key=api_key,
@@ -62,7 +64,9 @@ class LLMClientFactory:
                 max_retries=2,
             )
         else:
-            model_name = "gpt-4o" if model_type == "vision" else "gpt-4o"
+            model_name = (
+                settings.OPENAI_VISION_MODEL if model_type == "vision" else settings.OPENAI_CHAT_MODEL
+            )
             return ChatOpenAI(
                 model=model_name,
                 api_key=api_key,

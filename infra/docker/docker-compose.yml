@@ -23,7 +23,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-lianleme}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lianleme123}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lianle}
       POSTGRES_DB: ${POSTGRES_DB:-lianleme}
     ports:
       - "5432:5432"
@@ -54,7 +54,7 @@ services:
       - "9001:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio}
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
