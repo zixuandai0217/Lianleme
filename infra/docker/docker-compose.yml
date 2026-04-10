@@ -1,13 +1,27 @@
 version: "3.9"
 
 # 本地开发环境：热重载 + 代码挂载，不限内存
+#
+# ── 镜像分层策略 ──────────────────────────────────────────────────────────────
+# [步骤 1] 首次 / 依赖变更时，构建基础镜像（含所有 Python 包，耗时约 2-3 min）：
+#   docker build -f infra/docker/backend-base.dockerfile \
+#                -t lianleme-base:latest backend/
+#
+# [步骤 2] 日常代码更新，只重建 app 镜像（仅 COPY 代码，秒级完成）：
+#   docker build -f infra/docker/backend.dockerfile \
+#                -t lianleme-backend:latest backend/
+#   （自动覆盖上一次的 latest 镜像，然后 docker compose up -d 即可）
+#
+# 开发模式（下方 volumes 挂载 + --reload）无需重建镜像，修改代码即生效。
+# ─────────────────────────────────────────────────────────────────────────────
 services:
-  api:
+  backend:
     build:
       context: ../../backend
-      dockerfile: ../infra/docker/python-service.Dockerfile
+      dockerfile: ../infra/docker/backend.dockerfile
+    image: lianleme-backend:latest   # 每次构建自动覆盖 latest 标签
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # 仅本机可访问
     env_file:
       - .env
     depends_on:
@@ -24,11 +38,11 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-lianleme}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lianle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lianle123}
       POSTGRES_DB: ${POSTGRES_DB:-lianleme}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"   # 仅本机可访问
     volumes:
       - pg_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -41,7 +55,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"   # 仅本机可访问
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -55,8 +69,8 @@ services:
   minio:
     image: minio/minio:latest
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"   # 仅本机可访问
+      - "127.0.0.1:9001:9001"   # MinIO 控制台，仅本机可访问
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio}

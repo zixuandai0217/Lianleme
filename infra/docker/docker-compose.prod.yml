@@ -2,12 +2,12 @@ version: "3.9"
 
 # 生产环境：2核4G 服务器，内存资源限制，多 worker
 services:
-  api:
+  backend:
     build:
       context: ../../backend
-      dockerfile: ../infra/docker/python-service.Dockerfile
+      dockerfile: ../infra/docker/backend.dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # 仅本机可访问，由 nginx 反代
     env_file:
       - .env
     depends_on:
@@ -28,7 +28,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-lianleme}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lianle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lianle123}
       POSTGRES_DB: ${POSTGRES_DB:-lianleme}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
     ports:

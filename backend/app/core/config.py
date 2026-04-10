@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = []
 
     # 数据库
-    DATABASE_URL: str = "postgresql+asyncpg://lianleme:lianle@localhost:5432/lianleme"
+    DATABASE_URL: str = "postgresql+asyncpg://lianleme:lianle123@localhost:5432/lianleme"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # MinIO / 对象存储
     MINIO_ENDPOINT: str = "localhost:9000"
     MINIO_ROOT_USER: str = "minioadmin"
-    MINIO_ROOT_PASSWORD: str = "minio"
+    MINIO_ROOT_PASSWORD: str = "minio123"
     MINIO_BUCKET: str = "lianleme-photos"
 
     # 微信
