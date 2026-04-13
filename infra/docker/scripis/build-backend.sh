@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# 构建后端应用镜像（lianleme-backend:latest），覆盖上一次的 latest。
-# 依赖 lianleme-base:latest 已存在，若不存在请先执行 build-base.sh。
+# 功能：构建后端应用镜像（lianleme-backend:latest）。
+# 参数：无。
+# 示例：
+#   bash scripis/build-backend.sh
+# 说明：依赖基础镜像 lianleme-base:latest，若不存在会直接报错退出。
 
 set -euo pipefail
 

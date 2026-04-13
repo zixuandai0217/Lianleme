@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# 构建后端基础镜像（lianleme-base:latest）
-# 仅在 pyproject.toml 或 uv.lock 变更时执行，耗时约 2-3 分钟。
+# 功能：构建后端基础镜像（lianleme-base:latest），用于缓存 Python 依赖层。
+# 参数：无。
+# 示例：
+#   bash scripis/build-base.sh
+# 说明：通常仅在依赖变更（如 pyproject.toml / lock 文件更新）时执行。
 
 set -euo pipefail
 
@@ -13,7 +16,7 @@ IMAGE_NAME="lianleme-base:latest"
 
 echo "=============================="
 echo "  构建基础镜像: ${IMAGE_NAME}"
-echo "  context : ${BACKEND_DIR}"
+echo "  context   : ${BACKEND_DIR}"
 echo "  dockerfile: ${DOCKER_DIR}/backend-base.dockerfile"
 echo "=============================="
 

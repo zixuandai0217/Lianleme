@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# 停止开发环境
-# 用法：
-#   bash dev-down.sh        # 停止容器（保留数据 volume）
-#   bash dev-down.sh -v     # 停止容器并清除所有 volume（重置数据库等）
+# 功能：停止开发环境。
+# 参数：
+#   -v, --volumes  停止并删除相关 volumes（会清空本地开发数据）。
+# 示例：
+#   bash scripis/dev-down.sh
+#   bash scripis/dev-down.sh --volumes
 
 set -euo pipefail
 
