@@ -1,15 +1,19 @@
 """FastAPI 应用入口：注册路由、CORS 中间件、全局异常处理"""
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.api import coach, plan, user, vision, workout
 from app.core.config import settings
 from app.core.database import engine
 from app.core.storage import ensure_bucket_exists
 from app.models import record, plan as plan_model, user as user_model  # noqa: F401 触发 ORM 注册
+
+TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+INDEX_TEMPLATE = TEMPLATE_DIR / "index.html"
 
 
 @asynccontextmanager
@@ -59,3 +63,9 @@ app.include_router(workout.router, prefix="/api/workout", tags=["训练记录"])
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "lianleme-api"}
+
+
+@app.get("/", response_class=HTMLResponse)
+async def root() -> HTMLResponse:
+    """默认首页：读取独立 HTML 模板作为域名访问入口。"""
+    return HTMLResponse(content=INDEX_TEMPLATE.read_text(encoding="utf-8"), status_code=200)
