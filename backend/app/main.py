@@ -6,11 +6,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app.api import coach, plan, user, vision, workout
+from app.api import admin, coach, plan, user, vision, weight, workout
 from app.core.config import settings
 from app.core.database import engine
 from app.core.storage import ensure_bucket_exists
-from app.models import record, plan as plan_model, user as user_model  # noqa: F401 触发 ORM 注册
+from app.models import record, plan as plan_model, user as user_model, weight as weight_model  # noqa: F401 触发 ORM 注册
 
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 INDEX_TEMPLATE = TEMPLATE_DIR / "index.html"
@@ -58,6 +58,8 @@ app.include_router(vision.router, prefix="/api/vision", tags=["体型分析"])
 app.include_router(plan.router, prefix="/api/plan", tags=["训练计划"])
 app.include_router(coach.router, prefix="/api/coach", tags=["AI 陪练"])
 app.include_router(workout.router, prefix="/api/workout", tags=["训练记录"])
+app.include_router(weight.router, prefix="/api/weight", tags=["体重记录"])
+app.include_router(admin.router, prefix="/api/admin", tags=["管理后台"])
 
 
 @app.get("/health")

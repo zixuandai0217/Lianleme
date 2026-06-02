@@ -77,7 +77,10 @@ class PlanService:
         response = await llm.ainvoke([HumanMessage(content=prompt)])
 
         try:
-            schema = parser.parse(response.content)
+            import re
+            cleaned = re.sub(r"^```(?:json)?\s*\n?", "", response.content.strip())
+            cleaned = re.sub(r"\n?```\s*$", "", cleaned).strip()
+            schema = parser.parse(cleaned)
         except Exception:
             schema = self._default_plan(user_id, week_start)
 

@@ -99,14 +99,15 @@ class VisionGraph:
             return {"error": f"体型分析失败：{str(e)}"}
 
     async def _parse_node(self, state: VisionState) -> dict:
-        """解析节点：将原始文本用 PydanticOutputParser 结构化"""
+        """解析节点：将原始文本结构化，兼容 markdown 代码块包裹"""
         if state.get("error"):
             return {}
         try:
-            result = self.parser.parse(state["raw_analysis"])
+            raw = state["raw_analysis"]
+            cleaned = self._strip_markdown_fence(raw)
+            result = self.parser.parse(cleaned)
             return {"body_analysis": result}
-        except Exception as e:
-            # 解析失败时尝试宽松降级处理
+        except Exception:
             fallback = BodyAnalysisResult(
                 body_type="mesomorph",
                 body_fat_range="未知",
@@ -116,3 +117,10 @@ class VisionGraph:
                 summary=state["raw_analysis"][:500],
             )
             return {"body_analysis": fallback}
+
+    @staticmethod
+    def _strip_markdown_fence(text: str) -> str:
+        """剥离 LLM 回复中的 markdown 代码块标记"""
+        import re
+        cleaned = re.sub(r"^```(?:json)?\s*\n?", "", text.strip())
+        return re.sub(r"\n?```\s*$", "", cleaned).strip()

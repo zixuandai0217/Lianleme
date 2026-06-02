@@ -1,4 +1,5 @@
 """体型分析相关 Pydantic Schema"""
+import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -33,3 +34,20 @@ class AnalyzeResultResponse(BaseModel):
     status: str = Field(..., description="processing / completed / failed")
     result: Optional[BodyAnalysisResult] = None
     error: Optional[str] = None
+
+
+class BodyAnalysisRecordResponse(BaseModel):
+    """单条体型分析历史记录"""
+    id: int
+    image_thumbnail: Optional[str] = None
+    result: BodyAnalysisResult
+    created_at: Optional[datetime.datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BodyAnalysisHistoryResponse(BaseModel):
+    """体型分析历史列表"""
+    records: List[BodyAnalysisRecordResponse]
+    total: int

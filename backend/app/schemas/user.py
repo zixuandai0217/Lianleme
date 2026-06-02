@@ -53,6 +53,7 @@ class UserResponse(BaseModel):
     avatar_url: Optional[str] = None
     profile: Optional[dict] = None
     body_analysis: Optional[dict] = None
+    is_admin: bool = False
     api_key_status: Optional[ApiKeyStatusResponse] = None
 
     class Config:

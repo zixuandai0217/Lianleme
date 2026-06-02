@@ -22,16 +22,15 @@ def get_minio_client() -> Minio:
 
 
 def ensure_bucket_exists() -> None:
-    """启动时确保 bucket 存在，不存在则自动创建"""
-    client = get_minio_client()
-    bucket = settings.MINIO_BUCKET
+    """启动时确保 bucket 存在，不存在则自动创建；连接失败不阻断启动"""
     try:
+        client = get_minio_client()
+        bucket = settings.MINIO_BUCKET
         if not client.bucket_exists(bucket):
             client.make_bucket(bucket)
-    except S3Error as e:
-        # 记录错误但不阻断启动，避免 MinIO 短暂未就绪时崩溃
+    except Exception as e:
         import logging
-        logging.getLogger(__name__).warning("MinIO bucket 初始化失败: %s", e)
+        logging.getLogger(__name__).warning("MinIO 不可用，跳过 bucket 初始化: %s", e)
 
 
 def upload_bytes(object_name: str, data: bytes, content_type: str = "application/octet-stream") -> str:

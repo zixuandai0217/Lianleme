@@ -1,8 +1,8 @@
 """User ORM 模型：用户档案 + 体型分析结果 + 用户自配置 LLM Key"""
 import datetime
 
-from sqlalchemy import DateTime, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Boolean, DateTime, String, Text, func
+from app.core.compat import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -23,6 +23,9 @@ class User(Base):
 
     # 体型分析结果（最近一次）
     body_analysis: Mapped[dict | None] = mapped_column(JSONB, comment="体型识别结果：体型/体脂/弱势肌群等")
+
+    # 管理员标记
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     # 用户自配置 LLM API Key（AES-256 加密存储）
     llm_provider: Mapped[str | None] = mapped_column(

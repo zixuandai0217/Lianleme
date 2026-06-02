@@ -1,5 +1,6 @@
 """AI 陪练对话相关 Pydantic Schema"""
-from typing import Optional
+import datetime
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -31,3 +32,20 @@ class WorkoutContextUpdate(BaseModel):
     current_exercise: str
     completed_sets: int
     total_sets: int
+
+
+class ChatMessageResponse(BaseModel):
+    """单条对话记录"""
+    id: int
+    role: str
+    content: str
+    created_at: Optional[datetime.datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ChatHistoryResponse(BaseModel):
+    """对话历史列表"""
+    messages: List[ChatMessageResponse]
+    total: int

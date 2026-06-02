@@ -60,7 +60,7 @@ class LLMClientFactory:
                 api_key=api_key,
                 base_url=settings.QWEN_API_BASE,
                 streaming=streaming,
-                timeout=30,
+                timeout=120,
                 max_retries=2,
             )
         else:
@@ -71,6 +71,6 @@ class LLMClientFactory:
                 model=model_name,
                 api_key=api_key,
                 streaming=streaming,
-                timeout=30,
+                timeout=120,
                 max_retries=2,
             )
