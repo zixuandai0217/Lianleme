@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>呼吸光球 · 数字教练预览</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Poppins:wght@500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    :root {
+      --bg: #f4f6f1;
+      --card: #ffffff;
+      --fg: #171a17;
+      --muted: #626a63;
+      --border: #d7ddd5;
+      --primary: #b84f39;
+      --primary-soft: #ec8263;
+      --green: #3f5f4a;
+      --dark: #17231c;
+      --font-heading: "Poppins", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --font-body: "Geist", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); }
+    body {
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100dvh;
+    }
+
+    .frame {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 48px 32px 96px;
+    }
+
+    header.hero {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 48px;
+    }
+    .kicker {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--primary);
+      font-weight: 600;
+    }
+    h1 {
+      font-family: var(--font-heading);
+      font-size: 28px;
+      line-height: 1.15;
+      margin: 0;
+      font-weight: 600;
+      letter-spacing: -0.005em;
+    }
+    p.lede {
+      max-width: 620px;
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    section.card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+      box-shadow: 0 1px 0 rgba(23, 26, 23, 0.04), 0 8px 24px -12px rgba(23, 26, 23, 0.10);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      align-items: end;
+    }
+    @media (max-width: 720px) {
+      .row { grid-template-columns: 1fr; gap: 48px; }
+    }
+
+    .cell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+    .cell .name {
+      font-family: var(--font-heading);
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .cell .meta {
+      font-size: 12px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ─── The orb itself ─── */
+    .orb {
+      position: relative;
+      width: 240px;
+      height: 240px;
+      display: grid;
+      place-items: center;
+    }
+    .orb--compact {
+      width: 176px;
+      height: 176px;
+    }
+
+    .orb .halo {
+      position: absolute;
+      inset: -6%;
+      border-radius: 50%;
+      background: radial-gradient(
+        circle at 50% 50%,
+        rgba(184, 79, 57, 0.24) 0%,
+        rgba(184, 79, 57, 0.10) 45%,
+        transparent 72%
+      );
+      filter: blur(22px);
+      animation: halo-breathe var(--period, 3.5s) ease-in-out infinite;
+      transform-origin: center;
+    }
+    .orb .core {
+      position: absolute;
+      inset: 16%;
+      border-radius: 50%;
+      background: radial-gradient(
+        circle at 35% 32%,
+        var(--primary-soft) 0%,
+        var(--primary) 42%,
+        var(--green) 88%,
+        rgba(63, 95, 74, 0.35) 100%
+      );
+      box-shadow:
+        inset 0 8px 24px rgba(255, 255, 255, 0.22),
+        inset 0 -14px 28px rgba(23, 35, 28, 0.35),
+        0 12px 32px rgba(184, 79, 57, 0.18);
+      animation: core-breathe var(--period, 3.5s) ease-in-out infinite;
+      transform-origin: center;
+    }
+    .orb .ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 1px solid rgba(23, 26, 23, 0.06);
+      pointer-events: none;
+    }
+    .orb .highlight {
+      position: absolute;
+      top: 20%;
+      left: 26%;
+      width: 22%;
+      height: 14%;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.55) 0%, transparent 70%);
+      filter: blur(4px);
+      opacity: 0.9;
+      pointer-events: none;
+    }
+
+    .orb.mood-happy   { --period: 2.2s; }
+    .orb.mood-idle    { --period: 3.5s; }
+    .orb.mood-steady  { --period: 5.0s; }
+
+    @keyframes halo-breathe {
+      0%, 100% { transform: scale(0.94); opacity: 0.55; }
+      50%      { transform: scale(1.08); opacity: 1;    }
+    }
+    @keyframes core-breathe {
+      0%, 100% { transform: scale(0.985); opacity: 0.92; }
+      50%      { transform: scale(1.015); opacity: 1;    }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .halo, .core { animation: none !important; }
+    }
+
+    /* ─── Context strip: 让你看到它在真实卡片里的效果 ─── */
+    .context {
+      margin-top: 48px;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 24px;
+      padding: 28px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    @media (max-width: 720px) {
+      .context { grid-template-columns: 1fr; }
+    }
+    .context .left {
+      display: grid;
+      place-items: center;
+      padding: 12px 0;
+    }
+    .context .right { padding-top: 4px; }
+    .context .right .kicker { margin-bottom: 6px; }
+    .context .right h2 {
+      font-family: var(--font-heading);
+      font-size: 20px;
+      margin: 0 0 6px;
+      font-weight: 600;
+    }
+    .context .right p {
+      color: var(--muted);
+      font-size: 14px;
+      margin: 0 0 16px;
+    }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn {
+      font-family: var(--font-body);
+      font-size: 13.5px;
+      font-weight: 600;
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+    }
+    .btn.primary {
+      background: var(--primary);
+      color: #fff;
+    }
+    .btn.primary:hover { background: #a4432f; }
+    .btn.ghost {
+      background: transparent;
+      color: var(--fg);
+      border-color: var(--border);
+    }
+    .btn.ghost:hover { border-color: var(--fg); }
+
+    /* ─── Compare band ─── */
+    .compare {
+      margin-top: 40px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 720px) {
+      .compare { grid-template-columns: 1fr; }
+    }
+    .compare > div {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    .compare .badge {
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 999px;
+    }
+    .compare .badge.now { background: rgba(184, 63, 63, 0.08); color: #a13a3a; }
+    .compare .badge.new { background: rgba(63, 95, 74, 0.10);  color: #29513a; }
+    .compare .badge.external { background: rgba(71, 122, 137, 0.10); color: #2b5866; }
+
+    .compare-heading {
+      margin: 64px 0 4px;
+      font-family: var(--font-heading);
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.005em;
+    }
+    .compare-lede {
+      margin: 0 0 20px;
+      color: var(--muted);
+      font-size: 13.5px;
+      max-width: 620px;
+    }
+
+    .compare--triple {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    @media (max-width: 900px) {
+      .compare--triple { grid-template-columns: 1fr; }
+    }
+
+    .compare-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 16px;
+    }
+    .compare-card .badge { align-self: flex-start; }
+    .compare-visual {
+      position: relative;
+      background: #fafbf8;
+      border: 1px solid rgba(23, 26, 23, 0.05);
+      border-radius: 10px;
+      min-height: 240px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .compare-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .video-fallback {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      font-size: 11px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.85);
+      padding: 4px 8px;
+      border-radius: 6px;
+      text-decoration: none;
+      backdrop-filter: blur(4px);
+    }
+    .video-fallback:hover { color: var(--fg); }
+
+    .compare-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12.5px;
+    }
+    .meta-row {
+      display: grid;
+      grid-template-columns: 60px 1fr;
+      gap: 8px;
+      align-items: baseline;
+    }
+    .meta-row strong {
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .meta-row span { color: var(--fg); }
+    .meta-row span.note { color: var(--muted); font-style: italic; }
+
+    .placeholder-avatar {
+      width: 176px;
+      height: 176px;
+      border-radius: 50%;
+      background: #e4e0d3;
+      border: 1px dashed #b7b09a;
+      display: grid;
+      place-items: center;
+      color: #7c7565;
+      font-size: 12px;
+      text-align: center;
+      padding: 0 16px;
+    }
+
+    footer.foot {
+      margin-top: 56px;
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+    }
+    footer.foot code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      background: rgba(23, 26, 23, 0.05);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+
+    <header class="hero">
+      <span class="kicker">Digital Coach · Preview</span>
+      <h1>呼吸光球 — 三种 mood 一次看清</h1>
+      <p class="lede">
+        取代当前那个从 Rive demo 拷来的卡通角色。纯 SVG + CSS,砍掉 4MB wasm,mood 通过呼吸频率区分。
+        动效实时进行中——如果你开了系统级"减少动态效果",光球会自动停在静态。
+      </p>
+    </header>
+
+    <section class="card">
+      <div class="row">
+        <div class="cell">
+          <div class="orb mood-happy" role="img" aria-label="教练 happy 状态">
+            <div class="halo"></div>
+            <div class="core"></div>
+            <div class="highlight"></div>
+            <div class="ring"></div>
+          </div>
+          <div class="name">happy</div>
+          <div class="meta">周期 2.2s · 完成动作 / 达成目标时</div>
+        </div>
+
+        <div class="cell">
+          <div class="orb mood-idle" role="img" aria-label="教练 idle 状态">
+            <div class="halo"></div>
+            <div class="core"></div>
+            <div class="highlight"></div>
+            <div class="ring"></div>
+          </div>
+          <div class="name">idle (默认)</div>
+          <div class="meta">周期 3.5s · 首页待机 / 常规陪伴</div>
+        </div>
+
+        <div class="cell">
+          <div class="orb mood-steady" role="img" aria-label="教练 steady 状态">
+            <div class="halo"></div>
+            <div class="core"></div>
+            <div class="highlight"></div>
+            <div class="ring"></div>
+          </div>
+          <div class="name">steady</div>
+          <div class="meta">周期 5.0s · 冥想 / 拉伸 / 恢复</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="context">
+      <div class="left">
+        <div class="orb orb--compact mood-idle" role="img" aria-label="首页教练光球">
+          <div class="halo"></div>
+          <div class="core"></div>
+          <div class="highlight"></div>
+          <div class="ring"></div>
+        </div>
+      </div>
+      <div class="right">
+        <span class="kicker">Today's coach</span>
+        <h2>再来 15 分钟核心训练?</h2>
+        <p>基于你昨天的体重记录和一周的完成率,我推荐一组慢节奏的核心循环。看起来你今天状态挺稳的。</p>
+        <div class="actions">
+          <button class="btn primary">开始今日训练</button>
+          <button class="btn ghost">查看训练计划</button>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="compare-heading">三方案并排对比 · 数字教练形象</h2>
+    <p class="compare-lede">左中右三条真实路线,让眼睛帮你判断。同一尺寸、同一背景、同一说明卡片,唯一变量只有数字人本身。</p>
+
+    <div class="compare compare--triple">
+      <div class="compare-card">
+        <span class="badge now">A · 现在</span>
+        <div class="compare-visual">
+          <div class="placeholder-avatar">
+            Rive <code>avatars.riv</code><br />
+            (社区 demo 卡通角色)
+          </div>
+        </div>
+        <div class="compare-meta">
+          <div class="meta-row"><strong>体积</strong><span>+ ~4MB wasm</span></div>
+          <div class="meta-row"><strong>授权</strong><span>MIT · 可商用</span></div>
+          <div class="meta-row"><strong>气质</strong><span>大脑袋卡通 · demo 感重</span></div>
+        </div>
+      </div>
+
+      <div class="compare-card">
+        <span class="badge external">B · Mitra AI Agent Avatars</span>
+        <div class="compare-visual">
+          <video
+            class="compare-video"
+            src="https://media.contra.com/video/upload/fl_progressive/q_auto:best,w_2000/erzymtootnlspjtfx1a9.mp4"
+            autoplay
+            muted
+            loop
+            playsinline
+            poster=""
+            aria-label="Aavirash Mitra 的 AI Agent Avatars 五角色演示"
+          ></video>
+          <a
+            class="video-fallback"
+            href="https://contra.com/p/lRglQ7Xl-interactive-rive-character-animation-ai-agent-avatars"
+            target="_blank"
+            rel="noopener"
+          >视频若未加载,点击查看原页 ↗</a>
+        </div>
+        <div class="compare-meta">
+          <div class="meta-row"><strong>体积</strong><span>Rive 依赖仍在(~4MB wasm)</span></div>
+          <div class="meta-row"><strong>授权</strong><span>⚠︎ 未公开授权 · 需联系作者</span></div>
+          <div class="meta-row"><strong>气质</strong><span>现代插画角色 · 5 位可选 · agent 感</span></div>
+          <div class="meta-row"><strong>说明</strong><span class="note">外部演示 · 未获授权,仅供设计比较</span></div>
+        </div>
+      </div>
+
+      <div class="compare-card">
+        <span class="badge new">C · 呼吸光球</span>
+        <div class="compare-visual">
+          <div class="orb orb--compact mood-idle" role="img" aria-label="呼吸光球">
+            <div class="halo"></div>
+            <div class="core"></div>
+            <div class="highlight"></div>
+            <div class="ring"></div>
+          </div>
+        </div>
+        <div class="compare-meta">
+          <div class="meta-row"><strong>体积</strong><span>0 额外 · 纯 SVG + CSS</span></div>
+          <div class="meta-row"><strong>授权</strong><span>自研 · 无版权风险</span></div>
+          <div class="meta-row"><strong>气质</strong><span>Siri / ChatGPT 光球 · 抽象克制</span></div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="foot">
+      预览页文件 <code>web/public/design-preview.html</code> · 独立于生产代码,不影响任何页面或测试。<br />
+      B 方案视频源自 <a href="https://contra.com/p/lRglQ7Xl-interactive-rive-character-animation-ai-agent-avatars" target="_blank" rel="noopener">Aavirash Mitra 的 Contra 作品页</a>,版权归原作者。
+    </footer>
+
+  </div>
+</body>
+</html>

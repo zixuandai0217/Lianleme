@@ -1,0 +1,166 @@
+{
+  "canvas": [
+    1254,
+    1254
+  ],
+  "format": "lossless-webp-rgba",
+  "total_bytes": 914272,
+  "assets": [
+    {
+      "role": "body",
+      "file": "coach-base.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        36,
+        41,
+        1213,
+        1254
+      ],
+      "bytes": 786540
+    },
+    {
+      "role": "mouth-A",
+      "file": "face/mouth-A.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        523,
+        320,
+        683,
+        403
+      ],
+      "bytes": 7408
+    },
+    {
+      "role": "mouth-B",
+      "file": "face/mouth-B.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        523,
+        320,
+        683,
+        403
+      ],
+      "bytes": 9892
+    },
+    {
+      "role": "mouth-C",
+      "file": "face/mouth-C.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        523,
+        320,
+        683,
+        403
+      ],
+      "bytes": 10440
+    },
+    {
+      "role": "mouth-D",
+      "file": "face/mouth-D.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        523,
+        320,
+        683,
+        403
+      ],
+      "bytes": 11432
+    },
+    {
+      "role": "mouth-E",
+      "file": "face/mouth-E.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        523,
+        320,
+        683,
+        403
+      ],
+      "bytes": 8210
+    },
+    {
+      "role": "mouth-F",
+      "file": "face/mouth-F.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        523,
+        320,
+        683,
+        403
+      ],
+      "bytes": 7924
+    },
+    {
+      "role": "mouth-G",
+      "file": "face/mouth-G.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        523,
+        320,
+        683,
+        403
+      ],
+      "bytes": 10442
+    },
+    {
+      "role": "mouth-H",
+      "file": "face/mouth-H.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        523,
+        320,
+        683,
+        403
+      ],
+      "bytes": 9572
+    },
+    {
+      "role": "mouth-X",
+      "file": "face/mouth-X.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        524,
+        322,
+        681,
+        402
+      ],
+      "bytes": 14626
+    },
+    {
+      "role": "eyes-blink",
+      "file": "face/eyes-blink.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        474,
+        196,
+        687,
+        294
+      ],
+      "bytes": 17090
+    },
+    {
+      "role": "brow-thinking",
+      "file": "face/brow-thinking.webp",
+      "width": 1254,
+      "height": 1254,
+      "alpha_bbox": [
+        452,
+        160,
+        694,
+        246
+      ],
+      "bytes": 20696
+    }
+  ]
+}

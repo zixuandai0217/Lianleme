@@ -1,0 +1,494 @@
+{
+  "source": "coach-body-atlas.png",
+  "kind": "body",
+  "atlas_size": [
+    1254,
+    1254
+  ],
+  "grid": [
+    4,
+    4
+  ],
+  "layers": [
+    {
+      "name": "head-neck",
+      "file": "head-neck.png",
+      "cell": [
+        0,
+        0
+      ],
+      "cell_box": [
+        0,
+        0,
+        314,
+        314
+      ],
+      "local_crop": [
+        82,
+        44,
+        297,
+        314
+      ],
+      "size": [
+        215,
+        270
+      ],
+      "alpha_bbox": [
+        86,
+        48,
+        293,
+        314
+      ]
+    },
+    {
+      "name": "torso",
+      "file": "torso.png",
+      "cell": [
+        1,
+        0
+      ],
+      "cell_box": [
+        314,
+        0,
+        627,
+        314
+      ],
+      "local_crop": [
+        66,
+        37,
+        313,
+        314
+      ],
+      "size": [
+        247,
+        277
+      ],
+      "alpha_bbox": [
+        70,
+        41,
+        313,
+        314
+      ]
+    },
+    {
+      "name": "upper-arm-left",
+      "file": "upper-arm-left.png",
+      "cell": [
+        2,
+        0
+      ],
+      "cell_box": [
+        627,
+        0,
+        940,
+        314
+      ],
+      "local_crop": [
+        0,
+        55,
+        250,
+        314
+      ],
+      "size": [
+        250,
+        259
+      ],
+      "alpha_bbox": [
+        0,
+        59,
+        246,
+        314
+      ]
+    },
+    {
+      "name": "upper-arm-right",
+      "file": "upper-arm-right.png",
+      "cell": [
+        3,
+        0
+      ],
+      "cell_box": [
+        940,
+        0,
+        1254,
+        314
+      ],
+      "local_crop": [
+        57,
+        54,
+        203,
+        314
+      ],
+      "size": [
+        146,
+        260
+      ],
+      "alpha_bbox": [
+        61,
+        58,
+        199,
+        314
+      ]
+    },
+    {
+      "name": "forearm-left",
+      "file": "forearm-left.png",
+      "cell": [
+        0,
+        1
+      ],
+      "cell_box": [
+        0,
+        314,
+        314,
+        627
+      ],
+      "local_crop": [
+        124,
+        0,
+        230,
+        313
+      ],
+      "size": [
+        106,
+        313
+      ],
+      "alpha_bbox": [
+        128,
+        0,
+        226,
+        313
+      ]
+    },
+    {
+      "name": "forearm-right",
+      "file": "forearm-right.png",
+      "cell": [
+        1,
+        1
+      ],
+      "cell_box": [
+        314,
+        314,
+        627,
+        627
+      ],
+      "local_crop": [
+        94,
+        0,
+        280,
+        313
+      ],
+      "size": [
+        186,
+        313
+      ],
+      "alpha_bbox": [
+        98,
+        0,
+        276,
+        313
+      ]
+    },
+    {
+      "name": "hand-left",
+      "file": "hand-left.png",
+      "cell": [
+        2,
+        1
+      ],
+      "cell_box": [
+        627,
+        314,
+        940,
+        627
+      ],
+      "local_crop": [
+        107,
+        0,
+        241,
+        313
+      ],
+      "size": [
+        134,
+        313
+      ],
+      "alpha_bbox": [
+        111,
+        0,
+        237,
+        313
+      ]
+    },
+    {
+      "name": "hand-right",
+      "file": "hand-right.png",
+      "cell": [
+        3,
+        1
+      ],
+      "cell_box": [
+        940,
+        314,
+        1254,
+        627
+      ],
+      "local_crop": [
+        52,
+        0,
+        186,
+        313
+      ],
+      "size": [
+        134,
+        313
+      ],
+      "alpha_bbox": [
+        56,
+        0,
+        182,
+        313
+      ]
+    },
+    {
+      "name": "pelvis",
+      "file": "pelvis.png",
+      "cell": [
+        0,
+        2
+      ],
+      "cell_box": [
+        0,
+        627,
+        314,
+        940
+      ],
+      "local_crop": [
+        79,
+        0,
+        314,
+        279
+      ],
+      "size": [
+        235,
+        279
+      ],
+      "alpha_bbox": [
+        83,
+        0,
+        311,
+        275
+      ]
+    },
+    {
+      "name": "thigh-left",
+      "file": "thigh-left.png",
+      "cell": [
+        1,
+        2
+      ],
+      "cell_box": [
+        314,
+        627,
+        627,
+        940
+      ],
+      "local_crop": [
+        100,
+        0,
+        220,
+        313
+      ],
+      "size": [
+        120,
+        313
+      ],
+      "alpha_bbox": [
+        104,
+        0,
+        216,
+        313
+      ]
+    },
+    {
+      "name": "thigh-right",
+      "file": "thigh-right.png",
+      "cell": [
+        2,
+        2
+      ],
+      "cell_box": [
+        627,
+        627,
+        940,
+        940
+      ],
+      "local_crop": [
+        100,
+        55,
+        219,
+        313
+      ],
+      "size": [
+        119,
+        258
+      ],
+      "alpha_bbox": [
+        104,
+        59,
+        215,
+        313
+      ]
+    },
+    {
+      "name": "lower-leg-left",
+      "file": "lower-leg-left.png",
+      "cell": [
+        3,
+        2
+      ],
+      "cell_box": [
+        940,
+        627,
+        1254,
+        940
+      ],
+      "local_crop": [
+        71,
+        52,
+        170,
+        313
+      ],
+      "size": [
+        99,
+        261
+      ],
+      "alpha_bbox": [
+        75,
+        56,
+        166,
+        313
+      ]
+    },
+    {
+      "name": "lower-leg-right",
+      "file": "lower-leg-right.png",
+      "cell": [
+        0,
+        3
+      ],
+      "cell_box": [
+        0,
+        940,
+        314,
+        1254
+      ],
+      "local_crop": [
+        134,
+        31,
+        231,
+        249
+      ],
+      "size": [
+        97,
+        218
+      ],
+      "alpha_bbox": [
+        138,
+        35,
+        227,
+        245
+      ]
+    },
+    {
+      "name": "shoe-left",
+      "file": "shoe-left.png",
+      "cell": [
+        1,
+        3
+      ],
+      "cell_box": [
+        314,
+        940,
+        627,
+        1254
+      ],
+      "local_crop": [
+        32,
+        0,
+        203,
+        242
+      ],
+      "size": [
+        171,
+        242
+      ],
+      "alpha_bbox": [
+        36,
+        0,
+        199,
+        238
+      ]
+    },
+    {
+      "name": "shoe-right",
+      "file": "shoe-right.png",
+      "cell": [
+        2,
+        3
+      ],
+      "cell_box": [
+        627,
+        940,
+        940,
+        1254
+      ],
+      "local_crop": [
+        76,
+        0,
+        247,
+        242
+      ],
+      "size": [
+        171,
+        242
+      ],
+      "alpha_bbox": [
+        80,
+        0,
+        243,
+        238
+      ]
+    },
+    {
+      "name": "reference",
+      "file": "reference.png",
+      "cell": [
+        3,
+        3
+      ],
+      "cell_box": [
+        940,
+        940,
+        1254,
+        1254
+      ],
+      "local_crop": [
+        45,
+        0,
+        198,
+        308
+      ],
+      "size": [
+        153,
+        308
+      ],
+      "alpha_bbox": [
+        49,
+        0,
+        194,
+        304
+      ]
+    }
+  ]
+}

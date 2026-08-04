@@ -1,19 +1,22 @@
 /* 应用根组件：路由定义 + 认证守卫 + 用户/管理分离 */
+import { lazy, Suspense } from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import Layout from "@/components/layout"
 import AdminLayout from "@/components/admin-layout"
+import ApiKeyGate from "@/components/api-key-gate"
 import LoginPage from "@/pages/login"
 import AdminLoginPage from "@/pages/admin-login"
 import DashboardPage from "@/pages/dashboard"
 import AnalysisPage from "@/pages/analysis"
 import PlanPage from "@/pages/plan"
-import CoachPage from "@/pages/coach"
 import ProfilePage from "@/pages/profile"
 import WeightPage from "@/pages/weight"
 import AdminPage from "@/pages/admin"
 import { AuthProvider, useAuth } from "@/hooks/use-auth"
 import { Loader2 } from "lucide-react"
+
+const CoachPage = lazy(() => import("@/pages/coach"))
 
 function LoadingScreen() {
   return (
@@ -63,14 +66,15 @@ function AdminGate({ children }: { children: React.ReactNode }) {
 }
 
 function LoginRedirect() {
-  const { isAuthenticated, loading, isAdmin } = useAuth()
+  const { isAuthenticated, loading, isAdmin, user } = useAuth()
 
   if (loading) {
     return <LoadingScreen />
   }
 
   if (isAuthenticated) {
-    return <Navigate to={isAdmin ? "/admin" : "/"} replace />
+    const userDestination = user?.api_key_status?.has_key ? "/" : "/profile?setup=api-key"
+    return <Navigate to={isAdmin ? "/admin" : userDestination} replace />
   }
 
   return <LoginPage />
@@ -108,9 +112,9 @@ export default function App() {
               }
             >
               <Route path="/" element={<DashboardPage />} />
-              <Route path="/analysis" element={<AnalysisPage />} />
-              <Route path="/plan" element={<PlanPage />} />
-              <Route path="/coach" element={<CoachPage />} />
+              <Route path="/analysis" element={<ApiKeyGate><AnalysisPage /></ApiKeyGate>} />
+              <Route path="/plan" element={<ApiKeyGate><PlanPage /></ApiKeyGate>} />
+              <Route path="/coach" element={<ApiKeyGate><Suspense fallback={<LoadingScreen />}><CoachPage /></Suspense></ApiKeyGate>} />
               <Route path="/weight" element={<WeightPage />} />
               <Route path="/profile" element={<ProfilePage />} />
             </Route>

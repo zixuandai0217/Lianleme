@@ -1,15 +1,29 @@
-/* 体型分析页：图片拖拽上传 + 轮询结果 + 结果展示 + 历史记录 */
-import { useState, useCallback, useRef, useEffect } from "react"
+/* Refined body analysis page with polished upload, results, and history sections. */
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Upload, ScanEye, Loader2, CheckCircle2, XCircle, History, ChevronDown, ChevronUp, BarChart3, Sparkles, ArrowRight } from "lucide-react"
-import { startAnalyze, getAnalyzeResult, getAnalysisHistory, generatePlan } from "@/api"
+import {
+  ScanEye,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  History,
+  ChevronDown,
+  ChevronUp,
+  BarChart3,
+  Sparkles,
+  ArrowRight,
+  Camera,
+  Trophy,
+  Target,
+} from "lucide-react"
+import { generatePlan, getAnalysisHistory, getAnalyzeResult, getCurrentPlan, startAnalyze } from "@/api"
 import type { BodyAnalysisResult, BodyAnalysisRecordItem } from "@/api/types"
 import { useAuth } from "@/hooks/use-auth"
 import { buildAnalysisJourney } from "./flow"
+import { cn } from "@/lib/utils"
 
 export default function AnalysisPage() {
   const { userId, user, refreshUser } = useAuth()
@@ -31,6 +45,27 @@ export default function AnalysisPage() {
   const [expandedHistoryScores, setExpandedHistoryScores] = useState<number | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [showScores, setShowScores] = useState(false)
+
+  // Track whether the user has explicitly cleared the result (uploaded new photo)
+  const clearedByUpload = useRef(false)
+
+  // Sync result with user data on mount (before any upload action)
+  useEffect(() => {
+    if (user?.body_analysis && !clearedByUpload.current && !result) {
+      setResult(user.body_analysis as BodyAnalysisResult)
+    }
+  }, [user?.body_analysis]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Check if user already has a plan from a previous session
+  useEffect(() => {
+    if (!userId) return
+    getCurrentPlan(userId)
+      .then((res) => {
+        if (res.plan?.id) setPlanReady(true)
+      })
+      .catch(() => { /* no plan exists */ })
+  }, [userId])
+
   const journey = buildAnalysisJourney({
     hasImage: Boolean(imageBase64),
     analyzing,
@@ -41,6 +76,7 @@ export default function AnalysisPage() {
 
   const handleFile = useCallback((file: File) => {
     if (!file.type.startsWith("image/")) return
+    clearedByUpload.current = true
     const reader = new FileReader()
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string
@@ -150,7 +186,6 @@ export default function AnalysisPage() {
     endomorph: "力量型",
   }
 
-  /** 肌群英文 → 中文映射 */
   const muscleLabels: Record<string, string> = {
     head: "头部", neck: "颈部", shoulders: "肩部", chest: "胸部",
     back: "背部", upper_back: "上背", lower_back: "下背",
@@ -163,89 +198,122 @@ export default function AnalysisPage() {
   const t = (key: string) => muscleLabels[key] || key
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">体型分析</h1>
-        <p className="text-muted-foreground">
-          上传一张全身照，AI 将分析你的体型并给出训练建议
-        </p>
-      </div>
+    <div className="page-shell">
+      <header className="page-header">
+        <div>
+          <span className="page-kicker">Body assessment</span>
+          <h1 className="page-title">体型分析</h1>
+          <p className="page-description">
+            上传一张全身照，AI 将分析你的体型并给出训练建议
+          </p>
+        </div>
+      </header>
 
-      <Card>
-        <CardHeader className="space-y-2">
-          <CardTitle className="text-base">分析闭环</CardTitle>
-          <p className="text-sm text-muted-foreground">{journey.description}</p>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-4">
-            {journey.stages.map((stage, index) => {
-              const statusClasses =
-                stage.status === "completed"
-                  ? "border-primary/30 bg-primary/5"
-                  : stage.status === "active"
-                    ? "border-primary/50 bg-accent/40"
-                    : "border-dashed bg-muted/20"
-              const badgeClasses =
-                stage.status === "completed"
-                  ? "bg-primary text-primary-foreground"
-                  : stage.status === "active"
-                    ? "bg-primary/10 text-primary"
-                    : "bg-muted text-muted-foreground"
-              return (
-                <div
-                  key={stage.key}
-                  className={`rounded-lg border p-4 transition-colors ${statusClasses}`}
+      {/* ── Analysis flow journey ── */}
+      <section className="rounded-lg border border-border bg-card shadow-[0_4px_16px_rgba(23,26,23,0.04)]">
+        <div className="border-b border-border px-6 py-4">
+          <h2 className="flex items-center gap-2 font-heading text-base font-semibold">
+            <Target className="size-4 text-primary" />
+            分析闭环
+          </h2>
+        </div>
+        <div className="grid gap-4 px-6 py-6 sm:grid-cols-2 md:grid-cols-4">
+          {journey.stages.map((stage, index) => {
+            const stageIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+              upload: Camera,
+              analyze: BarChart3,
+              plan: Sparkles,
+              train: Target,
+            }
+            const Icon = stageIcons[stage.key]
+            const isCompleted = stage.status === "completed"
+            const isActive = stage.status === "active"
+            return (
+              <div
+                key={stage.key}
+                className={cn(
+                  "flex items-start gap-3 rounded-lg border p-4 transition-colors",
+                  isCompleted && "border-primary/20 bg-primary/[0.02]",
+                  isActive && "border-primary/40 bg-primary/[0.04]",
+                  !isCompleted && !isActive && "border-border bg-card",
+                )}
+              >
+                {/* Circle indicator */}
+                <span
+                  className={cn(
+                    "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                    isCompleted && "bg-primary text-primary-foreground",
+                    isActive && "bg-primary/10 text-primary ring-2 ring-primary/20",
+                    !isCompleted && !isActive && "bg-muted text-muted-foreground",
+                  )}
                 >
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <span className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-xs font-semibold ${badgeClasses}`}>
-                      {index + 1}
-                    </span>
-                    <Badge variant={stage.status === "completed" ? "default" : "secondary"}>
-                      {stage.status === "completed" ? "已完成" : stage.status === "active" ? "进行中" : "待进行"}
-                    </Badge>
-                  </div>
-                  <p className="text-sm font-medium">{stage.label}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{stage.description}</p>
-                </div>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
+                  {isCompleted ? (
+                    <CheckCircle2 className="size-3.5" />
+                  ) : (
+                    index + 1
+                  )}
+                </span>
 
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    {Icon && <Icon className={cn("size-3.5", isActive ? "text-primary" : "text-muted-foreground/50")} />}
+                    <p className={cn("text-sm font-semibold", isActive && "text-primary")}>
+                      {stage.label}
+                    </p>
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">{stage.description}</p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* ── Upload + Results grid ── */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Upload area */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5" />
+        <section className="rounded-lg border border-border bg-card shadow-[0_4px_16px_rgba(23,26,23,0.04)]">
+          <div className="border-b border-border px-6 py-4">
+            <h2 className="flex items-center gap-2 font-heading text-base font-semibold">
+              <Camera className="size-4 text-primary" />
               上传照片
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div
+            </h2>
+          </div>
+          <div className="space-y-5 p-6">
+            <button
+              type="button"
+              aria-label="选择体型分析照片"
               onDrop={handleDrop}
               onDragOver={(e) => e.preventDefault()}
               onClick={() => fileRef.current?.click()}
-              className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 cursor-pointer transition-colors hover:border-primary/50 hover:bg-accent/50 min-h-[280px]"
+              className={cn(
+                "flex min-h-[260px] w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-all",
+                imagePreview
+                  ? "border-primary/20 bg-primary/[0.02] hover:border-primary/40"
+                  : "border-border hover:border-primary/60 hover:bg-accent/40",
+                "focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+              )}
             >
               {imagePreview ? (
                 <img
                   src={imagePreview}
                   alt="预览"
-                  className="max-h-64 rounded-lg object-contain"
+                  className="max-h-56 rounded-md object-contain"
                 />
               ) : (
                 <>
-                  <ScanEye className="h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-sm font-medium">拖拽照片到此处，或点击选择</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    支持 JPG、PNG 格式
+                  <span className="mb-3 flex size-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <ScanEye className="size-6" />
+                  </span>
+                  <p className="text-sm font-semibold text-foreground">拖拽照片到此处，或点击选择</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    支持 JPG、PNG 格式 · 建议穿着贴身衣物拍摄全身照
                   </p>
                 </>
               )}
-            </div>
+            </button>
             <input
+              id="analysis-photo"
               ref={fileRef}
               type="file"
               accept="image/*"
@@ -257,126 +325,122 @@ export default function AnalysisPage() {
             />
 
             {analyzing && (
-              <div className="mt-4 space-y-2">
-                <div className="flex items-center gap-2 text-sm">
-                  <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/[0.02] p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                  <Loader2 className="size-4 animate-spin" />
                   {journey.title}
                 </div>
-                <Progress value={progress} />
-                <p className="text-xs text-muted-foreground">
-                  {journey.stages[1]?.description}
-                </p>
+                <Progress value={progress} className="h-2" />
+                <p className="text-xs text-muted-foreground">{journey.stages[1]?.description}</p>
               </div>
             )}
 
             {error && (
-              <div className="mt-4 flex items-center gap-2 text-sm text-destructive">
-                <XCircle className="h-4 w-4" />
+              <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+                <XCircle className="size-4 shrink-0" />
                 {error}
               </div>
             )}
 
             <Button
-              className="w-full mt-4"
+              className="w-full"
               disabled={!imageBase64 || analyzing}
               onClick={startAnalysis}
             >
               {analyzing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  分析中...
-                </>
+                <><Loader2 className="animate-spin" /> 分析中...</>
               ) : (
                 "开始分析"
               )}
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        {/* Result */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5" />
+        {/* Results */}
+        <section className="rounded-lg border border-border bg-card shadow-[0_4px_16px_rgba(23,26,23,0.04)]">
+          <div className="border-b border-border px-6 py-4">
+            <h2 className="flex items-center gap-2 font-heading text-base font-semibold">
+              <CheckCircle2 className="size-4 text-primary" />
               分析结果
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </h2>
+          </div>
+          <div className="p-6">
             {result ? (
-              <div className="space-y-4">
-                {/* 总览：体型 + 体脂 */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge className="text-base px-3 py-1">{bodyTypeLabels[result.body_type] || result.body_type}</Badge>
-                  <Badge variant="outline">体脂 {result.body_fat_range}</Badge>
+              <div className="space-y-5">
+                {/* Overview badges */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="bg-brand-green/10 px-3 py-1 text-base text-brand-green hover:bg-brand-green/15">
+                    {bodyTypeLabels[result.body_type] || result.body_type}
+                  </Badge>
+                  <Badge variant="outline" className="border-muted-foreground/20">
+                    体脂 {result.body_fat_range}
+                  </Badge>
                 </div>
 
-                {/* AI 建议（核心摘要，置顶） */}
-                <div className="rounded-lg bg-muted/50 p-4">
+                {/* AI summary */}
+                <div className="rounded-lg border-l-2 border-brand-green bg-muted/40 p-4">
                   <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
                     {result.summary}
                   </p>
                 </div>
 
-                {/* 优势 & 弱势 */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-sm font-medium mb-2">优势部位</p>
-                    <div className="flex flex-wrap gap-1">
+                {/* Strengths & weaknesses */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-brand-green">
+                      <Trophy className="size-3.5" />
+                      优势部位
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
                       {result.strengths.map((s) => (
-                        <Badge key={s} variant="secondary">{t(s)}</Badge>
+                        <Badge key={s} variant="secondary" className="bg-brand-green/8 text-xs">{t(s)}</Badge>
                       ))}
                     </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium mb-2">需加强</p>
-                    <div className="flex flex-wrap gap-1">
+                  <div className="space-y-2">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-destructive">
+                      <Target className="size-3.5" />
+                      需加强
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
                       {result.weak_muscles.map((m) => (
-                        <Badge key={m} variant="destructive">{t(m)}</Badge>
+                        <Badge key={m} variant="outline" className="border-destructive/20 bg-destructive/5 text-destructive text-xs">{t(m)}</Badge>
                       ))}
                     </div>
                   </div>
                 </div>
 
-                {/* 部位评分（可折叠） */}
-                {result.muscle_scores &&
-                  Object.keys(result.muscle_scores).length > 0 && (
-                    <div className="rounded-lg border">
-                      <button
-                        className="flex w-full items-center justify-between p-3 text-left hover:bg-accent/30 transition-colors rounded-lg"
-                        onClick={() => setShowScores(!showScores)}
-                      >
-                        <span className="flex items-center gap-2 text-sm font-medium">
-                          <BarChart3 className="h-4 w-4" />
-                          部位评分详情
-                          <Badge variant="secondary" className="text-xs font-normal">
-                            {Object.keys(result.muscle_scores).length} 项
-                          </Badge>
-                        </span>
-                        {showScores ? (
-                          <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </button>
-                      {showScores && (
-                        <div className="border-t px-3 pb-3 pt-2 space-y-2">
-                          {Object.entries(result.muscle_scores).map(
-                            ([part, score]) => (
-                              <div key={part} className="flex items-center gap-3">
-                                <span className="text-sm w-20 shrink-0">{t(part)}</span>
-                                <Progress value={score * 10} className="flex-1" />
-                                <span className="text-sm text-muted-foreground w-10 text-right">
-                                  {score}/10
-                                </span>
-                              </div>
-                            ),
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                {/* Muscle scores (collapsible) */}
+                {result.muscle_scores && Object.keys(result.muscle_scores).length > 0 && (
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <button
+                      type="button"
+                      className="flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left transition-colors hover:bg-accent/30"
+                      onClick={() => setShowScores(!showScores)}
+                    >
+                      <span className="flex items-center gap-2 text-sm font-medium">
+                        <BarChart3 className="size-4 text-muted-foreground" />
+                        部位评分详情
+                        <Badge variant="secondary" className="text-[0.6rem] font-normal">{Object.keys(result.muscle_scores).length} 项</Badge>
+                      </span>
+                      {showScores ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
+                    </button>
+                    {showScores && (
+                      <div className="border-t border-border px-4 pb-4 pt-3 space-y-2.5">
+                        {Object.entries(result.muscle_scores).map(([part, score]) => (
+                          <div key={part} className="flex items-center gap-3">
+                            <span className="w-16 shrink-0 text-sm text-muted-foreground">{t(part)}</span>
+                            <Progress value={score * 10} className="flex-1 h-2" />
+                            <span className="w-10 text-right text-sm text-muted-foreground tabular-nums">{score}/10</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                <div className="rounded-xl border bg-primary/5 p-4">
+                {/* Journey actions */}
+                <div className="rounded-lg border border-primary/10 bg-primary/[0.02] p-5">
                   <div className="space-y-1">
                     <p className="text-sm font-semibold">{journey.title}</p>
                     <p className="text-sm text-muted-foreground">{journey.description}</p>
@@ -390,17 +454,12 @@ export default function AnalysisPage() {
                         className="w-full justify-between"
                       >
                         <span className="flex items-center gap-2">
-                          {planGenerating ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Sparkles className="h-4 w-4" />
-                          )}
+                          {planGenerating ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
                           {planGenerating ? "生成中..." : journey.primaryAction.label}
                         </span>
-                        <ArrowRight className="h-4 w-4" />
+                        <ArrowRight className="size-4" />
                       </Button>
                     )}
-
                     {journey.secondaryAction && (
                       <Button
                         variant="outline"
@@ -408,20 +467,18 @@ export default function AnalysisPage() {
                         className="w-full justify-between"
                       >
                         <span>{journey.secondaryAction.label}</span>
-                        <ArrowRight className="h-4 w-4" />
+                        <ArrowRight className="size-4" />
                       </Button>
                     )}
                   </div>
 
                   {journey.primaryAction && (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      {journey.primaryAction.hint}
-                    </p>
+                    <p className="mt-3 text-xs text-muted-foreground">{journey.primaryAction.hint}</p>
                   )}
 
                   {actionError && (
                     <div className="mt-3 flex items-center gap-2 text-sm text-destructive">
-                      <XCircle className="h-4 w-4" />
+                      <XCircle className="size-4" />
                       {actionError}
                     </div>
                   )}
@@ -434,36 +491,42 @@ export default function AnalysisPage() {
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <ScanEye className="h-12 w-12 mb-3" />
-                <p>上传照片后查看分析结果</p>
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <span className="mb-4 flex size-14 items-center justify-center rounded-lg bg-muted text-muted-foreground/60">
+                  <ScanEye className="size-6" />
+                </span>
+                <p className="text-sm font-medium">上传照片后查看分析结果</p>
+                <p className="mt-1 text-xs text-muted-foreground">AI 将评估你的体型、体脂和肌肉状态</p>
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       </div>
 
-      {/* History */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <History className="h-5 w-5" />
+      {/* ── History ── */}
+      <section className="rounded-lg border border-border bg-card shadow-[0_4px_16px_rgba(23,26,23,0.04)]">
+        <div className="border-b border-border px-6 py-4">
+          <h2 className="flex items-center gap-2 font-heading text-base font-semibold">
+            <History className="size-4 text-primary" />
             历史分析记录
             {history.length > 0 && (
               <Badge variant="secondary" className="ml-1">{history.length}</Badge>
             )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+          </h2>
+        </div>
+        <div className="p-6">
           {historyLoading ? (
-            <div className="flex items-center justify-center py-8 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin mr-2" />
-              加载中...
+            <div className="flex items-center justify-center py-12 text-muted-foreground">
+              <Loader2 className="size-5 animate-spin mr-2" />
+              <span className="text-sm">加载中...</span>
             </div>
           ) : history.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-              <History className="h-10 w-10 mb-2" />
-              <p className="text-sm">暂无历史记录，完成一次体型分析后将自动保存</p>
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <span className="mb-3 flex size-12 items-center justify-center rounded-lg bg-muted text-muted-foreground/50">
+                <History className="size-5" />
+              </span>
+              <p className="text-sm font-medium">暂无历史记录</p>
+              <p className="mt-1 text-xs text-muted-foreground">完成一次体型分析后将自动保存</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -472,9 +535,10 @@ export default function AnalysisPage() {
                 return (
                   <div
                     key={record.id}
-                    className="rounded-lg border bg-card transition-colors hover:bg-accent/30"
+                    className="overflow-hidden rounded-lg border border-border transition-colors hover:bg-accent/20"
                   >
                     <button
+                      type="button"
                       className="flex w-full items-center gap-4 p-4 text-left"
                       onClick={() => setExpandedRecord(isExpanded ? null : record.id)}
                     >
@@ -482,88 +546,73 @@ export default function AnalysisPage() {
                         <img
                           src={`data:image/jpeg;base64,${record.image_thumbnail}`}
                           alt="缩略图"
-                          className="h-14 w-14 rounded-md object-cover shrink-0"
+                          className="h-14 w-14 shrink-0 rounded-lg object-cover"
                         />
                       )}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <Badge variant="outline" className="text-xs">
+                          <Badge variant="secondary" className="bg-brand-green/8 text-xs text-brand-green">
                             {bodyTypeLabels[record.result.body_type] || record.result.body_type}
                           </Badge>
-                          <Badge variant="secondary" className="text-xs">
-                            体脂 {record.result.body_fat_range}
-                          </Badge>
+                          <Badge variant="outline" className="text-xs">体脂 {record.result.body_fat_range}</Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {formatDate(record.created_at)}
-                        </p>
+                        <p className="text-xs text-muted-foreground">{formatDate(record.created_at)}</p>
                       </div>
                       {isExpanded ? (
-                        <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <ChevronUp className="size-4 shrink-0 text-muted-foreground" />
                       ) : (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
                       )}
                     </button>
 
                     {isExpanded && (
-                      <div className="border-t px-4 pb-4 pt-3 space-y-3">
-                        {/* AI 建议置顶 */}
-                        <div className="rounded-md bg-muted/50 p-3">
-                          <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                            {record.result.summary}
-                          </p>
+                      <div className="border-t border-border px-4 pb-4 pt-3 space-y-3">
+                        <div className="rounded-lg bg-muted/40 p-3">
+                          <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{record.result.summary}</p>
                         </div>
-
-                        {/* 优势 & 弱势并排 */}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <p className="text-xs font-medium mb-1">优势部位</p>
+                            <p className="text-xs font-medium mb-1.5 text-brand-green">优势部位</p>
                             <div className="flex flex-wrap gap-1">
                               {record.result.strengths.map((s) => (
-                                <Badge key={s} variant="secondary" className="text-xs">{t(s)}</Badge>
+                                <Badge key={s} variant="secondary" className="bg-brand-green/8 text-[0.6rem]">{t(s)}</Badge>
                               ))}
                             </div>
                           </div>
                           <div>
-                            <p className="text-xs font-medium mb-1">需加强</p>
+                            <p className="text-xs font-medium mb-1.5 text-destructive">需加强</p>
                             <div className="flex flex-wrap gap-1">
                               {record.result.weak_muscles.map((m) => (
-                                <Badge key={m} variant="destructive" className="text-xs">{t(m)}</Badge>
+                                <Badge key={m} variant="outline" className="border-destructive/20 bg-destructive/5 text-destructive text-[0.6rem]">{t(m)}</Badge>
                               ))}
                             </div>
                           </div>
                         </div>
 
-                        {/* 部位评分可折叠 */}
                         {record.result.muscle_scores && Object.keys(record.result.muscle_scores).length > 0 && (
-                          <div className="rounded-md border">
+                          <div className="overflow-hidden rounded-lg border border-border">
                             <button
-                              className="flex w-full items-center justify-between p-2.5 text-left hover:bg-accent/30 transition-colors rounded-md"
+                              type="button"
+                              className="flex w-full items-center justify-between p-2.5 text-left transition-colors hover:bg-accent/30"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setExpandedHistoryScores(expandedHistoryScores === record.id ? null : record.id)
                               }}
                             >
                               <span className="flex items-center gap-1.5 text-xs font-medium">
-                                <BarChart3 className="h-3.5 w-3.5" />
+                                <BarChart3 className="size-3.5 text-muted-foreground" />
                                 部位评分详情
-                                <Badge variant="secondary" className="text-[10px] font-normal px-1.5">
-                                  {Object.keys(record.result.muscle_scores).length} 项
-                                </Badge>
+                                <Badge variant="secondary" className="text-[0.55rem] font-normal px-1.5">{Object.keys(record.result.muscle_scores).length} 项</Badge>
                               </span>
-                              {expandedHistoryScores === record.id ? (
-                                <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
-                              ) : (
-                                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                              )}
+                              {expandedHistoryScores === record.id ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
                             </button>
                             {expandedHistoryScores === record.id && (
-                              <div className="border-t px-2.5 pb-2.5 pt-2 space-y-1.5">
+                              <div className="border-t border-border px-2.5 pb-2.5 pt-2 space-y-1.5">
                                 {Object.entries(record.result.muscle_scores).map(([part, score]) => (
                                   <div key={part} className="flex items-center gap-2">
-                                    <span className="text-xs w-16 shrink-0">{t(part)}</span>
-                                    <Progress value={(score as number) * 10} className="flex-1 h-2" />
-                                    <span className="text-xs text-muted-foreground w-8 text-right">{score as number}/10</span>
+                                    <span className="w-14 shrink-0 text-xs text-muted-foreground">{t(part)}</span>
+                                    <Progress value={(score as number) * 10} className="flex-1 h-1.5" />
+                                    <span className="w-8 text-right text-xs text-muted-foreground tabular-nums">{score as number}/10</span>
                                   </div>
                                 ))}
                               </div>
@@ -577,8 +626,8 @@ export default function AnalysisPage() {
               })}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   )
 }

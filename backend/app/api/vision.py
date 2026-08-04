@@ -11,7 +11,11 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal, get_db
-from app.core.security import ensure_current_user_matches, get_current_user
+from app.core.security import (
+    ensure_current_user_matches,
+    get_current_user,
+    require_current_user_api_key,
+)
 from app.models.body_analysis import BodyAnalysisRecord
 from app.models.user import User
 from app.schemas.vision import (
@@ -48,7 +52,7 @@ def _make_thumbnail(image_base64: str) -> str:
 async def start_analyze(
     req: AnalyzeRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_current_user_api_key),
 ):
     """接收图片 base64，启动异步体型分析，返回 task_id 供前端轮询"""
     ensure_current_user_matches(current_user, req.user_id)

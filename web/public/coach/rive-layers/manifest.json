@@ -1,0 +1,136 @@
+{
+  "canvas_size": [
+    1254,
+    1254
+  ],
+  "face_cell_origin": [
+    438,
+    -39
+  ],
+  "body_layers": [
+    {
+      "name": "head-neck",
+      "pivot": [
+        627,
+        220
+      ]
+    },
+    {
+      "name": "torso",
+      "pivot": [
+        627,
+        490
+      ]
+    },
+    {
+      "name": "upper-arm-left",
+      "pivot": [
+        470,
+        280
+      ]
+    },
+    {
+      "name": "upper-arm-right",
+      "pivot": [
+        784,
+        280
+      ]
+    },
+    {
+      "name": "forearm-left",
+      "pivot": [
+        398,
+        425
+      ]
+    },
+    {
+      "name": "forearm-right",
+      "pivot": [
+        856,
+        425
+      ]
+    },
+    {
+      "name": "hand-left",
+      "pivot": [
+        374,
+        610
+      ]
+    },
+    {
+      "name": "hand-right",
+      "pivot": [
+        880,
+        610
+      ]
+    },
+    {
+      "name": "pelvis",
+      "pivot": [
+        627,
+        620
+      ]
+    },
+    {
+      "name": "thigh-left",
+      "pivot": [
+        560,
+        705
+      ]
+    },
+    {
+      "name": "thigh-right",
+      "pivot": [
+        694,
+        705
+      ]
+    },
+    {
+      "name": "lower-leg-left",
+      "pivot": [
+        535,
+        900
+      ]
+    },
+    {
+      "name": "lower-leg-right",
+      "pivot": [
+        719,
+        900
+      ]
+    },
+    {
+      "name": "shoe-left",
+      "pivot": [
+        505,
+        1095
+      ]
+    },
+    {
+      "name": "shoe-right",
+      "pivot": [
+        749,
+        1095
+      ]
+    }
+  ],
+  "face_layers": [
+    "jaw",
+    "brows-emphasis",
+    "brows-neutral",
+    "brows-thinking",
+    "eyes-closed",
+    "eyes-squint",
+    "eyes-white",
+    "mouth-A",
+    "mouth-B",
+    "mouth-C",
+    "mouth-D",
+    "mouth-E",
+    "mouth-F",
+    "mouth-G",
+    "mouth-H",
+    "mouth-X",
+    "pupils"
+  ]
+}

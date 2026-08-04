@@ -1,7 +1,7 @@
 /* 认证状态管理：Context + 手动登录/登出 + 持久化 */
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
 import { createElement } from "react"
-import { devAdminLogin, devLogin, getCurrentUser } from "@/api"
+import { devAdminLogin, devLogin, emailLogin, getCurrentUser, register as registerApi } from "@/api"
 import type { UserResponse } from "@/api/types"
 
 interface AuthState {
@@ -14,6 +14,8 @@ interface AuthState {
   isAdmin: boolean
   loginAsUser: () => Promise<void>
   loginAsAdmin: () => Promise<void>
+  loginWithEmail: (email: string, password: string) => Promise<void>
+  register: (email: string, password: string, nickname?: string) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
 }
@@ -61,6 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await loginWith(devAdminLogin)
   }, [loginWith])
 
+  const loginWithEmail = useCallback(async (email: string, password: string) => {
+    await loginWith(() => emailLogin(email, password))
+  }, [loginWith])
+
+  const doRegister = useCallback(async (email: string, password: string, nickname?: string) => {
+    await loginWith(() => registerApi(email, password, nickname))
+  }, [loginWith])
+
   const logout = useCallback(() => {
     localStorage.removeItem("token")
     localStorage.removeItem("userId")
@@ -106,6 +116,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAdmin,
     loginAsUser,
     loginAsAdmin,
+    loginWithEmail,
+    register: doRegister,
     logout,
     refreshUser,
   }

@@ -26,12 +26,21 @@ git clone <repo-url> && cd Lianleme
 
 ```bash
 cd backend
-cp .env.example .env   # 然后编辑 .env，填入 QWEN_API_KEY
+cp .env.example .env   # 系统 Key 仅供明确的内部任务使用，不会回退给登录用户
 uv sync                # 安装全部 Python 依赖（自动创建 .venv）
 uv run uvicorn app.main:app --reload --port 8000
 ```
 
 首次启动会自动创建 SQLite 数据库（`dev.db`）和所有表。
+
+可选的音素级口型由 Rhubarb Lip Sync v1.14.0 提供；缺失时语音仍可播放，前端自动使用能量口型。安装脚本会校验官方发布包 SHA-256，二进制保存在忽略目录 `backend/.tools/rhubarb/`：
+
+```bash
+cd backend
+./scripts/install_rhubarb.sh
+```
+
+Apple Silicon 需要先安装 Rosetta，因为 Rhubarb 官方 macOS 包仅提供 x86_64 版本。Linux 与 Docker 使用官方 Linux x86_64 包。安装到自定义目录时，将脚本输出的路径写入 `RHUBARB_BIN`。
 
 ### 3. 启动前端
 
@@ -42,6 +51,8 @@ npm run dev
 ```
 
 浏览器打开 http://localhost:5173 即可。前端通过 Vite proxy 自动代理 `/api` 到后端 `localhost:8000`。
+
+注册或首次登录后，用户需要自行前往通义千问或 OpenAI 官方平台申请 API Key，再到“我的 → AI 服务密钥”中配置。本平台不生成、不发放也不共享供应商 Key。Key 经 AES-256-GCM 加密保存，对外只返回掩码；未配置时数字教练、体型分析和训练计划生成均不可用。数字教练语音目前需要通义千问 Key，并使用用户账号可访问的公共音色。
 
 ### 4.（可选）Docker Compose 全套环境
 

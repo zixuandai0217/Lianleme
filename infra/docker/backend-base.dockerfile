@@ -39,13 +39,21 @@ WORKDIR /app
 # 换清华 apt 源，加速国内下载
 RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources
 
-# 仅安装运行时必需的系统库
+# 安装运行时系统库与 Rhubarb 下载工具
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
     libpq5 \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # 从 builder 拷贝已安装的 Python 包
 COPY --from=builder /install /usr/local
+
+# 使用固定版本与 SHA-256 校验安装官方 Linux Rhubarb 包
+COPY scripts/install_rhubarb.sh /tmp/install_rhubarb.sh
+RUN RHUBARB_INSTALL_DIR=/app/.tools/rhubarb bash /tmp/install_rhubarb.sh \
+    && rm /tmp/install_rhubarb.sh
 
 # 创建非 root 用户，降低容器权限
 RUN groupadd -r appuser && useradd -r -g appuser appuser

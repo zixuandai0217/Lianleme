@@ -1,27 +1,84 @@
-/* 体重记录页：记录体重 + SVG 趋势折线图 + 历史列表 */
-import { useEffect, useState, useCallback } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+/* Body data hub: fitness profile + weight tracking + trend chart + history. */
+import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import {
-  Scale,
-  TrendingDown,
-  TrendingUp,
+  Activity,
+  ArrowUpDown,
+  Flame,
+  History,
+  Loader2,
   Minus,
   Plus,
+  Ruler,
+  Save,
+  Scale,
+  Sparkles,
   Trash2,
-  Loader2,
-  ArrowDown,
-  ArrowUp,
+  TrendingDown,
+  TrendingUp,
 } from "lucide-react"
-import { addWeightRecord, getWeightTrend, deleteWeightRecord } from "@/api"
+import { addWeightRecord, deleteWeightRecord, getWeightTrend, updateProfile } from "@/api"
 import type { WeightTrend } from "@/api/types"
 import { useAuth } from "@/hooks/use-auth"
+import { cn } from "@/lib/utils"
 
-/** 纯 SVG 折线图组件，支持单点显示 */
+// ── Options ──────────────────────────────────────────────────────
+
+const GOALS = [
+  { value: "减脂", icon: Flame },
+  { value: "增肌", icon: Sparkles },
+  { value: "塑形", icon: Activity },
+  { value: "提升体能", icon: ArrowUpDown },
+]
+
+const EXPERIENCE_LEVELS = ["新手", "初级", "中级", "高级"]
+
+function OptionGroup<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string
+  options: readonly T[] | { value: T; icon?: React.ComponentType<{ className?: string }> }[]
+  value: T
+  onChange: (v: T) => void
+}) {
+  const items = options.map((opt) =>
+    typeof opt === "string" ? { value: opt as T } : opt,
+  )
+  return (
+    <div className="space-y-1.5">
+      <Label className="font-sans text-xs font-semibold text-muted-foreground">{label}</Label>
+      <div className="flex flex-wrap gap-1.5">
+        {items.map((item) => {
+          const Icon = (item as { icon?: React.ComponentType<{ className?: string }> }).icon
+          const isActive = value === item.value
+          return (
+            <Button
+              key={item.value}
+              type="button"
+              variant={isActive ? "default" : "outline"}
+              size="sm"
+              onClick={() => onChange(item.value)}
+              className={cn("gap-1.5 transition-all", isActive && "shadow-sm")}
+            >
+              {Icon && <Icon className="size-3.5" />}
+              {item.value}
+            </Button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── SVG trend chart ──────────────────────────────────────────────
+
 function TrendChart({ trend }: { trend: WeightTrend }) {
   const data = trend.records
   const weights = data.map((r) => r.weight)
@@ -29,12 +86,8 @@ function TrendChart({ trend }: { trend: WeightTrend }) {
   const maxW = Math.ceil(Math.max(...weights) + 2)
   const rangeW = maxW - minW || 1
 
-  const W = 600
-  const H = 200
-  const padX = 45
-  const padY = 25
-  const chartW = W - padX * 2
-  const chartH = H - padY * 2
+  const W = 600, H = 200, padX = 45, padY = 25
+  const chartW = W - padX * 2, chartH = H - padY * 2
 
   const yTicks = 5
   const yLabels = Array.from({ length: yTicks + 1 }, (_, i) => {
@@ -47,15 +100,15 @@ function TrendChart({ trend }: { trend: WeightTrend }) {
     const cx = W / 2
     return (
       <div className="space-y-2">
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="体重趋势图">
           {yLabels.map((l) => (
             <g key={l.val}>
               <line x1={padX} y1={l.y} x2={W - padX} y2={l.y} className="stroke-border" strokeWidth={0.5} />
               <text x={padX - 6} y={l.y + 4} textAnchor="end" className="fill-muted-foreground" fontSize={10}>{l.val}</text>
             </g>
           ))}
-          <line x1={padX} y1={cy} x2={W - padX} y2={cy} className="stroke-primary/30" strokeWidth={1} strokeDasharray="6 4" />
-          <circle cx={cx} cy={cy} r={6} className="fill-primary/20" />
+          <line x1={padX} y1={cy} x2={W - padX} y2={cy} className="stroke-primary/20" strokeWidth={1} strokeDasharray="6 4" />
+          <circle cx={cx} cy={cy} r={6} className="fill-primary/15" />
           <circle cx={cx} cy={cy} r={4} className="fill-primary" />
           <text x={cx} y={cy - 12} textAnchor="middle" className="fill-foreground font-semibold" fontSize={13}>{data[0].weight} kg</text>
           <text x={cx} y={H - 2} textAnchor="middle" className="fill-muted-foreground" fontSize={9}>{data[0].recorded_date}</text>
@@ -76,20 +129,27 @@ function TrendChart({ trend }: { trend: WeightTrend }) {
   const areaD = `${pathD} L ${points[points.length - 1].x} ${padY + chartH} L ${points[0].x} ${padY + chartH} Z`
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="体重趋势图">
+      <defs>
+        <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--color-primary)" stopOpacity="0.15" />
+          <stop offset="100%" stopColor="var(--color-primary)" stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
       {yLabels.map((l) => (
         <g key={l.val}>
           <line x1={padX} y1={l.y} x2={W - padX} y2={l.y} className="stroke-border" strokeWidth={0.5} />
           <text x={padX - 6} y={l.y + 4} textAnchor="end" className="fill-muted-foreground" fontSize={10}>{l.val}</text>
         </g>
       ))}
-      <path d={areaD} className="fill-primary/10" />
-      <path d={pathD} fill="none" className="stroke-primary" strokeWidth={2} strokeLinejoin="round" />
+      <path d={areaD} fill="url(#wg)" />
+      <path d={pathD} fill="none" className="stroke-primary" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
       {points.map((p, i) => (
         <g key={i}>
           <circle cx={p.x} cy={p.y} r={3.5} className="fill-primary" />
+          <circle cx={p.x} cy={p.y} r={5} className="fill-primary/15" />
           {(i === 0 || i === points.length - 1) && (
-            <text x={p.x} y={p.y - 8} textAnchor="middle" className="fill-foreground font-medium" fontSize={11}>{p.weight}</text>
+            <text x={p.x} y={p.y - 10} textAnchor="middle" className="fill-foreground font-medium" fontSize={11}>{p.weight}</text>
           )}
         </g>
       ))}
@@ -99,8 +159,22 @@ function TrendChart({ trend }: { trend: WeightTrend }) {
   )
 }
 
+// ── Main page ────────────────────────────────────────────────────
+
 export default function WeightPage() {
-  const { userId } = useAuth()
+  const { userId, user, refreshUser } = useAuth()
+
+  // Profile state
+  const [synced, setSynced] = useState(false)
+  const [height, setHeight] = useState("")
+  const [age, setAge] = useState("")
+  const [gender, setGender] = useState("")
+  const [goal, setGoal] = useState("")
+  const [experience, setExperience] = useState("")
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileSaved, setProfileSaved] = useState(false)
+
+  // Weight tracking state
   const [trend, setTrend] = useState<WeightTrend | null>(null)
   const [loading, setLoading] = useState(true)
   const [weightInput, setWeightInput] = useState("")
@@ -108,6 +182,17 @@ export default function WeightPage() {
   const [submitting, setSubmitting] = useState(false)
   const [days, setDays] = useState(90)
 
+  // Sync profile data once
+  if (user && !synced) {
+    setHeight(String(user.profile?.height || ""))
+    setAge(String(user.profile?.age || ""))
+    setGender(user.profile?.gender || "")
+    setGoal(user.profile?.goal || "")
+    setExperience(user.profile?.experience || "")
+    setSynced(true)
+  }
+
+  // Load weight trend
   const loadTrend = useCallback(async () => {
     if (!userId) return
     try {
@@ -118,10 +203,32 @@ export default function WeightPage() {
     }
   }, [userId, days])
 
-  useEffect(() => {
-    loadTrend()
-  }, [loadTrend])
+  useEffect(() => { loadTrend() }, [loadTrend])
 
+  // Save profile
+  const handleSaveProfile = async () => {
+    if (!userId) return
+    setProfileSaving(true)
+    setProfileSaved(false)
+    try {
+      await updateProfile(userId, {
+        profile: {
+          height: height ? Number(height) : undefined,
+          age: age ? Number(age) : undefined,
+          gender: gender || undefined,
+          goal: goal || undefined,
+          experience: experience || undefined,
+        },
+      })
+      await refreshUser()
+      setProfileSaved(true)
+      setTimeout(() => setProfileSaved(false), 2000)
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  // Record weight
   const handleSubmit = async () => {
     if (!userId || !weightInput) return
     setSubmitting(true)
@@ -147,193 +254,182 @@ export default function WeightPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">体重记录</h1>
-        <p className="text-muted-foreground">记录每日体重，追踪身体变化趋势</p>
-      </div>
+    <div className="page-shell !max-w-5xl">
+      <header className="page-header">
+        <div>
+          <span className="page-kicker">Body data</span>
+          <h1 className="page-title">身体数据</h1>
+          <p className="page-description">管理身体档案与体重趋势，掌握长期变化。</p>
+        </div>
+      </header>
 
-      {/* Quick input */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Scale className="h-5 w-5" />
+      {/* ── Body profile ── */}
+      <section className="rounded-lg border border-border bg-card shadow-[0_4px_16px_rgba(23,26,23,0.04)]">
+        <div className="border-b border-border px-6 py-4">
+          <h2 className="flex items-center gap-2 font-heading text-base font-semibold">
+            <Ruler className="size-4 text-primary" />
+            身体档案
+          </h2>
+        </div>
+        <div className="space-y-5 p-6">
+          <div className="grid gap-5 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="p-height" className="font-sans text-xs font-semibold text-muted-foreground">身高 (cm)</Label>
+              <Input id="p-height" type="number" value={height} onChange={(e) => setHeight(e.target.value)} placeholder="170" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="p-age" className="font-sans text-xs font-semibold text-muted-foreground">年龄</Label>
+              <Input id="p-age" type="number" value={age} onChange={(e) => setAge(e.target.value)} placeholder="25" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="font-sans text-xs font-semibold text-muted-foreground">性别</Label>
+              <div className="flex gap-2 pt-0.5">
+                {["男", "女"].map((g) => (
+                  <Button key={g} type="button" variant={gender === g ? "default" : "outline"} size="sm" onClick={() => setGender(g)} className={cn("min-w-16", gender === g && "shadow-sm")}>
+                    {g}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <OptionGroup label="健身目标" options={GOALS} value={goal} onChange={setGoal} />
+            <OptionGroup label="训练经验" options={EXPERIENCE_LEVELS} value={experience} onChange={setExperience} />
+          </div>
+
+          <Button onClick={handleSaveProfile} disabled={profileSaving}>
+            {profileSaving ? <Loader2 className="animate-spin" /> : profileSaved ? null : <Save />}
+            {profileSaved ? "已保存 ✓" : "保存档案"}
+          </Button>
+        </div>
+      </section>
+
+      {/* ── Quick weight input ── */}
+      <section className="rounded-lg border border-border bg-card shadow-[0_4px_16px_rgba(23,26,23,0.04)]">
+        <div className="border-b border-border px-6 py-4">
+          <h2 className="flex items-center gap-2 font-heading text-base font-semibold">
+            <Scale className="size-4 text-primary" />
             记录今日体重
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-end gap-3">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="weight">体重 (kg)</Label>
+          </h2>
+        </div>
+        <div className="space-y-5 p-6">
+          <div className="grid items-end gap-4 sm:grid-cols-[1fr_auto]">
+            <div className="min-w-0 space-y-2">
+              <Label htmlFor="weight" className="font-sans text-xs font-semibold text-muted-foreground">体重 (kg)</Label>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline" size="icon"
-                  onClick={() => adjust(-0.1)}
-                  disabled={!weightInput && !trend?.current_weight}
-                >
-                  <Minus className="h-4 w-4" />
+                <Button variant="outline" size="icon" aria-label="减少 0.1" onClick={() => adjust(-0.1)} disabled={!weightInput && !trend?.current_weight}>
+                  <Minus className="size-4" />
                 </Button>
-                <Input
-                  id="weight"
-                  type="number"
-                  step="0.1"
-                  placeholder={trend?.current_weight ? String(trend.current_weight) : "输入体重"}
-                  value={weightInput}
-                  onChange={(e) => setWeightInput(e.target.value)}
-                  className="text-center text-lg font-semibold"
-                />
-                <Button
-                  variant="outline" size="icon"
-                  onClick={() => adjust(0.1)}
-                  disabled={!weightInput && !trend?.current_weight}
-                >
-                  <Plus className="h-4 w-4" />
+                <Input id="weight" type="number" step="0.1" placeholder={trend?.current_weight ? String(trend.current_weight) : "输入体重"} value={weightInput} onChange={(e) => setWeightInput(e.target.value)} className="text-center text-lg font-semibold tabular-nums" />
+                <Button variant="outline" size="icon" aria-label="增加 0.1" onClick={() => adjust(0.1)} disabled={!weightInput && !trend?.current_weight}>
+                  <Plus className="size-4" />
                 </Button>
               </div>
             </div>
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="note">备注 (可选)</Label>
-              <Input
-                id="note"
-                placeholder="如：跑步日、聚餐后..."
-                value={noteInput}
-                onChange={(e) => setNoteInput(e.target.value)}
-              />
+            <div className="min-w-0 space-y-2 sm:w-52">
+              <Label htmlFor="note" className="font-sans text-xs font-semibold text-muted-foreground">备注 (可选)</Label>
+              <Input id="note" placeholder="如：跑步日、聚餐后..." value={noteInput} onChange={(e) => setNoteInput(e.target.value)} />
             </div>
           </div>
-          <Button onClick={handleSubmit} disabled={submitting || !weightInput} className="w-full">
-            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Scale className="mr-2 h-4 w-4" />}
+          <Button onClick={handleSubmit} disabled={submitting || !weightInput}>
+            {submitting ? <Loader2 className="animate-spin" /> : <Scale />}
             记录
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      {/* Stats summary — 多条记录才显示完整统计 */}
+      {/* ── Stats summary ── */}
       {trend && trend.total > 0 && (
-        <div className={`grid gap-4 ${trend.total >= 2 ? "sm:grid-cols-4" : "sm:grid-cols-1 max-w-xs"}`}>
-          <Card>
-            <CardContent className="pt-4 pb-3 text-center">
-              <p className="text-xs text-muted-foreground mb-1">当前体重</p>
-              <p className="text-2xl font-bold">{trend.current_weight ?? "-"}</p>
-              <p className="text-xs text-muted-foreground">kg</p>
-            </CardContent>
-          </Card>
-          {trend.total >= 2 && (
-            <>
-              <Card>
-                <CardContent className="pt-4 pb-3 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">总变化</p>
-                  <p className={`text-2xl font-bold flex items-center justify-center gap-1 ${
-                    (trend.change ?? 0) < 0 ? "text-green-600" : (trend.change ?? 0) > 0 ? "text-red-500" : ""
-                  }`}>
-                    {(trend.change ?? 0) < 0 ? <ArrowDown className="h-5 w-5" /> : (trend.change ?? 0) > 0 ? <ArrowUp className="h-5 w-5" /> : null}
-                    {trend.change != null ? Math.abs(trend.change) : "-"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">kg</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-4 pb-3 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">最低</p>
-                  <p className="text-2xl font-bold text-green-600">{trend.min_weight ?? "-"}</p>
-                  <p className="text-xs text-muted-foreground">kg</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-4 pb-3 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">最高</p>
-                  <p className="text-2xl font-bold text-red-500">{trend.max_weight ?? "-"}</p>
-                  <p className="text-xs text-muted-foreground">kg</p>
-                </CardContent>
-              </Card>
-            </>
-          )}
+        <div className={cn("grid gap-4", trend.total >= 2 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-1 max-w-xs")}>
+          {[
+            { label: "当前体重", value: trend.current_weight ?? "-", unit: "kg", color: "text-foreground" },
+            ...(trend.total >= 2 ? [
+              { label: "总变化", value: trend.change != null ? `${trend.change > 0 ? "+" : ""}${Math.abs(trend.change).toFixed(1)}` : "-", unit: "kg", color: (trend.change ?? 0) < 0 ? "text-brand-green" : (trend.change ?? 0) > 0 ? "text-destructive" : "text-foreground" },
+              { label: "最低", value: trend.min_weight ?? "-", unit: "kg", color: "text-brand-green" },
+              { label: "最高", value: trend.max_weight ?? "-", unit: "kg", color: "text-destructive" },
+            ] : []),
+          ].map((stat) => (
+            <div key={stat.label} className="rounded-lg border border-border bg-card px-5 py-5 shadow-[0_2px_8px_rgba(23,26,23,0.03)]">
+              <p className="font-sans text-xs text-muted-foreground">{stat.label}</p>
+              <p className={cn("mt-2 font-heading text-2xl font-semibold tabular-nums", stat.color)}>{stat.value}</p>
+              <p className="mt-0.5 font-sans text-xs text-muted-foreground">{stat.unit}</p>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Trend chart */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              {(trend?.change ?? 0) <= 0 ? (
-                <TrendingDown className="h-5 w-5 text-green-600" />
-              ) : (
-                <TrendingUp className="h-5 w-5 text-red-500" />
-              )}
-              体重趋势
-            </CardTitle>
-            <div className="flex gap-1">
-              {[30, 90, 180, 365].map((d) => (
-                <Button
-                  key={d}
-                  variant={days === d ? "default" : "outline"}
-                  size="sm"
-                  className="text-xs px-2 h-7"
-                  onClick={() => setDays(d)}
-                >
-                  {d <= 90 ? `${d}天` : `${Math.round(d / 30)}月`}
-                </Button>
-              ))}
-            </div>
+      {/* ── Trend chart ── */}
+      <section className="rounded-lg border border-border bg-card shadow-[0_4px_16px_rgba(23,26,23,0.04)]">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h2 className="flex items-center gap-2 font-heading text-base font-semibold">
+            {(trend?.change ?? 0) <= 0 ? <TrendingDown className="size-4 text-brand-green" /> : <TrendingUp className="size-4 text-destructive" />}
+            体重趋势
+          </h2>
+          <div className="flex gap-1">
+            {[30, 90, 180, 365].map((d) => (
+              <Button key={d} variant={days === d ? "default" : "outline"} size="sm" className="h-7 px-2 text-xs" onClick={() => setDays(d)}>
+                {d <= 90 ? `${d}天` : `${Math.round(d / 30)}月`}
+              </Button>
+            ))}
           </div>
-        </CardHeader>
-        <CardContent>
+        </div>
+        <div className="p-6">
           {loading ? (
-            <div className="flex items-center justify-center h-48">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
+            <div className="flex h-48 items-center justify-center text-muted-foreground"><Loader2 className="size-6 animate-spin" /></div>
           ) : trend && trend.total > 0 ? (
             <TrendChart trend={trend} />
           ) : (
-            <div className="flex items-center justify-center h-48 text-muted-foreground">
-              暂无体重记录，快来记录第一笔吧
+            <div className="flex h-48 flex-col items-center justify-center text-muted-foreground">
+              <span className="mb-3 flex size-12 items-center justify-center rounded-lg bg-muted text-muted-foreground/50"><Ruler className="size-5" /></span>
+              <p className="text-sm font-medium">暂无体重记录</p>
+              <p className="mt-1 text-xs text-muted-foreground">快来记录第一笔吧</p>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      {/* History list */}
+      {/* ── History list ── */}
       {trend && trend.records.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>历史记录</CardTitle>
-          </CardHeader>
-          <CardContent>
+        <section className="rounded-lg border border-border bg-card shadow-[0_4px_16px_rgba(23,26,23,0.04)]">
+          <div className="border-b border-border px-6 py-4">
+            <h2 className="flex items-center gap-2 font-heading text-base font-semibold">
+              <History className="size-4 text-primary" />
+              历史记录
+            </h2>
+          </div>
+          <div className="p-6">
             <div className="space-y-2">
               {[...trend.records].reverse().map((r, i, arr) => {
                 const prev = arr[i + 1]
                 const diff = prev ? Math.round((r.weight - prev.weight) * 100) / 100 : null
                 return (
-                  <div key={r.id} className="flex items-center justify-between rounded-lg border p-3">
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <p className="font-semibold text-lg">{r.weight} <span className="text-sm font-normal text-muted-foreground">kg</span></p>
-                        <p className="text-xs text-muted-foreground">{r.recorded_date}</p>
+                  <div key={r.id} className="flex items-center justify-between rounded-lg border border-border px-4 py-3 transition-colors hover:bg-accent/20">
+                    <div className="flex items-center gap-4">
+                      <span className="font-heading text-lg font-semibold tabular-nums">
+                        {r.weight}<span className="ml-0.5 font-sans text-sm font-normal text-muted-foreground">kg</span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-sans text-xs text-muted-foreground">{r.recorded_date}</span>
+                        {diff != null && diff !== 0 && (
+                          <span className={cn("font-sans text-xs font-medium tabular-nums", diff < 0 ? "text-brand-green" : "text-destructive")}>
+                            {diff > 0 ? "+" : ""}{diff}
+                          </span>
+                        )}
                       </div>
-                      {r.note && (
-                        <Badge variant="secondary" className="text-xs">{r.note}</Badge>
-                      )}
+                      {r.note && <Badge variant="secondary" className="text-[0.6rem]">{r.note}</Badge>}
                     </div>
-                    <div className="flex items-center gap-2">
-                      {diff != null && diff !== 0 && (
-                        <span className={`text-xs font-medium ${diff < 0 ? "text-green-600" : "text-red-500"}`}>
-                          {diff > 0 ? "+" : ""}{diff}
-                        </span>
-                      )}
-                      <Button
-                        variant="ghost" size="icon" className="h-8 w-8"
-                        onClick={() => handleDelete(r.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-                      </Button>
-                    </div>
+                    <Button variant="ghost" size="icon-sm" aria-label="删除记录" onClick={() => handleDelete(r.id)}>
+                      <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
+                    </Button>
                   </div>
                 )
               })}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
     </div>
   )

@@ -14,7 +14,11 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     openid: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
 
-    # 用户基础档案（昵称、头像等微信信息）
+    # 邮箱密码登录
+    email: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(128))
+
+    # 用户基础档案
     nickname: Mapped[str | None] = mapped_column(String(64))
     avatar_url: Mapped[str | None] = mapped_column(Text)
 

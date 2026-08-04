@@ -136,6 +136,27 @@ export interface ChatHistoryResponse {
   total: number
 }
 
+export type CoachViseme = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "X"
+
+export interface CoachMouthCue {
+  start: number
+  end: number
+  value: CoachViseme
+}
+
+export interface CoachAnimatedTTSResponse {
+  audio_base64: string
+  mime_type: "audio/wav"
+  duration_seconds: number
+  mouth_cues: CoachMouthCue[]
+  alignment: "rhubarb" | "energy"
+}
+
+export interface CoachTTSStatusResponse {
+  available: boolean
+  lip_sync_available: boolean
+}
+
 // ── Workout ──
 export interface WorkoutCompleteRequest {
   user_id: number

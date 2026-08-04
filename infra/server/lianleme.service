@@ -1,0 +1,24 @@
+# Run the FastAPI backend as an unprivileged, restart-safe system service.
+[Unit]
+Description=Lianleme FastAPI backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lianleme
+Group=lianleme
+WorkingDirectory=/opt/lianleme/backend
+EnvironmentFile=/etc/lianleme/lianleme.env
+ExecStart=/opt/lianleme/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/lianleme
+
+[Install]
+WantedBy=multi-user.target

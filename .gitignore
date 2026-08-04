@@ -22,6 +22,7 @@ services/**/.ruff_cache/
 services/**/.venv/
 services/**/*.egg-info/
 services/**/uv.lock
+backend/dev.db
 
 # Python coverage artifacts
 .coverage
@@ -37,11 +38,9 @@ htmlcov/
 # Logs
 *.log
 
-# WeChat Mini Program local artifacts
-miniprogram/project.private.config.json
-miniprogram/node_modules/
-miniprogram/miniprogram_npm/
-miniprogram/dist/
+# Locally generated TTS previews
+backend/generated/tts/
+backend/.tools/rhubarb/
 
 # Temporary notes and scratch files
 tmp/

@@ -1,127 +1,104 @@
-/* 主布局：侧边栏导航 + 用户信息 + 退出登录 + 响应式框架 */
-import { useState } from "react"
+/* Application shell: desktop sidebar + mobile bottom navigation. */
 import { NavLink, Outlet } from "react-router-dom"
-import {
-  LayoutDashboard,
-  ScanEye,
-  CalendarDays,
-  MessageSquare,
-  Scale,
-  User,
-  Menu,
-  X,
-  Dumbbell,
-  LogOut,
-} from "lucide-react"
+import { Activity, Bot, ChartNoAxesCombined, ClipboardList, Dumbbell, LogOut, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { Separator } from "@/components/ui/separator"
+import { Sidebar } from "@/components/sidebar"
 import { useAuth } from "@/hooks/use-auth"
 
 const navItems = [
-  { to: "/", icon: LayoutDashboard, label: "首页" },
-  { to: "/analysis", icon: ScanEye, label: "体型分析" },
-  { to: "/plan", icon: CalendarDays, label: "训练计划" },
-  { to: "/coach", icon: MessageSquare, label: "AI 陪练" },
-  { to: "/weight", icon: Scale, label: "体重记录" },
-  { to: "/profile", icon: User, label: "个人资料" },
+  { to: "/coach", icon: Bot, label: "数字教练" },
+  { to: "/analysis", icon: Activity, label: "体型分析" },
+  { to: "/plan", icon: ClipboardList, label: "训练计划" },
+  { to: "/weight", icon: ChartNoAxesCombined, label: "体重记录" },
+  { to: "/profile", icon: User, label: "我的" },
 ]
 
-function NavContent({ onNavigate, onLogout }: { onNavigate?: () => void; onLogout: () => void }) {
-  const { user } = useAuth()
-
+// Render the compact product signature used across navigation surfaces.
+function BrandSignature() {
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-4 py-5">
-        <Dumbbell className="h-7 w-7 text-primary" />
-        <span className="text-xl font-bold">练了么</span>
-      </div>
-      <Separator />
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === "/"}
-            onClick={onNavigate}
-            className={({ isActive }) =>
-              `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              }`
-            }
-          >
-            <item.icon className="h-4 w-4" />
-            {item.label}
-          </NavLink>
-        ))}
-      </nav>
-
-      <div className="border-t px-3 py-3 space-y-2">
-        {user && (
-          <div className="flex items-center gap-2 px-3 py-1.5">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
-              <User className="h-3.5 w-3.5 text-primary" />
-            </div>
-            <span className="text-sm font-medium truncate">
-              {user.nickname || "用户"}
-            </span>
-          </div>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-3 px-3 text-muted-foreground hover:text-destructive"
-          onClick={() => {
-            onNavigate?.()
-            onLogout()
-          }}
-        >
-          <LogOut className="h-4 w-4" />
-          退出登录
-        </Button>
-      </div>
+    <div className="flex items-center gap-3">
+      <span className="grid size-9 place-items-center rounded-md bg-brand-dark text-primary shadow-sm">
+        <Dumbbell className="size-4.5" />
+      </span>
+      <span className="min-w-0">
+        <span className="block font-heading text-lg leading-none font-semibold text-foreground">练了么</span>
+        <span className="mt-1 block font-sans text-[0.58rem] font-semibold uppercase text-muted-foreground [letter-spacing:0.12em]">
+          Move with intent
+        </span>
+      </span>
     </div>
   )
 }
 
+// Keep all three primary destinations visible within thumb reach on mobile.
+function MobileNavigation() {
+  return (
+    <nav
+      className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t border-border bg-card/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(23,26,23,0.08)] backdrop-blur md:hidden"
+      aria-label="移动主导航"
+    >
+      {navItems.map((item) => (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          end={item.to === "/"}
+          className={({ isActive }) =>
+            `flex min-h-14 flex-col items-center justify-center gap-1 rounded-md font-sans text-[0.68rem] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+              isActive ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`
+          }
+        >
+          <item.icon className="size-5" />
+          <span>{item.label}</span>
+        </NavLink>
+      ))}
+    </nav>
+  )
+}
+
+// Frame authenticated product pages: sidebar on desktop, bottom nav on mobile.
 export default function Layout() {
-  const [open, setOpen] = useState(false)
   const { logout } = useAuth()
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="min-h-[100dvh] bg-background">
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex md:w-60 md:flex-col md:border-r bg-card">
-        <NavContent onLogout={logout} />
-      </aside>
+      <Sidebar />
 
-      {/* Mobile sidebar */}
-      <Sheet open={open} onOpenChange={setOpen}>
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Top bar (mobile) */}
-          <header className="flex h-14 items-center gap-3 border-b px-4 md:hidden">
-            <SheetTrigger
-              className="inline-flex items-center justify-center rounded-lg h-9 w-9 hover:bg-accent hover:text-accent-foreground transition-colors"
-            >
-              {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </SheetTrigger>
+      {/* Main content area (offset for fixed sidebar on desktop) */}
+      <div className="md:pl-60">
+        {/* Mobile-only top header */}
+        <header className="sticky top-0 z-40 border-b border-border bg-background/92 backdrop-blur-xl md:hidden">
+          <div className="mx-auto flex h-16 w-full max-w-[1280px] items-center justify-between px-4 sm:px-6 md:px-8 xl:px-10">
+            <BrandSignature />
             <div className="flex items-center gap-2">
-              <Dumbbell className="h-5 w-5 text-primary" />
-              <span className="font-semibold">练了么</span>
+              <NavLink
+                to="/profile"
+                aria-label="打开个人资料"
+                className="grid size-9 place-items-center rounded-md border border-border bg-card text-brand-green"
+              >
+                <User className="size-4" />
+              </NavLink>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9 border border-border bg-card text-muted-foreground"
+                aria-label="退出登录"
+                title="退出登录"
+                onClick={logout}
+              >
+                <LogOut className="size-4" />
+              </Button>
             </div>
-          </header>
+          </div>
+        </header>
 
-          {/* Main content */}
-          <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
-            <Outlet />
-          </main>
-        </div>
-        <SheetContent side="left" className="w-60 p-0">
-          <NavContent onNavigate={() => setOpen(false)} onLogout={logout} />
-        </SheetContent>
-      </Sheet>
+        <main className="mx-auto w-full max-w-[1280px] px-4 pt-5 pb-28 md:pb-10 sm:px-6 md:px-8 md:pt-8 xl:px-10">
+          <Outlet />
+        </main>
+      </div>
+
+      <MobileNavigation />
     </div>
   )
 }

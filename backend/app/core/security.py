@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
+from app.services.user.api_key_service import ApiKeyRequiredError, ApiKeyService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -63,6 +64,24 @@ async def get_current_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="需要管理员权限",
         )
+    return current_user
+
+
+async def require_current_user_api_key(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Require a decryptable user-owned provider key for AI generation."""
+    try:
+        await ApiKeyService(db).require_decrypted_key(current_user.id)
+    except ApiKeyRequiredError:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail={
+                "code": "api_key_required",
+                "message": "使用 AI 功能前，请先在个人资料中配置你自己的 API Key",
+            },
+        ) from None
     return current_user
 
 

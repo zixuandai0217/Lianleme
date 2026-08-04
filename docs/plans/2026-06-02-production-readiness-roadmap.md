@@ -48,22 +48,22 @@
 - 管理后台使用独立管理员鉴权
 - `dev-login` 仅在本地开发保留，正式环境彻底禁用
 
-### 2.2 登录仍是开发体验模式，不是正式登录
+### 2.2 邮箱登录已接入，正式认证能力仍需完善
 
-Web 端当前主入口是“快速体验登录”，微信登录按钮明确写着“即将上线”。这说明产品的真实身份体系还没完成。
+Web 端已提供邮箱注册和密码登录，同时保留仅限开发环境的快速登录。正式发布前仍需补齐邮箱验证、密码找回和 token 生命周期管理。
 
 证据：
 
-- 登录页主按钮是 `快速体验登录`  
-  [login/index.tsx](/Users/edy/Daizixuan/Lianleme/web/src/pages/login/index.tsx:108)
-- 微信登录仍为禁用态并标注“即将上线”  
-  [login/index.tsx](/Users/edy/Daizixuan/Lianleme/web/src/pages/login/index.tsx:79)
-- 后端虽有微信登录接口，但前端没有真正接通  
-  [user.py](/Users/edy/Daizixuan/Lianleme/backend/app/api/user.py:21)
+- 登录页已提供邮箱注册和密码登录
+  [login/index.tsx](/Users/edy/Daizixuan/Lianleme/web/src/pages/login/index.tsx)
+- 后端已提供邮箱注册和登录接口
+  [user.py](/Users/edy/Daizixuan/Lianleme/backend/app/api/user.py)
+- `dev-login` 已限制为开发环境使用
+  [user.py](/Users/edy/Daizixuan/Lianleme/backend/app/api/user.py)
 
 正式产出前必须完成：
 
-- 明确正式身份体系：微信小程序登录、Web 手机验证码登录、或统一 OAuth
+- 增加邮箱验证、密码找回和 token 刷新机制
 - 设计首次注册与用户建档流程
 - 去掉演示入口对正式环境的依赖
 
@@ -168,40 +168,21 @@ Web 端当前主入口是“快速体验登录”，微信登录按钮明确写�
 
 ## 3. 当前已经具备雏形、但没有真正完成的功能
 
-### 3.1 微信正式登录
+### 3.1 邮箱身份体系完善
 
 现状：
 
-- 后端已有 `code2session`
-- 前端入口仍禁用
-- 没有正式 token 生命周期、刷新机制、异常处理闭环
+- 前后端已接通邮箱注册和密码登录
+- 开发环境仍保留快速登录
+- 没有邮箱验证、密码找回和 token 刷新机制
 
 下一步：
 
-- 接通真实登录
+- 完善邮箱验证与密码找回
 - 处理首次注册建档
-- 管理多端登录态
+- 管理 token 生命周期和多端登录态
 
-### 3.2 微信订阅消息提醒
-
-现状：
-
-- 已有 `PushService`
-- 已有 `APScheduler`
-- 模板 ID 还是占位符
-- 没看到在应用启动里接入 `setup_scheduler()`
-- 没有用户授权订阅流程
-
-证据：
-
-- 调度器逻辑存在，但未接入主生命周期  
-  [push_service.py](/Users/edy/Daizixuan/Lianleme/backend/app/services/push/push_service.py:62)
-- 应用启动仅做建表和 bucket 初始化  
-  [main.py](/Users/edy/Daizixuan/Lianleme/backend/app/main.py:18)
-
-这说明提醒体系是“写了模块”，不是“完成了功能”。
-
-### 3.3 训练计划动态调整
+### 3.2 训练计划动态调整
 
 现状：
 
@@ -218,7 +199,7 @@ Web 端当前主入口是“快速体验登录”，微信登录按钮明确写�
 
 这类功能如果用户感知不到，产品价值就没有被兑现。
 
-### 3.4 AI 陪练的结构化指导
+### 3.3 AI 陪练的结构化指导
 
 现状：
 
@@ -228,7 +209,7 @@ Web 端当前主入口是“快速体验登录”，微信登录按钮明确写�
 
 这意味着“教练状态机”和“用户下一步动作引导”还没真正做成。
 
-### 3.5 对象存储与分析历史资产化
+### 3.4 对象存储与分析历史资产化
 
 现状：
 
@@ -242,7 +223,7 @@ Web 端当前主入口是“快速体验登录”，微信登录按钮明确写�
 - 同期照片对比
 - 体型变化时间线
 
-### 3.6 管理后台能力
+### 3.5 管理后台能力
 
 现状：
 
@@ -257,7 +238,7 @@ Web 端当前主入口是“快速体验登录”，微信登录按钮明确写�
 - 导出报表
 - 异常用户识别
 
-### 3.7 用户自带 API Key 体系
+### 3.6 用户自带 API Key 体系
 
 现状：
 

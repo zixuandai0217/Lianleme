@@ -1,5 +1,5 @@
 /* API 方法集合：对应后端全部路由 */
-import client from "./client"
+import client, { fetchCoachAnimatedTTSPayload, fetchCoachTTSBlob, fetchCoachTTSStatus } from "./client"
 import type {
   AnalyzeResponse,
   AnalyzeResultResponse,
@@ -29,6 +29,12 @@ export const devLogin = () =>
 
 export const devAdminLogin = () =>
   client.post<unknown, LoginResponse>("/api/user/dev-login/admin")
+
+export const register = (email: string, password: string, nickname?: string) =>
+  client.post<unknown, LoginResponse>("/api/user/register", { email, password, nickname: nickname || "" })
+
+export const emailLogin = (email: string, password: string) =>
+  client.post<unknown, LoginResponse>("/api/user/auth/login", { email, password })
 
 // ── User ──
 export const getCurrentUser = () =>
@@ -83,6 +89,13 @@ export const chatWithCoach = (msg: ChatMessage) =>
 
 export const getChatHistory = (userId: number, limit = 50) =>
   client.get<unknown, ChatHistoryResponse>(`/api/coach/${userId}/history?limit=${limit}`)
+
+export const getCoachTTSStatus = () => fetchCoachTTSStatus()
+
+export const fetchCoachTTS = (text: string) => fetchCoachTTSBlob(text)
+
+export const fetchCoachAnimatedTTS = (text: string, signal?: AbortSignal) =>
+  fetchCoachAnimatedTTSPayload(text, signal)
 
 // ── Workout ──
 export const completeWorkout = (req: WorkoutCompleteRequest) =>

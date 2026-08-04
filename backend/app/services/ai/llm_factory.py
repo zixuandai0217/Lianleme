@@ -1,6 +1,6 @@
 """
 LLMClientFactory：统一 LLM 客户端工厂
-优先使用用户自有 API Key，未配置时降级到系统 .env 默认 Key
+登录用户必须使用自有 API Key；无用户身份的内部任务可使用系统 Key
 支持 OpenAI / 通义千问（兼容 OpenAI 接口格式）切换
 """
 from typing import Optional
@@ -26,21 +26,21 @@ class LLMClientFactory:
         """
         获取 LLM 客户端：
         - model_type: 'chat'（文本对话）或 'vision'（多模态）
-        - 优先级：用户自有 Key > 系统默认 Key
+        - 用户请求：必须使用用户自有 Key
+        - 内部任务：user_id 为空时允许使用系统 Key
         """
         provider, api_key = await self._resolve_key(user_id)
         return self._build_client(provider, api_key, model_type, streaming)
 
     async def _resolve_key(self, user_id: Optional[int]) -> tuple[str, str]:
         """解析最终使用的 provider 和 api_key"""
-        if user_id and self.db:
+        if user_id is not None:
+            if self.db is None:
+                raise ValueError("用户 AI 请求缺少数据库会话，无法读取 API Key")
             key_service = ApiKeyService(self.db)
-            user_key = await key_service.get_decrypted_key(user_id)
-            if user_key:
-                provider, raw_key = user_key
-                return provider, raw_key
+            return await key_service.require_decrypted_key(user_id)
 
-        # 降级到系统默认
+        # Internal jobs without a user identity may use server-managed credentials.
         return settings.DEFAULT_LLM_PROVIDER, (
             settings.QWEN_API_KEY
             if settings.DEFAULT_LLM_PROVIDER == "qwen"
@@ -63,9 +63,11 @@ class LLMClientFactory:
                 timeout=120,
                 max_retries=2,
             )
-        else:
+        if provider == "openai":
             model_name = (
-                settings.OPENAI_VISION_MODEL if model_type == "vision" else settings.OPENAI_CHAT_MODEL
+                settings.OPENAI_VISION_MODEL
+                if model_type == "vision"
+                else settings.OPENAI_CHAT_MODEL
             )
             return ChatOpenAI(
                 model=model_name,
@@ -74,3 +76,4 @@ class LLMClientFactory:
                 timeout=120,
                 max_retries=2,
             )
+        raise ValueError("不支持的 LLM 提供商")

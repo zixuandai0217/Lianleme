@@ -5,7 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import ensure_current_user_matches, get_current_user
+from app.core.security import (
+    ensure_current_user_matches,
+    get_current_user,
+    require_current_user_api_key,
+)
 from app.models.user import User
 from app.schemas.plan import GeneratePlanRequest, PlanResponse
 from app.services.plan.plan_service import PlanService
@@ -33,7 +37,7 @@ async def get_current_plan(
 async def generate_plan(
     req: GeneratePlanRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_current_user_api_key),
 ):
     """生成训练计划：自动从用户表读取体型分析和档案，前端无需手动传"""
     ensure_current_user_matches(current_user, req.user_id)

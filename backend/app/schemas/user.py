@@ -1,12 +1,20 @@
 """用户相关 Pydantic Schema"""
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
-class WechatLoginRequest(BaseModel):
-    """微信登录请求：前端传入临时 code"""
-    code: str = Field(..., description="微信 wx.login() 获得的临时 code")
+class RegisterRequest(BaseModel):
+    """邮箱注册请求"""
+    email: str = Field(..., min_length=5, max_length=128, description="注册邮箱")
+    password: str = Field(..., min_length=6, max_length=64, description="登录密码")
+    nickname: str = Field(default="", max_length=64, description="用户昵称")
+
+
+class EmailLoginRequest(BaseModel):
+    """邮箱登录请求"""
+    email: str = Field(..., description="登录邮箱")
+    password: str = Field(..., description="登录密码")
 
 
 class LoginResponse(BaseModel):
@@ -34,8 +42,14 @@ class UserProfileUpdateRequest(BaseModel):
 
 class ApiKeyConfigRequest(BaseModel):
     """用户配置自己的 LLM API Key"""
-    provider: str = Field(..., description="提供商：openai / qwen")
+    provider: Literal["openai", "qwen"] = Field(..., description="提供商：openai / qwen")
     api_key: str = Field(..., min_length=10, description="用户的 API Key")
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def normalize_api_key(cls, value):
+        """Strip copy-paste whitespace before validating the provider secret."""
+        return value.strip() if isinstance(value, str) else value
 
 
 class ApiKeyStatusResponse(BaseModel):

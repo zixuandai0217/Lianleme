@@ -1,10 +1,22 @@
-/* 登录页：品牌展示 + 开发快速登录 + 微信登录预留 */
+/* Login page for email/password authentication and local development access. */
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
-import { Dumbbell, Loader2, Zap, ScanEye, CalendarDays, MessageSquare } from "lucide-react"
+import {
+  Dumbbell,
+  Loader2,
+  Zap,
+  ScanEye,
+  CalendarDays,
+  MessageSquare,
+  ChevronRight,
+  Mail,
+  Lock,
+  User,
+} from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 
 const features = [
@@ -14,8 +26,24 @@ const features = [
 ]
 
 export default function LoginPage() {
-  const { loginAsUser, error } = useAuth()
+  const { loginAsUser, loginWithEmail, register, error: authError } = useAuth()
   const [loading, setLoading] = useState(false)
+
+  // Form mode: "login" | "register"
+  const [mode, setMode] = useState<"login" | "register">("login")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [nickname, setNickname] = useState("")
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const error = formError || authError
+
+  const resetForm = () => {
+    setFormError(null)
+    setEmail("")
+    setPassword("")
+    setNickname("")
+  }
 
   const handleDevLogin = async () => {
     setLoading(true)
@@ -26,127 +54,237 @@ export default function LoginPage() {
     }
   }
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setFormError(null)
+
+    if (!email.trim()) {
+      setFormError("请输入邮箱")
+      return
+    }
+    if (password.length < 6) {
+      setFormError("密码至少 6 位")
+      return
+    }
+
+    setLoading(true)
+    try {
+      if (mode === "register") {
+        await register(email.trim(), password, nickname.trim() || undefined)
+      } else {
+        await loginWithEmail(email.trim(), password)
+      }
+    } catch {
+      setFormError("操作失败，请稍后重试")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const toggleMode = () => {
+    setMode(mode === "login" ? "register" : "login")
+    resetForm()
+  }
+
   return (
     <div className="flex min-h-screen bg-background">
-      {/* 左侧品牌区 */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between bg-gradient-to-br from-primary/10 via-primary/5 to-background p-12">
-        <div className="flex items-center gap-3">
-          <div className="rounded-xl bg-primary p-2.5">
-            <Dumbbell className="h-7 w-7 text-primary-foreground" />
+      {/* Desktop brand showcase */}
+      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between bg-gradient-to-br from-brand-dark via-[#1b2a1f] to-brand-dark p-12 relative overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 opacity-[0.03]">
+          <div className="grid h-full w-full grid-cols-12 gap-2 p-12">
+            {Array.from({ length: 72 }).map((_, i) => (
+              <div key={i} className="aspect-square rounded-sm bg-current" />
+            ))}
           </div>
-          <span className="text-2xl font-bold tracking-tight">练了么</span>
         </div>
 
-        <div className="space-y-8 max-w-md">
+        <div className="flex items-center gap-3 relative z-10">
+          <span className="flex size-11 items-center justify-center rounded-lg bg-primary/20 text-primary shadow-sm">
+            <Dumbbell className="size-5" />
+          </span>
+          <span className="text-xl font-bold tracking-tight text-brand-light">练了么</span>
+        </div>
+
+        <div className="relative z-10 max-w-md space-y-8">
           <div>
-            <h1 className="text-4xl font-bold tracking-tight leading-tight">
+            <span className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-brand-light/40">
+              AI-Powered Fitness Coach
+            </span>
+            <h1 className="mt-4 text-4xl font-bold leading-tight text-brand-light">
               你的 AI 健身搭子
             </h1>
-            <p className="mt-3 text-lg text-muted-foreground leading-relaxed">
+            <p className="mt-4 text-base leading-relaxed text-brand-light/60">
               从体型分析到训练计划，从动作指导到打卡记录，AI 全程陪练，让每次训练都高效有趣。
             </p>
           </div>
 
-          <div className="space-y-5">
+          <div className="space-y-4">
             {features.map((f) => (
               <div key={f.title} className="flex items-start gap-4">
-                <div className="rounded-lg bg-primary/10 p-2.5 shrink-0">
-                  <f.icon className="h-5 w-5 text-primary" />
-                </div>
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-white/5 text-brand-light/70">
+                  <f.icon className="size-4" />
+                </span>
                 <div>
-                  <p className="font-semibold">{f.title}</p>
-                  <p className="text-sm text-muted-foreground">{f.desc}</p>
+                  <p className="font-semibold text-brand-light">{f.title}</p>
+                  <p className="mt-0.5 text-sm text-brand-light/50">{f.desc}</p>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-xs text-muted-foreground">
-          练了么 v0.1.0 · AI-Powered Fitness Coach
+        <p className="relative z-10 text-xs text-brand-light/30">
+          练了么 v0.1.0 · Move with intent
         </p>
       </div>
 
-      {/* 右侧登录区 */}
+      {/* Login panel */}
       <div className="flex flex-1 flex-col items-center justify-center p-6 sm:p-12">
-        {/* 移动端 logo */}
+        {/* Mobile logo */}
         <div className="flex items-center gap-3 mb-10 lg:hidden">
-          <div className="rounded-xl bg-primary p-2.5">
-            <Dumbbell className="h-7 w-7 text-primary-foreground" />
-          </div>
-          <span className="text-2xl font-bold tracking-tight">练了么</span>
+          <span className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Dumbbell className="size-5" />
+          </span>
+          <span className="text-xl font-bold tracking-tight text-foreground">练了么</span>
         </div>
 
-        <Card className="w-full max-w-sm">
-          <CardContent className="pt-8 pb-8 px-6 space-y-6">
+        <div className="w-full max-w-sm rounded-lg border border-border bg-card shadow-[0_8px_24px_rgba(23,26,23,0.06)]">
+          <div className="px-6 pt-8 pb-6 space-y-5">
             <div className="text-center space-y-2">
-              <h2 className="text-xl font-semibold">登录你的账号</h2>
+              <h2 className="text-xl font-semibold">
+                {mode === "login" ? "登录你的账号" : "创建新账号"}
+              </h2>
               <p className="text-sm text-muted-foreground">
-                选择一种方式开始训练之旅
+                {mode === "login" ? "输入邮箱和密码开始训练之旅" : "注册后即可享受 AI 全程陪练"}
               </p>
             </div>
 
-            {/* 微信登录（预留） */}
-            <Button
-              variant="outline"
-              className="w-full h-11 relative"
-              disabled
-            >
-              <svg className="mr-2 h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05a6.093 6.093 0 0 1-.247-1.728c0-3.572 3.259-6.47 7.277-6.47.145 0 .284.022.426.028C16.219 4.535 12.868 2.188 8.691 2.188zM5.785 7.11a.96.96 0 1 1 0-1.92.96.96 0 0 1 0 1.92zm5.813 0a.96.96 0 1 1 0-1.92.96.96 0 0 1 0 1.92zm4.434 7.202c0 3.07 2.867 5.56 6.402 5.56.67 0 1.312-.09 1.912-.263a.6.6 0 0 1 .497.068l1.32.772a.224.224 0 0 0 .116.037c.11 0 .2-.09.2-.204 0-.05-.02-.098-.033-.147l-.27-1.026a.408.408 0 0 1 .147-.46C24.893 17.47 24 15.9 24 14.312c0-3.07-2.867-5.56-6.402-5.56-3.535 0-5.566 2.49-5.566 5.56zM16.97 13a.72.72 0 1 1 0-1.44.72.72 0 0 1 0 1.44zm4.06 0a.72.72 0 1 1 0-1.44.72.72 0 0 1 0 1.44z" />
-              </svg>
-              微信登录
-              <span className="absolute right-3 text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                即将上线
-              </span>
-            </Button>
+            {/* Email/Password form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {mode === "register" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="nickname" className="font-sans text-xs font-semibold text-muted-foreground">昵称</Label>
+                  <div className="relative">
+                    <User className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/40" />
+                    <Input
+                      id="nickname"
+                      type="text"
+                      value={nickname}
+                      onChange={(e) => setNickname(e.target.value)}
+                      placeholder="你的昵称（可选）"
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label htmlFor="email" className="font-sans text-xs font-semibold text-muted-foreground">邮箱</Label>
+                <div className="relative">
+                  <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/40" />
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    className="pl-9"
+                    autoComplete="email"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="password" className="font-sans text-xs font-semibold text-muted-foreground">密码</Label>
+                <div className="relative">
+                  <Lock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/40" />
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="至少 6 位密码"
+                    className="pl-9"
+                    autoComplete={mode === "login" ? "current-password" : "new-password"}
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <p className="text-sm text-destructive text-center">{error}</p>
+              )}
+
+              <Button type="submit" disabled={loading} className="w-full h-11">
+                {loading ? <Loader2 className="animate-spin" /> : null}
+                {loading ? "处理中..." : mode === "login" ? "登录" : "注册并登录"}
+              </Button>
+            </form>
 
             <div className="relative">
               <Separator />
               <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-3 text-xs text-muted-foreground">
-                或
+                {mode === "login" ? "没有账号？" : "已有账号？"}
               </span>
             </div>
 
-            {/* 开发模式快速登录 */}
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={toggleMode}
+              className="w-full text-sm text-muted-foreground hover:text-foreground"
+            >
+              {mode === "login" ? "注册新账号" : "使用已有账号登录"}
+              <ChevronRight className="size-3.5" />
+            </Button>
+
+            {/* Dev quick login */}
+            <div className="relative">
+              <Separator />
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-3 text-xs text-muted-foreground">
+                开发模式
+              </span>
+            </div>
+
             <Button
               onClick={handleDevLogin}
               disabled={loading}
+              variant="outline"
               className="w-full h-11"
             >
               {loading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="animate-spin" />
               ) : (
-                <Zap className="mr-2 h-4 w-4" />
+                <Zap className="size-4" />
               )}
-              {loading ? "登录中..." : "快速体验登录"}
+              {loading ? "登录中..." : "Let's GO! 🔥"}
             </Button>
 
-            {error && (
-              <p className="text-sm text-destructive text-center">{error}</p>
-            )}
-
             <p className="text-xs text-muted-foreground text-center leading-relaxed">
-              快速登录使用开发账号，无需微信授权即可体验全部功能
+              Dev login — no strings attached. Get in, get swole. 💪
             </p>
 
+            {/* Admin link */}
             <div className="text-center">
               <Link
                 to="/admin/login"
-                className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground transition-colors"
               >
                 管理员入口
+                <ChevronRight className="size-3" />
               </Link>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        {/* 移动端功能预览 */}
+        {/* Mobile feature preview */}
         <div className="mt-10 space-y-4 lg:hidden max-w-sm w-full">
           {features.map((f) => (
-            <div key={f.title} className="flex items-center gap-3 text-sm">
-              <f.icon className="h-4 w-4 text-primary shrink-0" />
-              <span className="text-muted-foreground">{f.title} — {f.desc}</span>
+            <div key={f.title} className="flex items-center gap-3">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <f.icon className="size-4" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold">{f.title}</p>
+                <p className="text-xs text-muted-foreground">{f.desc}</p>
+              </div>
             </div>
           ))}
         </div>

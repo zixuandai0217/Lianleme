@@ -1,6 +1,6 @@
 """AI 陪练对话相关 Pydantic Schema"""
 import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -49,3 +49,34 @@ class ChatHistoryResponse(BaseModel):
     """对话历史列表"""
     messages: List[ChatMessageResponse]
     total: int
+
+
+class CoachTTSRequest(BaseModel):
+    """Coach message text to synthesize as speech."""
+
+    text: str = Field(..., min_length=1, max_length=500, description="要朗读的教练文案")
+
+
+class CoachTTSStatusResponse(BaseModel):
+    """Whether coach TTS is configured and callable for the current deployment."""
+
+    available: bool
+    lip_sync_available: bool
+
+
+class CoachMouthCue(BaseModel):
+    """One validated Rhubarb mouth shape interval."""
+
+    start: float
+    end: float
+    value: Literal["A", "B", "C", "D", "E", "F", "G", "H", "X"]
+
+
+class CoachAnimatedTTSResponse(BaseModel):
+    """Base64 WAV audio plus its synchronized mouth animation timeline."""
+
+    audio_base64: str
+    mime_type: Literal["audio/wav"] = "audio/wav"
+    duration_seconds: float
+    mouth_cues: list[CoachMouthCue]
+    alignment: Literal["rhubarb", "energy"]

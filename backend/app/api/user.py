@@ -1,4 +1,4 @@
-"""用户路由：微信登录、开发模式免登录、档案管理、API Key 配置"""
+"""用户路由：邮箱认证、开发模式免登录、档案管理和 API Key 配置。"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,10 +9,11 @@ from app.models.user import User
 from app.schemas.user import (
     ApiKeyConfigRequest,
     ApiKeyStatusResponse,
+    EmailLoginRequest,
     LoginResponse,
+    RegisterRequest,
     UserProfileUpdateRequest,
     UserResponse,
-    WechatLoginRequest,
 )
 from app.services.user.user_service import UserService
 from app.services.user.api_key_service import ApiKeyService
@@ -34,11 +35,24 @@ def _build_user_response(user: User, api_key_status: ApiKeyStatusResponse | None
     )
 
 
-@router.post("/login", response_model=LoginResponse)
-async def wechat_login(req: WechatLoginRequest, db: AsyncSession = Depends(get_db)):
-    """微信登录：code 换取 openid，首次登录自动建档"""
+@router.post("/register", response_model=LoginResponse)
+async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    """邮箱注册：创建新用户并返回 token"""
     service = UserService(db)
-    return await service.login(req.code)
+    try:
+        return await service.register(req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/auth/login", response_model=LoginResponse)
+async def email_login(req: EmailLoginRequest, db: AsyncSession = Depends(get_db)):
+    """邮箱密码登录"""
+    service = UserService(db)
+    try:
+        return await service.email_login(req.email, req.password)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
 
 
 @router.post("/dev-login", response_model=LoginResponse)
@@ -122,7 +136,7 @@ async def delete_api_key(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """清除用户 API Key，恢复使用系统默认 Key"""
+    """清除用户 API Key，并停用该用户的 AI 生成功能。"""
     ensure_current_user_matches(current_user, user_id)
     key_service = ApiKeyService(db)
     return await key_service.delete_key(user_id)

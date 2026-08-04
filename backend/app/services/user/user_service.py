@@ -1,38 +1,68 @@
-"""
-UserService：用户档案 CRUD + 微信登录 code2session
-"""
+"""用户档案 CRUD、邮箱认证和开发身份服务。"""
 import time
 from typing import Optional
 
-import httpx
+import hashlib
+import os
+
 from jose import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.user import User
-from app.schemas.user import LoginResponse, UserProfileUpdateRequest
+from app.schemas.user import LoginResponse, RegisterRequest, UserProfileUpdateRequest
+
+
+def _hash_password(password: str) -> str:
+    """PBKDF2-HMAC-SHA256 password hashing with random salt."""
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
+    return salt.hex() + ":" + dk.hex()
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    """Verify a password against a stored hash created by _hash_password."""
+    salt_hex, dk_hex = stored.split(":")
+    salt = bytes.fromhex(salt_hex)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
+    return dk.hex() == dk_hex
 
 
 class UserService:
-    """用户核心服务：微信登录、档案管理、体型结果存储"""
+    """管理用户认证、档案和体型分析结果。"""
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def login(self, code: str) -> LoginResponse:
-        """微信登录：code → openid，首次自动建档"""
-        openid = await self._code2session(code)
-        result = await self.db.execute(select(User).where(User.openid == openid))
-        user = result.scalar_one_or_none()
-        is_new = False
-        if not user:
-            user = User(openid=openid)
-            self.db.add(user)
-            await self.db.flush()
-            is_new = True
+    async def register(self, req: RegisterRequest) -> LoginResponse:
+        """邮箱注册：创建新用户并返回 token"""
+        result = await self.db.execute(select(User).where(User.email == req.email))
+        if result.scalar_one_or_none():
+            raise ValueError("该邮箱已被注册")
+
+        openid = f"email_{req.email}"
+        user = User(
+            openid=openid,
+            email=req.email,
+            password_hash=_hash_password(req.password),
+            nickname=req.nickname or req.email.split("@")[0],
+        )
+        self.db.add(user)
+        await self.db.flush()
         token = self._generate_token(user.id)
-        return LoginResponse(token=token, user_id=user.id, is_new_user=is_new)
+        return LoginResponse(token=token, user_id=user.id, is_new_user=True)
+
+    async def email_login(self, email: str, password: str) -> LoginResponse:
+        """邮箱登录：验证凭据并返回 token"""
+        result = await self.db.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
+        if not user or not user.password_hash:
+            raise ValueError("邮箱或密码错误")
+        if not _verify_password(password, user.password_hash):
+            raise ValueError("邮箱或密码错误")
+        token = self._generate_token(user.id)
+        return LoginResponse(token=token, user_id=user.id, is_new_user=False)
 
     async def dev_login(self) -> LoginResponse:
         """开发模式默认登录普通用户，兼容现有调用方。"""
@@ -42,7 +72,7 @@ class UserService:
         """开发模式普通用户登录：查找或创建默认用户账号。"""
         return await self._dev_login_for_identity(
             openid="dev-web-user",
-            nickname="Web 体验用户",
+            nickname="My homie",
             is_admin=False,
         )
 
@@ -108,22 +138,6 @@ class UserService:
                 await self.db.flush()
         token = self._generate_token(user.id)
         return LoginResponse(token=token, user_id=user.id, is_new_user=is_new)
-
-    async def _code2session(self, code: str) -> str:
-        """调用微信 code2session 接口换取 openid"""
-        url = "https://api.weixin.qq.com/sns/jscode2session"
-        params = {
-            "appid": settings.WECHAT_APP_ID,
-            "secret": settings.WECHAT_APP_SECRET,
-            "js_code": code,
-            "grant_type": "authorization_code",
-        }
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, params=params)
-            data = resp.json()
-        if "openid" not in data:
-            raise ValueError(f"微信登录失败：{data.get('errmsg', '未知错误')}")
-        return data["openid"]
 
     def _generate_token(self, user_id: int) -> str:
         """生成简单 JWT Token（有效期 30 天）"""
