@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
-from app.services.user.api_key_service import ApiKeyRequiredError, ApiKeyService
+from app.services.user.api_key_service import ApiKeyService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -71,18 +71,25 @@ async def require_current_user_api_key(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Require a decryptable user-owned provider key for AI generation."""
-    try:
-        await ApiKeyService(db).require_decrypted_key(current_user.id)
-    except ApiKeyRequiredError:
-        raise HTTPException(
-            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
-            detail={
-                "code": "api_key_required",
-                "message": "使用 AI 功能前，请先在个人资料中配置你自己的 API Key",
-            },
-        ) from None
-    return current_user
+    """Require usable provider credentials for AI generation.
+
+    A user-owned key always qualifies. A keyless user only passes when the
+    opt-in server fallback (ALLOW_SYSTEM_LLM_FALLBACK) is enabled and usable
+    system credentials exist; otherwise the request fails closed with 428.
+    """
+    key_service = ApiKeyService(db)
+    user_key = await key_service.get_decrypted_key(current_user.id)
+    if user_key is not None:
+        return current_user
+    if settings.ALLOW_SYSTEM_LLM_FALLBACK and settings.system_llm_credentials() is not None:
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+        detail={
+            "code": "api_key_required",
+            "message": "使用 AI 功能前，请先在个人资料中配置你自己的 API Key",
+        },
+    )
 
 
 def ensure_current_user_matches(current_user: User, target_user_id: int) -> None:

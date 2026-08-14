@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     MINIO_BUCKET: str = "lianleme-photos"
 
     # LLM 系统默认 Key
+    # 允许未配置个人 Key 的登录用户回退到系统 Key（仅限中央付费部署按需开启，默认关闭）
+    ALLOW_SYSTEM_LLM_FALLBACK: bool = False
     DEFAULT_LLM_PROVIDER: str = "qwen"
     OPENAI_API_KEY: str = ""
     OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
@@ -69,6 +71,23 @@ class Settings(BaseSettings):
                 "AES_SECRET_KEY must be a unique deployment secret of at least 32 bytes"
             )
         return self
+
+    def system_llm_credentials(self) -> tuple[str, str] | None:
+        """Return usable server-managed (provider, api_key) or None.
+
+        Only DEFAULT_LLM_PROVIDER providers with a non-blank configured system key
+        qualify. Non-secret helper: it never logs or persists the returned key.
+        """
+        provider = self.DEFAULT_LLM_PROVIDER.strip().lower()
+        if provider == "qwen":
+            api_key = self.QWEN_API_KEY.strip()
+        elif provider == "openai":
+            api_key = self.OPENAI_API_KEY.strip()
+        else:
+            return None
+        if not api_key:
+            return None
+        return provider, api_key
 
 
 settings = Settings()

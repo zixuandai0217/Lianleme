@@ -35,12 +35,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _get_user_qwen_key(db: AsyncSession, user_id: int) -> str | None:
-    """Return the user's Qwen key, excluding keys for other providers."""
-    user_key = await ApiKeyService(db).get_decrypted_key(user_id)
-    if user_key is None or user_key[0] != "qwen":
+def _system_qwen_tts_key() -> str | None:
+    """Return the server-managed Qwen key for coach voice when opt-in fallback is enabled.
+
+    Never returns an OpenAI key: coach voice is Qwen-only.
+    """
+    if not settings.ALLOW_SYSTEM_LLM_FALLBACK:
         return None
-    return user_key[1]
+    return (settings.QWEN_AUDIO_API_KEY or settings.QWEN_API_KEY or "").strip() or None
+
+
+async def _get_user_qwen_key(db: AsyncSession, user_id: int) -> str | None:
+    """Return the user's Qwen key, else the system Qwen key when fallback is enabled."""
+    user_key = await ApiKeyService(db).get_decrypted_key(user_id)
+    if user_key is not None and user_key[0] == "qwen":
+        return user_key[1]
+    return _system_qwen_tts_key()
 
 
 async def _require_user_qwen_key(db: AsyncSession, user_id: int) -> str:

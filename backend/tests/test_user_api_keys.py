@@ -301,6 +301,74 @@ async def test_internal_request_without_user_identity_can_use_system_key(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_internal_request_without_system_key_raises_useful_error(monkeypatch):
+    """Internal jobs must fail loudly when no server-managed credentials exist."""
+    monkeypatch.setattr(settings, "DEFAULT_LLM_PROVIDER", "qwen")
+    monkeypatch.setattr(settings, "QWEN_API_KEY", "")
+
+    with pytest.raises(ValueError, match="系统 LLM 凭据"):
+        await LLMClientFactory()._resolve_key(None)
+
+
+@pytest.mark.asyncio
+async def test_llm_factory_falls_back_to_system_key_when_enabled(
+    session_factory,
+    keyless_user,
+    monkeypatch,
+):
+    """With the opt-in flag, a keyless user may use server-managed credentials."""
+    monkeypatch.setattr(settings, "ALLOW_SYSTEM_LLM_FALLBACK", True)
+    monkeypatch.setattr(settings, "DEFAULT_LLM_PROVIDER", "qwen")
+    monkeypatch.setattr(settings, "QWEN_API_KEY", "system-provider-key")
+
+    async with session_factory() as session:
+        factory = LLMClientFactory(session)
+        provider, api_key = await factory._resolve_key(keyless_user.id)
+
+    assert (provider, api_key) == ("qwen", "system-provider-key")
+
+
+@pytest.mark.asyncio
+async def test_llm_factory_personal_key_priority_over_system_fallback(
+    session_factory,
+    keyless_user,
+    monkeypatch,
+):
+    """A personal key always wins over server-managed fallback credentials."""
+    await configure_user_key(
+        session_factory,
+        keyless_user.id,
+        "openai",
+        "sk-user-openai-123456",
+    )
+    monkeypatch.setattr(settings, "ALLOW_SYSTEM_LLM_FALLBACK", True)
+    monkeypatch.setattr(settings, "DEFAULT_LLM_PROVIDER", "qwen")
+    monkeypatch.setattr(settings, "QWEN_API_KEY", "system-provider-key")
+
+    async with session_factory() as session:
+        provider, api_key = await LLMClientFactory(session)._resolve_key(keyless_user.id)
+
+    assert (provider, api_key) == ("openai", "sk-user-openai-123456")
+
+
+@pytest.mark.asyncio
+async def test_llm_factory_fallback_still_fails_closed_without_system_key(
+    session_factory,
+    keyless_user,
+    monkeypatch,
+):
+    """The flag alone never unlocks a keyless user without usable system credentials."""
+    monkeypatch.setattr(settings, "ALLOW_SYSTEM_LLM_FALLBACK", True)
+    monkeypatch.setattr(settings, "DEFAULT_LLM_PROVIDER", "qwen")
+    monkeypatch.setattr(settings, "QWEN_API_KEY", "")
+
+    async with session_factory() as session:
+        factory = LLMClientFactory(session)
+        with pytest.raises(ValueError, match="API Key"):
+            await factory._resolve_key(keyless_user.id)
+
+
+@pytest.mark.asyncio
 async def test_ai_generation_routes_require_a_user_owned_key(
     client,
     keyless_user,
@@ -351,6 +419,58 @@ async def test_ai_generation_routes_require_a_user_owned_key(
 
 
 @pytest.mark.asyncio
+async def test_keyless_user_passes_ai_route_with_fallback_enabled(
+    client,
+    keyless_user,
+    monkeypatch,
+):
+    """The AI gate admits a keyless user only when opt-in fallback is usable."""
+    monkeypatch.setattr(settings, "ALLOW_SYSTEM_LLM_FALLBACK", True)
+    monkeypatch.setattr(settings, "DEFAULT_LLM_PROVIDER", "qwen")
+    monkeypatch.setattr(settings, "QWEN_API_KEY", "system-provider-key")
+
+    coach_chat = AsyncMock(
+        return_value={"reply": "ok", "coach_state": "guide", "suggested_actions": []}
+    )
+    monkeypatch.setattr(
+        coach_api,
+        "CoachGraph",
+        lambda user_id, db: SimpleNamespace(chat=coach_chat),
+    )
+
+    response = await client.post(
+        "/api/coach/chat",
+        json={"user_id": keyless_user.id, "message": "hello"},
+        headers=auth_headers(keyless_user.id),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["reply"] == "ok"
+    coach_chat.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_keyless_user_ai_route_still_fails_closed_without_system_key(
+    client,
+    keyless_user,
+    monkeypatch,
+):
+    """The flag alone never unlocks an AI route when system credentials are absent."""
+    monkeypatch.setattr(settings, "ALLOW_SYSTEM_LLM_FALLBACK", True)
+    monkeypatch.setattr(settings, "DEFAULT_LLM_PROVIDER", "qwen")
+    monkeypatch.setattr(settings, "QWEN_API_KEY", "")
+
+    response = await client.post(
+        "/api/coach/chat",
+        json={"user_id": keyless_user.id, "message": "hello"},
+        headers=auth_headers(keyless_user.id),
+    )
+
+    assert response.status_code == 428
+    assert response.json()["detail"]["code"] == "api_key_required"
+
+
+@pytest.mark.asyncio
 async def test_user_with_key_can_reach_ai_generation_route(
     client,
     session_factory,
@@ -392,7 +512,7 @@ async def test_keyless_user_cannot_use_coach_voice(
 ):
     """Coach speech must not consume the server Qwen key for a keyless user."""
     synthesize = AsyncMock(return_value=b"voice")
-    monkeypatch.setattr(tts_runtime, "tts_is_configured", lambda *args: True)
+    monkeypatch.setattr(tts_runtime, "tts_is_configured", lambda *args, **kwargs: True)
     monkeypatch.setattr(tts_runtime, "synthesize_speech", synthesize)
 
     response = await client.post(
@@ -462,6 +582,157 @@ async def test_openai_user_does_not_receive_system_qwen_voice(
     )
     monkeypatch.setattr(settings, "QWEN_AUDIO_TTS_VOICE", "voice-abc")
     monkeypatch.setattr(settings, "QWEN_AUDIO_API_KEY", "system-audio-key")
+
+    response = await client.get(
+        "/api/coach/tts/status",
+        headers=auth_headers(keyless_user.id),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["available"] is False
+
+
+@pytest.mark.asyncio
+async def test_keyless_user_tts_falls_back_to_system_qwen_key_when_enabled(
+    client,
+    keyless_user,
+    monkeypatch,
+):
+    """Coach voice may use the system Qwen key for a keyless user when opted in."""
+    monkeypatch.setattr(settings, "ALLOW_SYSTEM_LLM_FALLBACK", True)
+    monkeypatch.setattr(settings, "QWEN_AUDIO_API_KEY", "")
+    monkeypatch.setattr(settings, "QWEN_API_KEY", "system-qwen-key")
+
+    synthesize = AsyncMock(return_value=b"voice")
+    configured_with: list[tuple[str | None, str | None]] = []
+
+    def is_configured(api_key=None, voice_id=None):
+        """Capture the credential used for route availability checks."""
+        configured_with.append((api_key, voice_id))
+        return api_key == "system-qwen-key" and voice_id == "Ryan"
+
+    monkeypatch.setattr(tts_runtime, "tts_is_configured", is_configured)
+    monkeypatch.setattr(tts_runtime, "synthesize_speech", synthesize)
+
+    response = await client.post(
+        "/api/coach/tts",
+        json={"text": "hello"},
+        headers=auth_headers(keyless_user.id),
+    )
+
+    assert response.status_code == 200
+    assert configured_with == [("system-qwen-key", "Ryan")]
+    synthesize.assert_awaited_once_with(
+        "hello",
+        api_key="system-qwen-key",
+        voice_id="Ryan",
+    )
+
+
+@pytest.mark.asyncio
+async def test_personal_qwen_key_priority_over_system_tts_fallback(
+    client,
+    session_factory,
+    keyless_user,
+    monkeypatch,
+):
+    """A user-owned Qwen key must still win over the system TTS fallback key."""
+    await configure_user_key(
+        session_factory,
+        keyless_user.id,
+        "qwen",
+        "sk-user-qwen-123456",
+    )
+    monkeypatch.setattr(settings, "ALLOW_SYSTEM_LLM_FALLBACK", True)
+    monkeypatch.setattr(settings, "QWEN_API_KEY", "system-qwen-key")
+
+    synthesize = AsyncMock(return_value=b"voice")
+    configured_with: list[tuple[str | None, str | None]] = []
+
+    def is_configured(api_key=None, voice_id=None):
+        """Capture the credential used for route availability checks."""
+        configured_with.append((api_key, voice_id))
+        return api_key == "sk-user-qwen-123456" and voice_id == "Ryan"
+
+    monkeypatch.setattr(tts_runtime, "tts_is_configured", is_configured)
+    monkeypatch.setattr(tts_runtime, "synthesize_speech", synthesize)
+
+    response = await client.post(
+        "/api/coach/tts",
+        json={"text": "hello"},
+        headers=auth_headers(keyless_user.id),
+    )
+
+    assert response.status_code == 200
+    assert configured_with == [("sk-user-qwen-123456", "Ryan")]
+    synthesize.assert_awaited_once_with(
+        "hello",
+        api_key="sk-user-qwen-123456",
+        voice_id="Ryan",
+    )
+
+
+@pytest.mark.asyncio
+async def test_system_openai_key_never_powers_qwen_tts(
+    client,
+    keyless_user,
+    monkeypatch,
+):
+    """Even with fallback enabled, a system OpenAI key cannot authorize coach voice."""
+    monkeypatch.setattr(settings, "ALLOW_SYSTEM_LLM_FALLBACK", True)
+    monkeypatch.setattr(settings, "DEFAULT_LLM_PROVIDER", "openai")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-system-openai-123456")
+    monkeypatch.setattr(settings, "QWEN_AUDIO_API_KEY", "")
+    monkeypatch.setattr(settings, "QWEN_API_KEY", "")
+
+    synthesize = AsyncMock(return_value=b"voice")
+    monkeypatch.setattr(tts_runtime, "tts_is_configured", lambda *args, **kwargs: True)
+    monkeypatch.setattr(tts_runtime, "synthesize_speech", synthesize)
+
+    response = await client.post(
+        "/api/coach/tts",
+        json={"text": "hello"},
+        headers=auth_headers(keyless_user.id),
+    )
+
+    assert response.status_code == 409
+    assert "通义千问" in response.json()["detail"]
+    synthesize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tts_status_reflects_system_fallback_when_enabled(
+    client,
+    keyless_user,
+    monkeypatch,
+):
+    """TTS status advertises the system Qwen key for a keyless user when opted in."""
+    monkeypatch.setattr(settings, "ALLOW_SYSTEM_LLM_FALLBACK", True)
+    monkeypatch.setattr(settings, "QWEN_API_KEY", "system-qwen-key")
+
+    monkeypatch.setattr(tts_runtime, "tts_is_configured", lambda *args, **kwargs: True)
+    monkeypatch.setattr(tts_runtime, "lip_sync_is_configured", lambda: False)
+
+    response = await client.get(
+        "/api/coach/tts/status",
+        headers=auth_headers(keyless_user.id),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["available"] is True
+
+
+@pytest.mark.asyncio
+async def test_tts_status_still_disabled_for_keyless_user_without_fallback(
+    client,
+    keyless_user,
+    monkeypatch,
+):
+    """Without the opt-in flag, TTS status must stay disabled for a keyless user."""
+    monkeypatch.setattr(settings, "QWEN_API_KEY", "system-qwen-key")
+
+    monkeypatch.setattr(tts_runtime, "tts_is_configured", lambda *args, **kwargs: True)
+    monkeypatch.setattr(tts_runtime, "lip_sync_is_configured", lambda: False)
 
     response = await client.get(
         "/api/coach/tts/status",
