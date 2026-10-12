@@ -32,7 +32,7 @@
     "container": "swimlane;startSize=30"
   },
   "font": {
-    "fontFamily": "Comic Sans MS",
+    "fontFamily": "Arial",
     "fontSize": 11,
     "titleFontSize": 13,
     "titleBold": true

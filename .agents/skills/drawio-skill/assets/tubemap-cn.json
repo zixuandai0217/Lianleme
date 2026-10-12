@@ -1,0 +1,21 @@
+{
+  "stations": {
+    "nl":      {"label": "自然语言", "gx": 0, "gy": 2},
+    "author":  {"label": "手写 XML / Mermaid", "gx": 2, "gy": 2},
+    "layout":  {"label": "自动布局", "gx": 4, "gy": 2, "interchange": true},
+    "drawio":  {"label": ".drawio（可编辑）", "gx": 6, "gy": 2, "interchange": true},
+    "export":  {"label": "PNG · SVG · PDF", "gx": 8, "gy": 2},
+    "code":    {"label": "代码 / IaC / SQL", "gx": 1, "gy": 4},
+    "extract": {"label": "提取图结构", "gx": 3, "gy": 4},
+    "svg":     {"label": "SVG 动画", "gx": 6, "gy": 4},
+    "html":    {"label": "HTML 查看器", "gx": 8, "gy": 4},
+    "diff":    {"label": "差异 / 漂移", "gx": 6, "gy": 0},
+    "compress":{"label": "高管压缩", "gx": 8, "gy": 0}
+  },
+  "lines": [
+    {"name": "作图",   "color": "#0098d4", "stations": ["nl", "author", "layout", "drawio", "export"]},
+    {"name": "导入",   "color": "#007d32", "stations": ["code", "extract", "layout"]},
+    {"name": "二次利用","color": "#ee7c0e", "stations": ["drawio", "svg", "html"]},
+    {"name": "分析",   "color": "#e1251b", "stations": ["drawio", "diff", "compress"]}
+  ]
+}

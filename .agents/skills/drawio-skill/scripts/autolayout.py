@@ -27,17 +27,14 @@ import argparse
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
-from pathlib import Path
 from xml.sax.saxutils import escape
 
 DEFAULT_W, DEFAULT_H = 120, 60
-DEFAULT_FONT = "fontFamily=Comic Sans MS;"
-NODE_STYLE = f"rounded=1;whiteSpace=wrap;html=1;{DEFAULT_FONT}fillColor=#dae8fc;strokeColor=#6c8ebf;"
+NODE_STYLE = "rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;"
 EDGE_STYLE = "html=1;rounded=0;"
-GROUP_STYLE = ("rounded=0;whiteSpace=wrap;html=1;fontFamily=Comic Sans MS;fillColor=none;strokeColor=#999999;"
+GROUP_STYLE = ("rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#999999;"
                "verticalAlign=top;fontStyle=2;dashed=1;")
 # Group colours come from the skill's own palette (styles/built-in/default.json)
 # so there is a single source of truth, not a second list baked in here. When a
@@ -73,7 +70,9 @@ GROUP_PAD = 24
 
 
 def attr(value):
-    return escape(str(value), {'"': "&quot;"})
+    # Newlines in labels become &#xa; so draw.io renders a line break (a raw
+    # newline inside an XML attribute is normalized to a space by parsers).
+    return escape(str(value), {'"': "&quot;", "\n": "&#xa;"})
 
 
 def dot_quote(value):
@@ -116,9 +115,12 @@ def group_tree(nodes):
 
 def build_dot(graph):
     rankdir = "LR" if str(graph.get("direction", "TB")).upper() == "LR" else "TB"
+    # Optional graph-level spacing (inches). Icon nodes render their label below
+    # the shape, so importers emitting icons ask for extra rank/node separation.
+    sep = "".join(f" {k}={float(graph[k]):.2f};" for k in ("ranksep", "nodesep") if k in graph)
     # splines=ortho makes dot route edges as orthogonal polylines; we replay
     # those bends as draw.io waypoints so edges go around nodes, not through them.
-    lines = [f"digraph G {{ rankdir={rankdir}; splines=ortho; node [shape=box fixedsize=true];"]
+    lines = [f"digraph G {{ rankdir={rankdir};{sep} splines=ortho; node [shape=box fixedsize=true];"]
     # Group nodes into (possibly nested) clusters so dot keeps each group
     # together; a node's first appearance fixes its cluster, so list members
     # before the size attributes. The cluster margin reserves room for the
@@ -153,15 +155,13 @@ def layout(dot_src):
     Node coords are inches (bottom-left origin); each edge's value is the list
     of orthogonal control points dot computed for routing, endpoints included.
     """
-    if shutil.which("dot") is None:
-        ensure_graphviz()
     try:
         proc = subprocess.run(
             ["dot", "-Tplain"], input=dot_src,
             capture_output=True, text=True, check=True,
         )
     except FileNotFoundError:
-        sys.exit("error: Graphviz `dot` is still not on PATH after install attempt")
+        sys.exit("error: Graphviz `dot` not found on PATH (brew install graphviz)")
     except subprocess.CalledProcessError as exc:
         sys.exit(f"error: dot failed: {exc.stderr.strip()}")
     height, pos, edges = 0.0, {}, {}
@@ -181,37 +181,15 @@ def layout(dot_src):
     return height, pos, edges
 
 
-def ensure_graphviz():
-    """Install Graphviz with the bundled helper, then retry dot discovery."""
-    helper = Path(__file__).with_name("ensure_graphviz.py")
-    print("Graphviz `dot` not found; attempting to install Graphviz...", file=sys.stderr)
-    proc = subprocess.run([sys.executable, str(helper)], capture_output=True, text=True)
-    dot_path = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
-    if dot_path:
-        print(dot_path, file=sys.stderr)
-        dot_dir = str(Path(dot_path).parent)
-        os.environ["PATH"] = dot_dir + os.pathsep + os.environ.get("PATH", "")
-    if proc.stderr.strip():
-        print(proc.stderr.strip(), file=sys.stderr)
-    if proc.returncode != 0 or shutil.which("dot") is None:
-        sys.exit("error: Graphviz `dot` not found and automatic install failed")
-
-
 def group_style(stroke):
     """Container box styled with a group's colour (coloured border + title)."""
-    return (f"rounded=0;whiteSpace=wrap;html=1;{DEFAULT_FONT}fillColor=none;strokeColor={stroke};"
+    return (f"rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor={stroke};"
             f"fontColor={stroke};verticalAlign=top;fontStyle=2;dashed=1;")
 
 
-def with_default_font(style):
-    """Append the default font unless the style already declares a font."""
-    if "fontFamily=" in (style or ""):
-        return style
-    sep = "" if not style or style.endswith(";") else ";"
-    return f"{style}{sep}{DEFAULT_FONT}"
-
-
-def to_drawio(graph, height, pos, edge_pts, color=True):
+def page_cells(graph, height, pos, edge_pts, color=True):
+    """The <root> child cells (everything after the two reserved cells) for one
+    laid-out graph — reusable by multi-page generators (c4.py)."""
     nodes = graph["nodes"]
     # Absolute snapped rect for every placed node.
     rects = {}
@@ -301,18 +279,25 @@ def to_drawio(graph, height, pos, edge_pts, color=True):
         rx, ry, w, h = rects[nid]
         x, y, parent = rebase(rx, ry, gpath.get(nid) if gpath.get(nid) in gbox else None)
         if node.get("style"):
-            style = with_default_font(node["style"])       # explicit font always wins
+            style = node["style"]                         # explicit style always wins
         elif color and nid in gpath:
             fill, stroke = gcolor(gpath[nid][0])          # tint styleless nodes by group
-            style = f"rounded=1;whiteSpace=wrap;html=1;{DEFAULT_FONT}fillColor={fill};strokeColor={stroke};"
+            style = f"rounded=1;whiteSpace=wrap;html=1;fillColor={fill};strokeColor={stroke};"
         else:
             style = NODE_STYLE
-        cells.append(
-            f'        <mxCell id="{attr(nid)}" value="{attr(node.get("label", nid))}" '
-            f'style="{attr(style)}" vertex="1" parent="{attr(parent)}">\n'
-            f'          <mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/>\n'
-            f"        </mxCell>"
-        )
+        body = (f'style="{attr(style)}" vertex="1" parent="{attr(parent)}">\n'
+                f'          <mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/>\n'
+                f"        </mxCell>")
+        if node.get("link"):
+            # Links ride on a UserObject wrapper (id + label move to it).
+            cells.append(
+                f'        <UserObject label="{attr(node.get("label", nid))}" '
+                f'link="{attr(node["link"])}" id="{attr(nid)}">\n'
+                f"          <mxCell " + body + "\n        </UserObject>")
+        else:
+            cells.append(
+                f'        <mxCell id="{attr(nid)}" value="{attr(node.get("label", nid))}" '
+                + body)
     for i, edge in enumerate(graph.get("edges", [])):
         # Drop the first/last points (they sit on the node borders, where
         # draw.io attaches anyway) and replay the interior bends as waypoints.
@@ -328,22 +313,63 @@ def to_drawio(graph, height, pos, edge_pts, color=True):
             geom = '<mxGeometry relative="1" as="geometry"/>'
         cells.append(
             f'        <mxCell id="e{i}" value="{attr(edge.get("label", ""))}" '
-            f'style="{EDGE_STYLE}" edge="1" parent="1" '
+            f'style="{attr(edge.get("style", EDGE_STYLE))}" edge="1" parent="1" '
             f'source="{attr(edge["source"])}" target="{attr(edge["target"])}">\n'
             f"          {geom}\n"
             f"        </mxCell>"
         )
+    return "\n".join(cells)
+
+
+def wrap_page(cells, page_id="autolayout", name="Page-1"):
+    """One <diagram> page around pre-rendered root cells."""
     return (
-        '<mxfile>\n  <diagram id="autolayout" name="Page-1">\n'
+        f'  <diagram id="{attr(page_id)}" name="{attr(name)}">\n'
         '    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" '
         'tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" '
         'pageWidth="850" pageHeight="1100" math="0" shadow="0">\n'
         "      <root>\n"
         '        <mxCell id="0"/>\n'
         '        <mxCell id="1" parent="0"/>\n'
-        + "\n".join(cells)
-        + "\n      </root>\n    </mxGraphModel>\n  </diagram>\n</mxfile>\n"
+        + cells
+        + "\n      </root>\n    </mxGraphModel>\n  </diagram>\n"
     )
+
+
+def to_drawio(graph, height, pos, edge_pts, color=True):
+    return ("<mxfile>\n"
+            + wrap_page(page_cells(graph, height, pos, edge_pts, color=color))
+            + "</mxfile>\n")
+
+
+def route_score(graph, height, pos, edge_pts):
+    """Readability score for one dot layout (lower is better): weighted count
+    of edge-through-vertex hits and edge-edge crossings, with total edge length
+    as a tiebreak. Uses the same geometry predicates as validate.py."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "validate.py")
+    spec = importlib.util.spec_from_file_location("validate", path)
+    v = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(v)
+    rects = {}
+    for node in graph["nodes"]:
+        if node["id"] in pos:
+            w, h = node.get("width", DEFAULT_W), node.get("height", DEFAULT_H)
+            xc, yc = pos[node["id"]]
+            rects[node["id"]] = (xc * 72 - w / 2, (height - yc) * 72 - h / 2, w, h)
+    routes = []
+    for edge in graph.get("edges", []):
+        pts = edge_pts.get((edge["source"], edge["target"]))
+        if pts:
+            routes.append(([(x * 72, (height - y) * 72) for x, y in pts],
+                           {edge["source"], edge["target"]}))
+    through = sum(1 for pts, ends in routes for nid, box in rects.items()
+                  if nid not in ends and v.route_hits_rect(pts, box))
+    cross = sum(1 for i in range(len(routes)) for j in range(i + 1, len(routes))
+                if v.routes_cross(routes[i][0], routes[j][0]))
+    length = sum(abs(b[0] - a[0]) + abs(b[1] - a[1])
+                 for pts, _ in routes for a, b in zip(pts, pts[1:]))
+    return 20 * through + 10 * cross + length / 100000
 
 
 def main():
@@ -352,10 +378,24 @@ def main():
     ap.add_argument("-o", "--output", help="output .drawio path (default: stdout)")
     ap.add_argument("--mono", action="store_true",
                     help="don't colour groups by palette (monochrome boxes)")
+    ap.add_argument("--tune", action="store_true",
+                    help="lay out in both directions (TB and LR), keep the more "
+                         "readable one (fewer crossings / through-vertex routes)")
     args = ap.parse_args()
     with open(args.input, encoding="utf-8") as f:
         graph = json.load(f)
-    height, pos, edge_pts = layout(build_dot(graph))
+    if args.tune:
+        best = None
+        for d in ("TB", "LR"):
+            cand = dict(graph, direction=d)
+            h, p, ep = layout(build_dot(cand))
+            s = route_score(cand, h, p, ep)
+            if best is None or s < best[0]:
+                best = (s, d, h, p, ep)
+        _, d, height, pos, edge_pts = best
+        print(f"tuned: direction={d} (score {best[0]:.2f})", file=sys.stderr)
+    else:
+        height, pos, edge_pts = layout(build_dot(graph))
     xml = to_drawio(graph, height, pos, edge_pts, color=not args.mono)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:

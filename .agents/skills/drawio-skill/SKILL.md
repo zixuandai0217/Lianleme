@@ -1,163 +1,147 @@
 ---
 name: drawio-skill
-description: Use when the user requests editable draw.io/diagrams.net diagrams, technical architecture diagrams, flowcharts, ER/UML/sequence diagrams, network topology, ML/DL or research figures, mind maps, codebase visualizations, reference-image redraws, high-fidelity figure replication, local preview screenshots, or PNG/SVG/PDF/JPG exports from .drawio XML.
+description: Create, edit, synchronize, inspect, test, and publish editable draw.io diagrams. Use when the user explicitly requests draw.io/diagrams.net, needs a polished architecture, ERD, UML, sequence, C4, SysML, BPMN, network, swimlane, ML, or infrastructure diagram, wants code/IaC/SQL/OpenAPI/AsyncAPI/Protobuf/GraphQL converted into a diagram, or wants an existing diagram queried, reviewed, diffed, restyled, kept in sync, or made interactive. Prefer Mermaid/PlantUML elsewhere when the requested artifact is diagrams-as-code rather than an editable draw.io file.
+license: MIT
+allowed-tools: [Bash, Read, Write, WebFetch]
+metadata: {"openclaw":{"requires":{"anyBins":["python3"]},"emoji":"📐","os":["darwin","linux","win32"],"install":[{"id":"brew-drawio","kind":"brew","formula":"drawio","bins":["drawio"],"label":"Install draw.io for native exports","os":["darwin"],"optional":true},{"id":"brew-graphviz","kind":"brew","formula":"graphviz","bins":["dot"],"label":"Install Graphviz for automatic layout","os":["darwin"],"optional":true}]},"hermes":{"tags":["drawio","diagram","architecture","visualization","uml"],"category":"design","requires_tools":["python3"],"related_skills":["mermaid","excalidraw","plantuml"]},"author":"Agents365-ai","version":"3.4.0","homepage":"https://github.com/Agents365-ai/drawio-skill","compatibility":"Core IR, XML, sync, query, test, review, and Story workflows need Python 3 only; native export needs draw.io; Graphviz is optional.","platforms":["macos","linux","windows"]}
 ---
 
-# Draw.io Diagram Skill
+# Draw.io Architecture Studio
 
-## Overview
+Produce editable `.drawio` artifacts, not flattened pictures. The preferred
+entrypoint is `scripts/diagramctl.py`, which unifies generation, incremental
+sync, multi-view projection, semantic queries/tests/reviews, failure analysis,
+and accessible publishing over a shared Diagram IR.
 
-Produce editable `.drawio` XML as the primary artifact, then validate and preview it before handoff. Use draw.io primitives, explicit geometry, official shape styles, and screenshot feedback so diagrams remain editable and reviewable instead of becoming embedded raster screenshots.
+## Choose the workflow
 
-This skill merges two workflows:
+| Request | Route |
+| --- | --- |
+| Natural-language diagram with precise styling | Read `references/diagram-types.md`, then `references/xml-authoring.md` and author XML |
+| Standard flowchart/mindmap/gantt/timeline/etc. with no special styling | If draw.io >=30, read `references/mermaid-authoring.md` and convert Mermaid to native `.drawio` |
+| Large graph (~15+ nodes) that needs automatic layout | Use `autolayout.py`; read `references/autolayout.md` before passing any `--layout` value |
+| Code, Terraform, K8s, compose, SQL, OpenAPI, AsyncAPI, or CI source | Use `diagramctl.py build`; read `references/diagram-ir.md` |
+| Protocol Buffers schema (.proto) | Use `protoimports.py` or `diagramctl.py build`; read `references/toolbox.md` |
+| GraphQL SDL schema (.graphql/.gql) or introspection JSON | Use `graphqlerd.py` or `diagramctl.py build`; read `references/toolbox.md` |
+| Running cluster/stack/cloud (actual state, not declared config) | Read `references/live-infra.md`, then use `tfstate.py`, `dockerimports.py`, or `k8simports.py -` |
+| Update a generated diagram without losing manual layout | Use `diagramctl.py sync`; read `references/diagram-ir.md` |
+| Executive/system/deployment/data-flow/security views | Use `diagramctl.py views`; read `references/diagram-ir.md` |
+| Query, architecture policy, review, what-if, or guided walkthrough | Read `references/semantic-workflows.md` |
+| MCP host (Claude Desktop, Cursor, VS Code, Codex) should call these workflows | Register `scripts/diagramctl_mcp.py`; read `references/mcp.md` |
+| Prompt phrasing for a diagram type or semantic workflow | Read `references/cookbook.md` |
+| Enforce architecture rules or visual diffs in GitHub Actions CI | Read `references/ci-gate.md` |
+| Rendered before/after/diff images as a PR review comment | Use `prdiff.py`; read `references/pr-bot.md` |
+| Existing `.drawio` to HTML/PPTX/Mermaid/Markdown/animation/runbook | Read `references/toolbox.md`; `diagramctl.py transform` exposes the existing tools |
+| Pipeline, journey, or subsystem map drawn as a metro/subway map | Use `tubemap.py`; read `references/tubemap.md` |
+| Shape, cloud/vendor, AI, or Databricks icon | Read `references/shapes.md` or `references/databricks.md`; never guess shape names |
+| Learn/apply/manage a visual style | Read `references/style-presets.md` |
+| Extract a reusable style from an existing diagram or theme | Read `references/style-extraction.md` |
+| Existing image to editable diagram (screenshot, whiteboard photo, legacy PNG) | Read `references/derasterize.md` |
+| Export/platform problem | Read `references/troubleshooting.md`; for access/network questions read `references/security.md` |
 
-- broad diagram generation with shape search, AI-brand icons, style presets, code importers, Graphviz autolayout, native draw.io desktop export, and PNG repair
-- research-figure and reference-image replication with local short-URL preview, XML validation, required planning artifacts, and screenshot-based iteration
+## Unified CLI
 
-## Routing
+Run from this skill directory, or replace `scripts/` with the absolute path to
+this skill's scripts directory:
 
-Use a simpler format instead when it is clearly better:
+```bash
+python3 scripts/diagramctl.py doctor
+python3 scripts/diagramctl.py build model.json --from ir -o architecture.drawio
+python3 scripts/diagramctl.py build ./infra --from terraform --group \
+  --ir-output architecture.ir.json -o architecture.drawio
+python3 scripts/diagramctl.py sync architecture.drawio ./infra --from terraform \
+  -o architecture.next.drawio
+python3 scripts/diagramctl.py views architecture.ir.json \
+  --views executive,system,deployment,dataflow,security -o views.drawio
+python3 scripts/diagramctl.py test architecture.drawio --rules policy.yml
+python3 scripts/diagramctl.py review architecture.drawio -o review.md
+python3 scripts/diagramctl.py query architecture.drawio --from internet --to orders-db
+python3 scripts/diagramctl.py whatif architecture.ir.json --fail kafka \
+  --drawio kafka-failure.drawio -o impact.json
+python3 scripts/diagramctl.py story architecture.ir.json -o walkthrough.html
+```
 
-| User need | Prefer |
-|---|---|
-| Diagrams-as-code in Markdown or docs | Mermaid |
-| Strict UML source text checked into git | PlantUML |
-| Casual freehand whiteboard sketch | Excalidraw or tldraw |
-| Editable, styled, shape-rich, exportable, or high-fidelity diagram | This skill |
+`doctor` does not launch GUI tools unless `--probe` is passed. Core semantic
+commands are offline and stdlib-only.
 
-## Bundled Resources
+## Creation workflow
 
-Resolve paths relative to this skill directory. Load only the files needed for the request.
-
-| Resource | Use when |
-|---|---|
-| `references/diagram-types.md` | User names ERD, UML class, sequence, architecture, ML/DL, flowchart, or another known diagram type |
-| `references/drawio-workflow.md` | Need the full prompt/paper/code/reference-image to editable draw.io workflow |
-| `references/xml-authoring.md` | Writing or repairing XML shapes, geometry, edges, text layout, icons, and styles |
-| `references/reference-replication-protocol.md` | User supplies a reference image and asks to redraw, copy, reproduce, replicate, or closely match it |
-| `references/shapes.md` and `scripts/shapesearch.py` | Need exact built-in draw.io shapes for AWS, Azure, GCP, Cisco, Kubernetes, UML, BPMN, ER, electrical, P&ID, network, or other palettes |
-| `scripts/aiicons.py` | Need AI/LLM brand logos such as OpenAI, Claude, Gemini, Mistral, Llama, Hugging Face, Ollama, or LangChain |
-| `references/autolayout.md`, `scripts/autolayout.py`, and `scripts/ensure_graphviz.py` | Diagram is large or graph-like, especially dependency graphs, call graphs, code structure, or more than about 15 nodes; install Graphviz automatically if `dot` is missing |
-| `scripts/pyimports.py`, `jsimports.py`, `goimports.py`, `rustimports.py` | User asks to visualize project imports for Python, JS/TS, Go, or Rust |
-| `scripts/pyclasses.py` | User asks for a Python class hierarchy or class diagram |
-| `references/style-presets.md` and `references/style-extraction.md` | User asks to learn, apply, list, set default, delete, or manage a style preset |
-| `scripts/validate.py` | Need structural lint for dangling edges, duplicate IDs, reserved IDs, broken parents, or overlaps |
-| `scripts/validate_drawio.py` | Need basic XML integrity checks, page/cell counts, and embedded-raster detection |
-| `scripts/make_drawio_preview.py` | Need a local preview HTML that avoids huge diagrams.net URLs |
-| `scripts/serve_drawio_preview.py` | Need to generate preview HTML and serve it on `127.0.0.1` |
-| `scripts/validate_replication_artifacts.py` | Need to enforce reference-image replication planning and screenshot-review artifacts |
-| `scripts/encode_drawio_url.py` | Native CLI is unavailable and a browser fallback URL is acceptable |
-| `scripts/repair_png.py` | After every final PNG export with embedded XML (`-e`) |
-| `references/troubleshooting.md` | Export, preview, vision, sandbox, URL, PNG, WSL, or rendering failures |
-
-## Standard Workflow
-
-1. **Classify the task.**
-   Identify whether this is prompt-to-diagram, paper-to-diagram, codebase-to-diagram, reference-image replication, export/repair, or iterative polish. Ask only for missing information that affects output: diagram type, fidelity, required labels/assets, output path, and output format.
-
-2. **Resolve style and shape sources.**
-   If a user preset is named, apply `references/style-presets.md`. If no preset is active, use restrained default colors and `Comic Sans MS` as the default font. For non-trivial vendor or domain shapes, run `scripts/shapesearch.py "<keywords>"` instead of guessing `shape=mxgraph.*`. For AI logos, use `scripts/aiicons.py`.
-
-3. **Plan the diagram before XML.**
-   Select layout grammar: left-to-right pipeline, top-down process, swimlanes, layered architecture, hierarchy/tree, graph, feedback loop, or page-per-view. For high-fidelity or dense work, write a coordinate plan with canvas size, margins, regions, key x/y baselines, repeated component sizes, and connector routes.
-
-4. **Use the reference replication protocol when required.**
-   If the user supplied a reference image and asked for redraw/reproduction/copy/replica/high fidelity, read `references/reference-replication-protocol.md` before drawing. Create `visual-spec.md`, `layout-grid.md`, `asset-ledger.md`, and `defect-log.md` next to the working `.drawio` file, then run:
-
-   ```bash
-   python3 <skill-dir>/scripts/validate_replication_artifacts.py <workdir>
-   ```
-
-5. **Author `.drawio` XML as the source of truth.**
-   Use one `mxfile` with one or more `diagram` pages. Include root cells `id="0"` and `id="1"`. Use stable human-readable IDs for high-fidelity work. Use explicit `mxGeometry` positions and sizes. Keep text bounded unless standalone labels intentionally overflow. Every edge must include `<mxGeometry relative="1" as="geometry" />`.
-
-6. **Choose the layout engine.**
-   Hand-place small or high-fidelity diagrams. For large graph-like diagrams, generate graph JSON and run `scripts/autolayout.py`, or first run the matching import extractor for Python, JS/TS, Go, Rust, or Python classes.
-
-7. **Validate.**
-   Run both checks when applicable:
+1. Infer the diagram type, audience, scope, output format, and location from the
+   request. Ask only when a missing choice materially changes the result;
+   default to PNG plus `.drawio` in the working directory.
+2. Select the authoring route from the table above. For a data-backed diagram,
+   prefer Diagram IR and preserve provenance. For a large graph, use an importer
+   or `autolayout.py`; do not hand-place more than roughly fifteen nodes.
+3. Resolve an explicitly named style preset, or the user's default preset, as
+   documented in `references/style-presets.md`. Structural diagram conventions
+   and visual presets compose; they do not replace each other.
+4. Generate the `.drawio`, then run structural validation:
 
    ```bash
-   python3 <skill-dir>/scripts/validate.py <file>.drawio
-   python3 <skill-dir>/scripts/validate_drawio.py <file>.drawio
+   python3 scripts/validate.py diagram.drawio --score
    ```
 
-   Use `--allow-raster` only when the user explicitly approved embedded raster images.
+   When semantic metadata or an architecture policy is in scope, also run
+   `diagramctl.py test`. Do not present inferred semantic findings as verified
+   runtime facts.
+5. Export a draft PNG without embedded XML and inspect it visually. Fix obvious
+   overlap, clipping, disconnected edges, edge-through-node routing, stacked
+   edges, and unreadable labels. Stop automatic vision repair after two rounds.
+   When the drawio binary is unavailable or a visual check is inconclusive,
+   verify the renderer's own DOM instead (`--dump-dom` on the viewer URL, see
+   `references/troubleshooting.md`): read each edge's `<path>` segments and
+   label anchor coordinates directly — vision alone both misses geometry
+   defects and hallucinates new ones.
+6. Show the draft and apply targeted edits. Preserve existing geometry for
+   local changes. Use `sync` for source-backed changes and write a reviewable
+   output; use `--prune` only when deletion was requested.
+7. After approval, create final requested formats and report both editable
+   source and export paths.
 
-8. **Preview with the most reliable available path.**
-   Prefer the local iframe preview because it avoids Windows and browser long-URL failures:
+## Export invariants
 
-   ```bash
-   python3 <skill-dir>/scripts/serve_drawio_preview.py <file>.drawio --port 8765
-   ```
+Resolve the available binary once (`drawio`, `draw.io`, the macOS app path, or
+the Windows executable) and use that exact binary for the run.
 
-   Then open `http://127.0.0.1:8765/drawio-preview.html?rev=1`, wait 3-5 seconds for diagrams.net to load, and take a screenshot with available browser automation. If this path is unavailable but the native draw.io CLI works, export a draft PNG without `-e`.
+```bash
+# Draft for visual inspection: never use -e here
+drawio -x -f png --width 2000 -o diagram.png diagram.drawio
 
-9. **Iterate from evidence.**
-   Inspect the latest screenshot. Fix concrete visible issues in small batches: text overflow, clipped labels, wrong arrowheads, connector crossings, bad z-order, missing icons, color mismatch, spacing drift, or unintended wrapping. Regenerate preview HTML after XML edits; it does not read the `.drawio` file live.
+# Final editable PNG
+drawio -x -f png -e -s 2 -o diagram.drawio.png diagram.drawio
+python3 scripts/repair_png.py diagram.drawio.png
 
-10. **Export final formats when requested.**
-   Resolve the draw.io CLI binary name first: `drawio`, `draw.io`, `/Applications/draw.io.app/Contents/MacOS/draw.io`, or the Windows executable path. Preview PNGs must not use `-e`; final PNG/SVG/PDF may use `-e` to embed editability.
+# Final editable SVG/PDF
+drawio -x -f svg -e --embed-svg-images -o diagram.svg diagram.drawio
+drawio -x -f pdf -e -o diagram.pdf diagram.drawio
+```
 
-   ```bash
-   drawio -x -f png --width 2000 -o diagram.png diagram.drawio
-   drawio -x -f png -e -s 2 -o diagram.drawio.png diagram.drawio
-   python3 <skill-dir>/scripts/repair_png.py diagram.drawio.png
-   drawio -x -f svg -e -o diagram.svg diagram.drawio
-   drawio -x -f pdf -e -o diagram.pdf diagram.drawio
-   ```
+Do not combine `--width` and `-s`. Embedded PNG exports require
+`repair_png.py`; draft PNGs used by vision must not use `-e`. On Linux headless,
+follow `references/troubleshooting.md` rather than improvising Electron flags.
+If the CLI crashes in a macOS sandbox, try one permitted escalated run, then use
+`encode_drawio_url.py` or deliver XML; do not repeatedly launch it.
 
-## XML Authoring Rules
+## Editing and identity
 
-- Escape XML attribute values: `&amp;`, `&lt;`, `&gt;`, `&quot;`.
-- Use `&#xa;` for line breaks inside `value` attributes.
-- Snap x/y/width/height to multiples of 10 unless matching a reference image requires finer geometry.
-- Use containers properly: child cells set `parent="<containerId>"` and coordinates are relative to the container.
-- Add `pointerEvents=0;` to visual containers that should not capture child connections.
-- Pin `exitX/exitY/entryX/entryY` when a node has multiple connectors on the same side.
-- Route edges through empty corridors with waypoints rather than through unrelated shapes.
-- Split important multiline text into separate cells when exact alignment matters.
-- Build icons from editable primitives when possible. If exact raster or SVG assets are necessary, record provenance and reduced editability.
+- Use stable semantic IDs and never reuse reserved IDs `0` or `1`.
+- Every edge requires `<mxGeometry relative="1" as="geometry"/>`.
+- For a local edit, change the matching cell only; for a global direction
+  change, regenerate/re-layout the page.
+- Keep provenance, `data-model-id`, semantic properties, manual geometry, and
+  manual styles intact unless the user requests otherwise.
+- When reconciling, retain removals as reviewable faded elements by default.
+- For edges stacked at a boundary, run `edgeports.py`; add waypoints when an
+  edge still crosses an unrelated shape. There is no CLI-only edge rerouter
+  that preserves node positions.
 
-## Export and Preview Fallbacks
+## Quality and trust
 
-| Situation | Action |
-|---|---|
-| draw.io desktop CLI works | Use CLI for draft and final exports |
-| CLI crashes or returns empty output in a macOS sandbox | Stop retrying; use local iframe preview or browser fallback |
-| CLI missing, Python available | Deliver `.drawio` plus local preview or encoded diagrams.net URL |
-| CLI and browser preview unavailable | Deliver valid `.drawio` XML and explain manual open/export steps |
-| PNG exported with `-e` | Always run `scripts/repair_png.py` before using or handing off the PNG |
-| Browser preview looks stale | Re-run `make_drawio_preview.py` or `serve_drawio_preview.py` and refresh with `?rev=N` |
-| Reference-image fidelity is requested | Final handoff requires screenshot review and replication artifact validation |
+An attractive diagram can still be wrong. Prefer source-backed relationships,
+show provenance where useful, distinguish exact extraction from AI inference,
+and keep architecture review findings framed as prompts. Story HTML must remain
+self-contained, keyboard usable, and include a text alternative. Never include
+secrets in node properties or provenance because they are embedded in outputs.
 
-## Verification Checklist
-
-Before claiming the diagram is ready:
-
-- `.drawio` file exists and is the primary artifact.
-- XML parses and contains at least one diagram page and visible cells.
-- Structural validation passed or any warnings are explicitly explained.
-- No unintended embedded raster images exist.
-- Latest preview or export was generated after the last XML edit.
-- A screenshot was reviewed for complex, user-facing, or high-fidelity work.
-- Text fits, arrows point correctly, connectors do not cross labels, and shapes are not clipped.
-- For reference replication, `defect-log.md` contains a red-team visual audit and remaining gaps.
-- Final response includes file paths for the `.drawio` source, screenshots/previews, and exports.
-
-## Common Mistakes
-
-| Mistake | Fix |
-|---|---|
-| Guessing shape names | Use `scripts/shapesearch.py` |
-| Treating preview HTML as source | Edit `.drawio`; regenerate HTML |
-| Final raster-only output for an editable request | Keep `.drawio` as primary and use editable primitives |
-| Skipping screenshots on visual work | Preview, screenshot, inspect, then patch |
-| Embedding a reference image as the final answer | Rebuild with editable objects; use the image only as reference unless approved |
-| Using huge diagrams.net URLs | Use `make_drawio_preview.py` or `serve_drawio_preview.py` |
-| Broad rewrites after minor feedback | Patch the specific XML cells involved |
-| Claiming 100% reproduction | List observed evidence and remaining mismatches unless the user accepts the result |
-
-## Attribution
-
-This packaged skill combines MIT-licensed resources from Agents365-ai `drawio-skill` and Will-hxw `drawio-diagram-builder-skill`. Shape index data is derived from jgraph/drawio-mcp and diagrams.net shape libraries under Apache License 2.0; see `data/SHAPE-INDEX-NOTICE.md`.
+For all focused scripts and composition patterns, read `references/toolbox.md`;
+load only the task-specific reference needed for the current request.

@@ -1,0 +1,21 @@
+{
+  "stations": {
+    "nl":      {"label": "Natural language", "gx": 0, "gy": 2},
+    "author":  {"label": "Hand-XML / Mermaid", "gx": 2, "gy": 2},
+    "layout":  {"label": "Auto-layout", "gx": 4, "gy": 2, "interchange": true},
+    "drawio":  {"label": ".drawio (editable)", "gx": 6, "gy": 2, "interchange": true},
+    "export":  {"label": "PNG · SVG · PDF", "gx": 8, "gy": 2},
+    "code":    {"label": "Code / IaC / SQL", "gx": 1, "gy": 4},
+    "extract": {"label": "Extract graph", "gx": 3, "gy": 4},
+    "svg":     {"label": "SVG animation", "gx": 6, "gy": 4},
+    "html":    {"label": "HTML viewer", "gx": 8, "gy": 4},
+    "diff":    {"label": "Diff / drift", "gx": 6, "gy": 0},
+    "compress":{"label": "Exec compress", "gx": 8, "gy": 0}
+  },
+  "lines": [
+    {"name": "Author",    "color": "#0098d4", "stations": ["nl", "author", "layout", "drawio", "export"]},
+    {"name": "Import",    "color": "#007d32", "stations": ["code", "extract", "layout"]},
+    {"name": "Repurpose", "color": "#ee7c0e", "stations": ["drawio", "svg", "html"]},
+    {"name": "Analyze",   "color": "#e1251b", "stations": ["drawio", "diff", "compress"]}
+  ]
+}

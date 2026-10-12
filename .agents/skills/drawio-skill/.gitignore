@@ -1,0 +1,20 @@
+# Local dev notes (never pushed)
+CLAUDE.md
+
+# macOS
+.DS_Store
+
+# Tooling artifacts
+.playwright-mcp/
+logs/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Auto-update timestamp (written by SKILL.md step 0)
+.last_update
+
+# Superpowers skill files (local-only)
+docs/superpowers
+.pi-subagents/

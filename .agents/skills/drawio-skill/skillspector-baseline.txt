@@ -1,0 +1,39 @@
+SkillSpector local static scan record
+=====================================
+
+Scanner: SkillSpector 2.3.11
+Command: skillspector scan skills/drawio-skill --no-llm --format json
+Date: 2026-09-01
+
+This file is an audit record, not a suppression baseline. No finding is
+suppressed. Re-run the command above against the current tree before release.
+
+After the 3.0 hardening pass, the scanner reported 61 findings:
+
+- 26 AST4: every subprocess invocation is flagged. The implementations use
+  explicit argument arrays with shell=False; callers still need to treat files
+  produced by external tools as untrusted data.
+- 17 OH1: the same subprocess calls are classified as model-output injection,
+  including constant commands. These are generic static-rule matches.
+- 14 MP2: long strings and generated diagram content are classified as context
+  stuffing. The scripts are deterministic converters and do not alter agent
+  instructions.
+- 3 P2: benign XML comments in authoring examples are classified as hidden
+  instructions.
+- 1 E1: the allowlisted api.github.com catalog endpoint in dbxicons.py is
+  classified as exfiltration. Ordinary diagram workflows are offline.
+Material mitigations in 3.0:
+
+- Network access is off by default and icon downloads enforce HTTPS host
+  allowlists.
+- Permissions are declared as a least-privilege list in SKILL.md.
+- External commands use executable/argument arrays, never shell interpolation.
+- Story HTML escapes labels and protects embedded JSON closing tags.
+- Sync is non-destructive by default; pruning is explicit.
+- Security and live-infrastructure boundaries are documented in
+  references/security.md.
+
+Because --no-llm static rules do not interpret these controls, SkillSpector's
+aggregate score remains 100/100 CRITICAL. Do not treat that aggregate as a
+clean bill of health or as proof of exploitable behavior; review each finding
+and the command/network boundaries above.

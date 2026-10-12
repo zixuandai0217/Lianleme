@@ -11,7 +11,7 @@ Read this file when:
 ## Locations and lookup order
 
 1. `~/.drawio-skill/styles/<name>.json` — user presets (survive `git pull`).
-2. `<this-skill-dir>/styles/built-in/<name>.json` — built-ins shipped with the skill (`default`, `corporate`, `handdrawn`).
+2. `<this-skill-dir>/styles/built-in/<name>.json` — built-ins shipped with the skill (`default`, `corporate`, `handdrawn`, `colorblind-safe` — Okabe-Ito palette, distinguishable under color-vision deficiency, thicker strokes; `dark` — dark fills + page background, light strokes, needs the `extras.fontColor`/`edgeColor`/`background` rules below).
 
 A user preset shadows a built-in of the same name.
 
@@ -20,6 +20,8 @@ Only user presets can have `"default": true`. When the user says *"make `<built-
 **Name normalisation:** always lowercase the user-provided name before writing or looking up files (the preset schema enforces lowercase; uppercase names will fail validation).
 
 ## Applying a preset
+
+> **Existing diagrams:** these rules apply at generation time. To re-theme a `.drawio` that already exists, run `python3 scripts/restyle.py diagram.drawio --preset <name>` — it applies the palette (hue-mapped), font, and extras without touching layout or edge routing.
 
 When SKILL.md's Step 0 identified a preset, it fully replaces the built-in palette, shape keywords, edge defaults, and font for this diagram — do not mix values from the built-in color table.
 
@@ -42,6 +44,9 @@ When SKILL.md's Step 0 identified a preset, it fully replaces the built-in palet
 **Extras.**
 - `preset.extras.sketch === true` → append `sketch=1` to every vertex style and every edge style.
 - `preset.extras.globalStrokeWidth !== 1` (any value other than the drawio default of 1, including `0.5`) → append `strokeWidth=<n>` to every vertex style and every edge style.
+- `preset.extras.fontColor` (present) → append `fontColor=<hex>` to every vertex and container style. Required for dark palettes — without it, dark fills render unreadable black text.
+- `preset.extras.edgeColor` (present) → append `strokeColor=<hex>;fontColor=<hex>` to every edge style (edges otherwise default to black, invisible on dark backgrounds).
+- `preset.extras.background` (present) → set `background="<hex>"` on the `<mxGraphModel>` element, and export PNG **without** `-t` (transparent) so the background is actually painted — a dark diagram on a transparent PNG looks broken in white viewers.
 
 **Interaction with diagram-type presets** (ERD / UML / Sequence / ML / Flowchart). Diagram-type presets set structural style keywords that the user preset must preserve (e.g. ERD tables rely on `shape=table;startSize=30;container=1;childLayout=tableLayout;...`). The rule: keep the diagram-type preset's structural keywords, then layer the user preset's color / font / edge / extras on top. When a diagram-type preset hardcodes a color (`fillColor=#dae8fc`, etc.) that conflicts with the user preset, the user preset's color wins. Exception: `fillColor=none` is structural — do not replace it with a palette color.
 
@@ -93,8 +98,8 @@ All operations are natural language — no slash commands.
 | "show my `<name>` style", "what's in `<name>`" | Print the preset JSON (pretty-printed) + a one-line summary (source, confidence, is-default). |
 | "make `<name>` the default", "set `<name>` as default" | If `<name>` is a user preset: set `default: true` on it; clear `default` on any other user preset that had it; save both files. If `<name>` is a built-in: copy `<this-skill-dir>/styles/built-in/<name>.json` → `~/.drawio-skill/styles/<name>.json` first, then set `default: true` on the copy. Never mutate the shipped built-in. |
 | "remove default", "unset default" | Clear `default: true` from whichever user preset has it. |
-| "delete `<name>`", "remove `<name>`" | Confirm first. Then `rm ~/.drawio-skill/styles/<name>.json`. Refuse to delete files under `<this-skill-dir>/styles/built-in/` — suggest shadowing with a user preset of the same name. |
-| "rename `<a>` to `<b>`" | `mv ~/.drawio-skill/styles/<a>.json ~/.drawio-skill/styles/<b>.json`, then update the `name` field inside. Fails if `<a>` is a built-in (offer to copy-then-rename instead). |
+| "delete `<name>`", "remove `<name>`" | Confirm first, resolve and verify the exact user-preset path, then remove that single file with a path-aware file operation. Refuse to delete files under `<this-skill-dir>/styles/built-in/` — suggest shadowing with a user preset of the same name. |
+| "rename `<a>` to `<b>`" | Resolve both names inside the user-preset directory, reject separators/traversal, move that single file, then update its `name` field. Fails if `<a>` is a built-in (offer to copy-then-rename instead). |
 | "learn my style from `<path>` as `<name>`" | Dispatch to the Learn flow above. |
 
 ## Preset file validation

@@ -1,0 +1,146 @@
+<mxfile host="Electron">
+  <diagram id="8I9bZu4L4ipje97artZL" name="pageWithNumber">
+    <mxGraphModel dx="-441" dy="-115" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="0" page="0" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <UserObject label="" mermaidId="n:column:_" mermaidBaseStyle="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#e8ffb9;strokeColor=#e8ffb9;strokeWidth=1;container=1;collapsible=0;childLayout=stackLayout;horizontal=0;horizontalStack=0;resizeParent=0;resizeParentMax=0;resizeLast=0;startSize=25;marginTop=0;marginBottom=10;marginLeft=8;marginRight=8;spacing=5;" mermaidBaseValue="" id="2">
+          <mxCell parent="1" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#e8ffb9;strokeColor=#e8ffb9;strokeWidth=1;container=1;collapsible=0;childLayout=stackLayout;horizontal=0;horizontalStack=0;resizeParent=0;resizeParentMax=0;resizeLast=0;startSize=25;marginTop=0;marginBottom=10;marginLeft=8;marginRight=8;spacing=5;" vertex="1">
+            <mxGeometry height="274" width="200" x="10" y="10" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="3" parent="2" style="text;html=1;strokeColor=none;fillColor=none;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=#333333;align=center;verticalAlign=middle;" value="需求池" vertex="1">
+          <mxGeometry height="24" width="200" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_2_1" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="4">
+          <mxCell parent="2" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="68" width="185" x="8" y="25" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="5" parent="4" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;Trace2Seq：OTel/Jaeger 追踪转时序图&lt;/div&gt;" vertex="1">
+          <mxGeometry height="48" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_2_2" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="6">
+          <mxCell parent="2" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="44" width="185" x="8" y="98" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="7" parent="6" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;Tube-Map 模式：地铁风格重绘任意图&lt;/div&gt;" vertex="1">
+          <mxGeometry height="24" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_2_3" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="8">
+          <mxCell parent="2" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="44" width="185" x="8" y="147" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="9" parent="8" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;旁白讲解：逆向说明 + TTS + 视频&lt;/div&gt;" vertex="1">
+          <mxGeometry height="24" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_2_4" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="10">
+          <mxCell parent="2" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="68" width="185" x="8" y="196" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="11" parent="10" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;DAG-of-DAGs：Snakemake/Airflow/dbt 血缘&lt;/div&gt;" vertex="1">
+          <mxGeometry height="48" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:column:_" mermaidBaseStyle="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#dcb9ff;strokeColor=#dcb9ff;strokeWidth=1;container=1;collapsible=0;childLayout=stackLayout;horizontal=0;horizontalStack=0;resizeParent=0;resizeParentMax=0;resizeLast=0;startSize=25;marginTop=0;marginBottom=10;marginLeft=8;marginRight=8;spacing=5;" mermaidBaseValue="" id="12">
+          <mxCell parent="1" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#dcb9ff;strokeColor=#dcb9ff;strokeWidth=1;container=1;collapsible=0;childLayout=stackLayout;horizontal=0;horizontalStack=0;resizeParent=0;resizeParentMax=0;resizeLast=0;startSize=25;marginTop=0;marginBottom=10;marginLeft=8;marginRight=8;spacing=5;" vertex="1">
+            <mxGeometry height="152" width="200" x="215" y="10" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="13" parent="12" style="text;html=1;strokeColor=none;fillColor=none;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=#ffffff;align=center;verticalAlign=middle;" value="待办" vertex="1">
+          <mxGeometry height="24" width="200" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_3_6" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="14">
+          <mxCell parent="12" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="68" width="185" x="8" y="25" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="15" parent="14" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;Staff-Engineer 评审：单点故障与坏味道&lt;/div&gt;" vertex="1">
+          <mxGeometry height="48" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_3_7" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="16">
+          <mxCell parent="12" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="44" width="185" x="8" y="98" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="17" parent="16" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;威胁建模叠加：信任边界 + STRIDE&lt;/div&gt;" vertex="1">
+          <mxGeometry height="24" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:column:_" mermaidBaseStyle="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#ffb9ff;strokeColor=#ffb9ff;strokeWidth=1;container=1;collapsible=0;childLayout=stackLayout;horizontal=0;horizontalStack=0;resizeParent=0;resizeParentMax=0;resizeLast=0;startSize=25;marginTop=0;marginBottom=10;marginLeft=8;marginRight=8;spacing=5;" mermaidBaseValue="" id="18">
+          <mxCell parent="1" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#ffb9ff;strokeColor=#ffb9ff;strokeWidth=1;container=1;collapsible=0;childLayout=stackLayout;horizontal=0;horizontalStack=0;resizeParent=0;resizeParentMax=0;resizeLast=0;startSize=25;marginTop=0;marginBottom=10;marginLeft=8;marginRight=8;spacing=5;" vertex="1">
+            <mxGeometry height="79" width="200" x="420" y="10" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="19" parent="18" style="text;html=1;strokeColor=none;fillColor=none;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=#333333;align=center;verticalAlign=middle;" value="进行中" vertex="1">
+          <mxGeometry height="24" width="200" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_4_9" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="20">
+          <mxCell parent="18" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="44" width="185" x="8" y="25" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="21" parent="20" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;文档：5 个新脚本的 USAGE 示例&lt;/div&gt;" vertex="1">
+          <mxGeometry height="24" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:column:_" mermaidBaseStyle="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#ffb9dc;strokeColor=#ffb9dc;strokeWidth=1;container=1;collapsible=0;childLayout=stackLayout;horizontal=0;horizontalStack=0;resizeParent=0;resizeParentMax=0;resizeLast=0;startSize=25;marginTop=0;marginBottom=10;marginLeft=8;marginRight=8;spacing=5;" mermaidBaseValue="" id="22">
+          <mxCell parent="1" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#ffb9dc;strokeColor=#ffb9dc;strokeWidth=1;container=1;collapsible=0;childLayout=stackLayout;horizontal=0;horizontalStack=0;resizeParent=0;resizeParentMax=0;resizeLast=0;startSize=25;marginTop=0;marginBottom=10;marginLeft=8;marginRight=8;spacing=5;" vertex="1">
+            <mxGeometry height="372" width="200" x="625" y="10" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="23" parent="22" style="text;html=1;strokeColor=none;fillColor=none;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=#333333;align=center;verticalAlign=middle;" value="已完成" vertex="1">
+          <mxGeometry height="24" width="200" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_5_11" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="24">
+          <mxCell parent="22" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="68" width="185" x="8" y="25" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="25" parent="24" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;raster2drawio：图片转可编辑 .drawio&lt;/div&gt;" vertex="1">
+          <mxGeometry height="48" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_5_12" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="26">
+          <mxCell parent="22" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="44" width="185" x="8" y="98" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="27" parent="26" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;buildup：逐节点显现动画&lt;/div&gt;" vertex="1">
+          <mxGeometry height="24" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_5_13" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="28">
+          <mxCell parent="22" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="44" width="185" x="8" y="147" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="29" parent="28" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;compress：大图转高管摘要&lt;/div&gt;" vertex="1">
+          <mxGeometry height="24" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_5_14" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="30">
+          <mxCell parent="22" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="44" width="185" x="8" y="196" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="31" parent="30" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;runbook：点击式排查手册&lt;/div&gt;" vertex="1">
+          <mxGeometry height="24" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_5_15" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="32">
+          <mxCell parent="22" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="68" width="185" x="8" y="245" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="33" parent="32" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;prdiff：PR 图表 diff 机器人 + Action&lt;/div&gt;" vertex="1">
+          <mxGeometry height="48" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+        <UserObject label="" mermaidId="n:card:_anon_5_16" mermaidBaseStyle="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" mermaidBaseValue="" id="34">
+          <mxCell parent="22" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=light-dark(#FFFFFF,#1f2020);strokeColor=#9370DB;strokeWidth=1;container=1;collapsible=0;" vertex="1">
+            <mxGeometry height="44" width="185" x="8" y="318" as="geometry" />
+          </mxCell>
+        </UserObject>
+        <mxCell id="35" parent="34" style="text;html=1;strokeColor=none;fillColor=none;whiteSpace=wrap;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;fontColor=light-dark(#333333,#cccccc);align=left;verticalAlign=middle;" value="&lt;div style=&quot;line-height:1.5;&quot;&gt;思维导图功能全景进 README&lt;/div&gt;" vertex="1">
+          <mxGeometry height="24" width="175" x="10" y="10" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

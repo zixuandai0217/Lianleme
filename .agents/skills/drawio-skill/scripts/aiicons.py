@@ -28,17 +28,19 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 import urllib.request
 
 MANIFEST = os.path.join(os.path.dirname(__file__), "..", "data", "lobe-icons.json")
 STYLE = ("shape=image;html=1;imageAspect=0;aspect=fixed;"
          "verticalLabelPosition=bottom;verticalAlign=top;image=")
-_VARIANT = re.compile(r"-(color|text)$")
+_VARIANT = re.compile(r"-(?:color|text(?:-[a-z]{2})?|brand(?:-color)?)$")
 
 # Common RAG/LLM data stores that lobe-icons lacks, mapped to simple-icons
 # slugs (https://simpleicons.org, CC0). Served from the simple-icons CDN. Each
 # slug below is verified to return HTTP 200 at https://cdn.simpleicons.org/<slug>.
 _SIMPLEICONS_CDN = "https://cdn.simpleicons.org/"
+_ALLOWED_HOSTS = {"unpkg.com", "cdn.simpleicons.org"}
 _SUPPLEMENT = {
     "qdrant": "qdrant",
     "milvus": "milvus",
@@ -72,6 +74,18 @@ def families(icons):
 
 def squish(s):
     return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def safe_url(url):
+    """Reject a tampered manifest before emitting or fetching its URL."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in _ALLOWED_HOSTS:
+        raise ValueError(f"refusing icon URL outside allowlist: {url}")
+    return url
+
+
+def fetch(url):
+    return urllib.request.urlopen(safe_url(url), timeout=15).read()
 
 
 def search(fam, query, limit):
@@ -114,9 +128,9 @@ def search_supplement(query):
 
 
 def pick_variant(base, variants, prefer):
-    order = {"color": ["-color", "", "-text"],
-             "mono":  ["", "-color", "-text"],
-             "text":  ["-text", "-color", ""]}[prefer]
+    order = {"color": ["-color", "-brand-color", "", "-brand", "-text", "-text-cn"],
+             "mono":  ["", "-brand", "-color", "-brand-color", "-text", "-text-cn"],
+             "text":  ["-text", "-text-cn", "-brand", "-brand-color", "-color", ""]}[prefer]
     for suffix in order:
         cand = base + suffix
         if cand in variants:
@@ -138,9 +152,10 @@ def main():
 
     if not os.path.exists(MANIFEST):
         sys.exit(f"error: manifest not found at {MANIFEST}")
-    manifest = json.load(open(MANIFEST, encoding="utf-8"))
+    with open(MANIFEST, encoding="utf-8") as f:
+        manifest = json.load(f)
     fam = families(manifest["icons"])
-    cdn = manifest["cdn"]
+    cdn = safe_url(manifest["cdn"])
 
     if args.list:
         for base in sorted(fam):
@@ -158,13 +173,15 @@ def main():
             url = f"{cdn}{file}.svg"
             if args.embed:
                 try:
-                    svg = urllib.request.urlopen(url, timeout=15).read()
+                    svg = fetch(url)
                 except Exception as exc:                   # noqa: BLE001 - report and skip
                     sys.stderr.write(f"warning: could not fetch {url} ({exc})\n")
                     continue
                 # Rewrite the 1em intrinsic size so draw.io scales the inlined SVG.
                 svg = svg.replace(b'width="1em"', b'width="24"').replace(b'height="1em"', b'height="24"')
-                image = "data:image/svg+xml;base64," + base64.b64encode(svg).decode()
+                # Marker-less base64: draw.io splits style values on ';', so a
+                # ';base64,' marker would truncate the image= value (issue #80).
+                image = "data:image/svg+xml," + base64.b64encode(svg).decode()
             else:
                 image = url
             results.append({"brand": base, "file": file, "w": args.size, "h": args.size,
@@ -178,8 +195,9 @@ def main():
             image = url
             if args.embed:
                 try:
-                    svg = urllib.request.urlopen(url, timeout=15).read()
-                    image = "data:image/svg+xml;base64," + base64.b64encode(svg).decode()
+                    svg = fetch(url)
+                    # Marker-less base64 (see issue #80 note above).
+                    image = "data:image/svg+xml," + base64.b64encode(svg).decode()
                 except Exception as exc:                   # noqa: BLE001 - keep the CDN URL
                     sys.stderr.write(f"warning: could not fetch {url} ({exc}); using CDN URL\n")
             results.append({"brand": brand, "file": f"simpleicons:{slug}",
