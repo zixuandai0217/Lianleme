@@ -49,3 +49,4 @@ docs/notes/
 # IDE
 .vscode/
 .idea/
+.claude/
