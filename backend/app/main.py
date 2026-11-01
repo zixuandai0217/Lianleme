@@ -46,12 +46,22 @@ TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 INDEX_TEMPLATE = TEMPLATE_DIR / "index.html"
 
 
+def uses_orm_bootstrap() -> bool:
+    """是否用 ORM 元数据建表。
+
+    只有开发环境的 SQLite 才允许这么做；生产库（Postgres 或任何非开发环境）只走迁移，
+    否则「迁移与 ORM 对齐」这条约定会因为启动时偷偷建表而失效。
+    """
+    return settings.APP_ENV == "development" and settings.DATABASE_URL.startswith("sqlite")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时建表 + 确保 MinIO bucket，关闭时释放连接池"""
-    from app.core.database import Base
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """应用生命周期：开发环境建表 + 确保 MinIO bucket，关闭时释放连接池"""
+    if uses_orm_bootstrap():
+        from app.core.database import Base
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     ensure_bucket_exists()
     yield
     await engine.dispose()

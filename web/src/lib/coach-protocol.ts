@@ -9,8 +9,8 @@
 
 export const COACH_PROTOCOL_VERSION = 1
 
-/** 清洗后整轮无正文时的兜底文案：界面不出现永久空白气泡。 */
-export const EMPTY_COACH_REPLY = "我在，换个方式再问我一次。"
+/** 清洗后整轮无正文时的兜底文案：与后端 `COACH_FALLBACK_REPLY` 同一句，保证实时与历史回放语气一致。 */
+export const EMPTY_COACH_REPLY = "刚才那段我卡了一下，homie，再跟我说一遍，我接着带。"
 
 const ERROR_FALLBACK_MESSAGE = "教练暂时没接上，稍后再试一次。"
 

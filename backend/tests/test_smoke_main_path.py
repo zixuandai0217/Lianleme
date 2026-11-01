@@ -99,6 +99,21 @@ async def test_main_path_smoke(smoke_client: AsyncClient):
     today = await smoke_client.get(f"/api/plan/{user_id}/today", headers=headers)
     assert today.status_code < 500, today.text
 
+    # 打卡：主链路的最后一跳（计划调整由后台异步触发，不阻塞打卡响应）
+    checkin = await smoke_client.post(
+        "/api/workout/complete",
+        headers=headers,
+        json={
+            "user_id": user_id,
+            "workout_date": "2026-01-05",
+            "total_sets": 12,
+            "completed_sets": 10,
+            "duration_minutes": 45,
+            "difficulty_rating": 3,
+        },
+    )
+    assert checkin.status_code == 200, checkin.text
+
     # 陪练面：历史读取可用（流式协议由陪练协议工单的测试覆盖）
     history = await smoke_client.get(f"/api/coach/{user_id}/history", headers=headers)
     assert history.status_code == 200, history.text
