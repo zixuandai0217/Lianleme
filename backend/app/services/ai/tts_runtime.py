@@ -14,6 +14,7 @@ from typing import Literal, TypeVar
 import httpx
 
 from app.core.config import settings
+from app.services.ai import llm_observability as observed
 from app.services.ai.lip_sync import LipSyncError, MouthCue, align_wav, wav_duration
 from app.services.ai.tts_service import QwenVoiceDesignClient
 
@@ -134,6 +135,7 @@ async def _run_single_flight(
 async def synthesize_speech(
     text: str,
     *,
+    llm_mode: str,
     api_key: str | None = None,
     voice_id: str | None = None,
 ) -> bytes:
@@ -163,7 +165,8 @@ async def synthesize_speech(
                 if api_key is None
                 else _build_client(http_client, api_key)
             )
-            result = await client.synthesize(text=text, voice_id=resolved_voice)
+            with observed.voice_call(mode=llm_mode, prompt_chars=len(text)):
+                result = await client.synthesize(text=text, voice_id=resolved_voice)
 
         audio = result.audio
         _tts_cache[key] = audio
@@ -178,6 +181,7 @@ async def synthesize_speech(
 async def synthesize_animated_speech(
     text: str,
     *,
+    llm_mode: str,
     api_key: str | None = None,
     voice_id: str | None = None,
 ) -> AnimatedSpeech:
@@ -202,10 +206,11 @@ async def synthesize_animated_speech(
     async def produce() -> AnimatedSpeech:
         """Create audio and alignment once before publishing the animated cache entry."""
         audio = (
-            await synthesize_speech(text)
+            await synthesize_speech(text, llm_mode=llm_mode)
             if api_key is None and voice_id is None
             else await synthesize_speech(
                 text,
+                llm_mode=llm_mode,
                 api_key=api_key,
                 voice_id=resolved_voice,
             )

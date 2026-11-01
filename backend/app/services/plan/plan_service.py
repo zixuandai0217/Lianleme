@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.plan import TrainingPlan
 from app.schemas.plan import DailyWorkout, TrainingPlanSchema
+from app.services.ai import llm_observability as observed
 from app.services.ai.adjust_graph import AdjustGraph
 from app.services.ai.llm_factory import LLMClientFactory
 
@@ -72,14 +73,17 @@ class PlanService:
             f"{parser.get_format_instructions()}"
         )
 
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        response = await observed.invoke(llm, [HumanMessage(content=prompt)])
 
         try:
             import re
             cleaned = re.sub(r"^```(?:json)?\s*\n?", "", response.content.strip())
             cleaned = re.sub(r"\n?```\s*$", "", cleaned).strip()
             schema = parser.parse(cleaned)
+            if cleaned != response.content.strip():
+                observed.degraded(llm, reason=observed.DEGRADED_MARKDOWN_WRAPPED)
         except Exception:
+            observed.degraded(llm)
             schema = self._default_plan(user_id, week_start)
 
         # 归档旧计划

@@ -7,6 +7,7 @@ from typing import Any, Optional, TypedDict
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, StateGraph
 
+from app.services.ai import llm_observability as observed
 from app.services.ai.llm_factory import LLMClientFactory
 
 
@@ -103,8 +104,8 @@ class AdjustGraph:
             f"请将以下训练计划的组数/次数适当提升 10-15%，保持 JSON 格式不变：\n"
             f"{state['current_plan']}"
         )
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
-        return {"adjusted_plan": self._safe_parse(response.content, state["current_plan"])}
+        response = await observed.invoke(llm, [HumanMessage(content=prompt)])
+        return {"adjusted_plan": self._safe_parse(response.content, state["current_plan"], llm)}
 
     async def _decrease_node(self, state: AdjustState) -> dict:
         """减量节点：降低 15-20% 训练量"""
@@ -114,14 +115,14 @@ class AdjustGraph:
             f"请将以下训练计划的组数/次数适当降低 15-20%，保持 JSON 格式不变：\n"
             f"{state['current_plan']}"
         )
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
-        return {"adjusted_plan": self._safe_parse(response.content, state["current_plan"])}
+        response = await observed.invoke(llm, [HumanMessage(content=prompt)])
+        return {"adjusted_plan": self._safe_parse(response.content, state["current_plan"], llm)}
 
     async def _keep_node(self, state: AdjustState) -> dict:
         """保持节点：难度不变，直接返回原计划"""
         return {"adjusted_plan": state["current_plan"]}
 
-    def _safe_parse(self, content: str, fallback: dict) -> dict:
+    def _safe_parse(self, content: str, fallback: dict, llm) -> dict:
         """安全解析 LLM 返回的 JSON，失败则使用原计划"""
         import json
         import re
@@ -131,4 +132,5 @@ class AdjustGraph:
                 return json.loads(match.group())
             except json.JSONDecodeError:
                 pass
+        observed.degraded(llm)
         return fallback

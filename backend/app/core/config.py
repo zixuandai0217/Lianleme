@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     LOG_FORMAT: str = "auto"
     SLOW_REQUEST_THRESHOLD_MS: int = 3000
 
+    # 健康检查：单依赖探测超时（秒）与失败日志限流窗口（秒）
+    HEALTH_PROBE_TIMEOUT_SECONDS: float = 1.0
+    HEALTH_PROBE_LOG_THROTTLE_SECONDS: float = 30.0
+
     # 数据库
     DATABASE_URL: str = "postgresql+asyncpg://lianleme:lianle123@localhost:5432/lianleme"
 
@@ -36,7 +40,8 @@ class Settings(BaseSettings):
     ANALYSIS_TASK_MAX_CONCURRENCY: int = 4
     ANALYSIS_TASK_WORKER_POLL_SECONDS: float = 1.0
 
-    # Redis
+    # Redis（本部署尚未使用；仅当显式开启时才参与就绪探测，作为可选依赖）
+    REDIS_PROBE_ENABLED: bool = False
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # MinIO / 对象存储

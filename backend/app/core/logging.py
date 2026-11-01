@@ -37,6 +37,11 @@ FIELD_VERSION = "version"
 FIELD_STACK = "stack"
 FIELD_CHUNKS_SENT = "chunks_sent"
 FIELD_BYTES_SENT = "bytes_sent"
+FIELD_MODEL_PURPOSE = "model_purpose"
+FIELD_LLM_MODE = "llm_mode"
+FIELD_ERROR_CATEGORY = "error_category"
+FIELD_PROMPT_CHARS = "prompt_chars"
+FIELD_IMAGE_SIZE_BYTES = "image_size_bytes"
 
 # --- Stable event names: domain.action.result -------------------------------
 EVENT_HTTP_COMPLETED = "http.request.completed"
@@ -54,6 +59,11 @@ EVENT_TASK_CLAIMED = "task.analysis.claimed"
 EVENT_TASK_RECLAIMED = "task.analysis.reclaimed"
 EVENT_TASK_EXPIRED = "task.analysis.expired"
 EVENT_TASK_CLEANED = "task.analysis.cleaned"
+EVENT_DEPENDENCY_FAILED = "dependency.probe.failed"
+EVENT_DEPENDENCY_RECOVERED = "dependency.probe.recovered"
+EVENT_LLM_COMPLETED = "llm.call.completed"
+EVENT_LLM_FAILED = "llm.call.failed"
+EVENT_LLM_DEGRADED = "llm.output.degraded"
 
 # Event used for log calls that predate the structured event vocabulary.
 FALLBACK_EVENT = "log.record.emitted"

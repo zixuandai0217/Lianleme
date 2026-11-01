@@ -14,6 +14,7 @@ from app.schemas.workout import (
     WorkoutCompleteRequest,
     WorkoutRecordResponse,
 )
+from app.services.ai import llm_observability as observed
 from app.services.ai.llm_factory import LLMClientFactory
 
 
@@ -167,7 +168,7 @@ class WorkoutService:
                 f"用户刚完成训练：完成率 {completion_rate:.0%}，用时 {duration} 分钟。"
                 f"请给出 50 字以内的鼓励性总结和恢复建议。"
             )
-            response = await llm.ainvoke([HumanMessage(content=prompt)])
+            response = await observed.invoke(llm, [HumanMessage(content=prompt)])
             return response.content
         except Exception:
             return f"太棒了！本次完成率 {completion_rate:.0%}，注意充分补水和休息。"

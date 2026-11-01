@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import AsyncSessionLocal
 from app.models.chat_message import ChatMessageRecord
 from app.schemas.chat import CoachResponse
+from app.services.ai import llm_observability as observed
 from app.services.ai.llm_factory import LLMClientFactory
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,10 @@ class CoachTextCleaner:
         self._fence = ""
         self._pending = ""
         self._released = False
+        # True only when structure had to be dropped without yielding a reply.
+        # A well-formed envelope that carries a reply is normal output, not a
+        # degradation — observing "any structure" would flag every JSON turn.
+        self.discarded_structure = False
 
     def feed(self, chunk: str) -> str:
         """Consume one model delta and return the text that can be shown now."""
@@ -185,6 +190,7 @@ class CoachTextCleaner:
             return False
         self._buffer = stripped
         if stripped.startswith(_FENCE):
+            self.structured_output = True
             self._buffer = stripped[len(_FENCE):]
             self._fence = ""
             self._mode = "fence"
@@ -204,10 +210,13 @@ class CoachTextCleaner:
             reply = _reply_text_from_payload(payload)
             if reply:
                 out.append(reply)
+            else:
+                self.discarded_structure = True
             self._mode = "text"
             return True
         if not final and not _json_is_balanced(text) and len(text) < _HEAD_JSON_LIMIT:
             return False  # the envelope is still open, wait for more deltas
+        self.discarded_structure = True
         if _json_is_balanced(text):
             # Balanced but undecodable: drop the structure, keep the prose after it.
             self._buffer = _prose_after_structure(text)
@@ -262,13 +271,9 @@ class CoachTextCleaner:
         reply = _fenced_reply(inner)
         if reply:
             out.append(reply)
+        elif inner.strip():
+            self.discarded_structure = True
         return True
-
-
-def clean_coach_text(text: str) -> str:
-    """Clean one complete model output with the same rules as the stream cleaner."""
-    cleaner = CoachTextCleaner()
-    return (cleaner.feed(text) + cleaner.flush()).strip()
 
 
 class CoachGraph:
@@ -346,15 +351,17 @@ class CoachGraph:
             messages.extend(history)
             messages.append(HumanMessage(content=message))
 
-            response = await llm.ainvoke(messages)
+            response = await observed.invoke(llm, messages)
             raw = response.content if isinstance(response.content, str) else ""
             data = self._parse_json_response(raw)
             payload = data if isinstance(data, dict) else {}
-            reply = (
-                _reply_text_from_payload(payload)
-                or clean_coach_text(raw)
-                or COACH_FALLBACK_REPLY
-            )
+            cleaner = CoachTextCleaner()
+            cleaned = (cleaner.feed(raw) + cleaner.flush()).strip()
+            reply = _reply_text_from_payload(payload) or cleaned or COACH_FALLBACK_REPLY
+            if reply == COACH_FALLBACK_REPLY or cleaner.discarded_structure:
+                # "Looks successful but degraded": the reply came from the fallback
+                # or structure had to be dropped. Recorded apart from success.
+                observed.degraded(llm, reason=observed.DEGRADED_OUTPUT_UNPARSEABLE)
 
             await self._save_message(db, "user", message)
             await self._save_message(db, "assistant", reply)
@@ -392,10 +399,16 @@ class CoachGraph:
             messages.extend(history)
             messages.append(HumanMessage(content=message))
 
-            async for chunk in llm.astream(messages):
+            cleaner = CoachTextCleaner()
+            has_text = False
+            async for chunk in observed.stream(llm, messages):
                 token = chunk.content if isinstance(chunk.content, str) else ""
                 if token:
+                    has_text = bool(cleaner.feed(token).strip()) or has_text
                     yield token
+            has_text = bool(cleaner.flush().strip()) or has_text
+            if cleaner.discarded_structure or not has_text:
+                observed.degraded(llm, reason=observed.DEGRADED_OUTPUT_UNPARSEABLE)
 
     async def save_turn(self, message: str, reply: str) -> None:
         """将一轮对话入库；reply 必须是清洗后的正文，历史回放才不会泄漏结构残留"""

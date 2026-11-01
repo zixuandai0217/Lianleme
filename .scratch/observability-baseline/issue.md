@@ -71,6 +71,11 @@ LLM 调用是这条链路里最需要被看见的一段，却几乎不可观测�
 | attempt | 任务尝试次数 |
 | version | 应用版本 |
 | stack | 仅错误级，完整堆栈文本 |
+| model_purpose | LLM 模型用途：`chat` / `vision` / `voice`（工单 05 追加） |
+| llm_mode | 本次调用凭据来源：`byok`（用户自带 Key）/ `system`（系统回退或内部任务）（工单 05 追加） |
+| error_category | LLM 错误分类：`auth` / `rate_limit` / `timeout` / `network` / `output_parse` / `unknown`（工单 05 追加） |
+| prompt_chars | 提示词字符数（非内容型元数据）（工单 05 追加） |
+| image_size_bytes | 图片字节数（非内容型元数据；命名避开脱敏黑名单里的 `image_bytes` 内容字段）（工单 05 追加） |
 
 禁止字段（任何级别都不得出现）：API Key 与其掩码、Authorization 头、密码与令牌、图片 base64 或图片字节、对话原文与提示词全文。允许记录图片字节数与内容类型这类非内容型元数据。实现一个统一脱敏环节，而不是靠每个调用点自觉。
 
@@ -146,6 +151,24 @@ LLM 调用是这条链路里最需要被看见的一段，却几乎不可观测�
 
 - 前端在请求失败时从响应头读取请求标识，并在错误提示或错误上报里带上它（用户可见文案保持简短）。
 - 错误文案继续从既有的「detail 里的 message」取，不因契约收紧而改变前端解析方式。
+
+### 11. 落地修订（工单 04：就绪/存活探针）
+
+- **探测实现**：数据库执行 `SELECT 1`；对象存储检查 bucket 是否存在，并按探测超时新建独立 `PoolManager`（禁用重试）——`asyncio` 的超时只能取消等待，取消不了阻塞 I/O，若复用默认连接池，反复探测会在依赖挂掉时堆积线程；Redis 为可选探测，未配置 URL 直接视为通过。
+- **聚合口径**：必需依赖失败 → `unavailable` + 503；只有可选依赖失败 → `degraded` + 200（第 118 行「正常 / 降级 / 不可用」三态的具体落地）。
+- **配置项**：`HEALTH_PROBE_TIMEOUT_SECONDS`（默认 1s，逐项独立）与 `HEALTH_PROBE_LOG_THROTTLE_SECONDS`（默认 30s，按依赖限流）。
+- **事件**：`dependency.probe.failed`（warning，带 `dependency` / `error_code` / `duration_ms`）与 `dependency.probe.recovered`（info，一次失败窗口只报一条，让故障有可见终点）；两者都走统一结构化日志，自动带 `request_id`。
+- **单一来源**：应用版本与启动时间在健康检查模块内各定义一次，存活与就绪共用；`/health` 不引用任何探测函数，依赖全挂时仍 200。
+- **预期内 5xx 不按异常刷日志**：就绪检查在依赖不可用时返回 503 是探针的正常结论，该请求的完成事件降为 warning（与第 1 节「依赖失败按是否影响用户请求判定级别」一致），避免探针高频刷 error。
+- **Redis 默认不探测**：`REDIS_URL` 有本地默认值，「有 URL」不等于「本部署用了 Redis」。只有显式 `REDIS_PROBE_ENABLED=true` 时才把它作为可选依赖参与聚合，否则无 Redis 的部署会永久 degraded 并按窗口刷失败日志。
+
+### 12. 落地修订（工单 05：LLM 调用观测与脱敏）
+
+- **字段追加**：`model_purpose` / `llm_mode` / `error_category` / `prompt_chars` / `image_size_bytes`（已并入第 1 节表格）。供应商沿用第 1 节既有的 `dependency` 字段（表里本就写明「LLM 供应商」），不新造 `provider` 别名。
+- **事件**：`llm.call.completed` / `llm.call.failed` / `llm.output.degraded`；成功与失败事件都**不带 stack、不带 exc_info**——SDK 异常文本可能内嵌密钥、提示词或供应商回包。跨出 provider 边界时改抛 `LLMCallError`（只含分类标签），阻断上游 catch-all 把原文写进堆栈。
+- **降级与成功分开**：JSON 外壳、代码围栏、解析失败、兜底文案各记一条 `llm.output.degraded`，`error_code` 用 `output_parse` / `markdown_wrapped` 区分，绝不混进成功调用的结果标记。这两个值**是输出质量分类，不复用任务错误码**（第 67 行的 `error_code` 约定针对请求级失败；调用失败事件本身不再写 `error_code`，分类只在 `error_category` 上）。
+- **降级判定按消费者契约区分**：对话场景只要清洗后仍有可读正文就不算降级（外壳/围栏里取到正文属正常输出），只有结构被丢弃且没取到正文、或最终落到兜底文案时才记；结构化输出场景（体型分析、计划生成、计划调整）只要模型没按约定直出 JSON（被 markdown 包裹也算）就记 `markdown_wrapped`，解析失败记 `output_parse`。流式对话的判定发生在 Graph 侧（路由拿到的是清洗后文本，看不到结构），非流式对话复用同一判定，两条路径口径一致。
+- **覆盖范围**：所有 LLM 调用点（coach 同步/流式、vision、计划生成、计划调整、打卡反馈、Qwen TTS）共用 `invoke` / `stream` / `voice_call` 一套包装；语音的 BYOK 与系统回退由路由解析凭据时一并确定后传入（运行时不猜来源），无凭据来源时如实记 `unknown`。
 
 ## Testing Decisions
 

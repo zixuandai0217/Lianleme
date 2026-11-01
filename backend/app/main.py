@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from app.api import admin, coach, plan, user, vision, weight, workout
 from app.core.config import settings
 from app.core.database import engine
+from app.core.health import APP_VERSION, build_readiness, liveness_report
 from app.core.logging import (
     ERROR_CODE_HTTP_PREFIX,
     EVENT_HTTP_FAILED,
@@ -25,7 +26,11 @@ from app.core.logging import (
     log_event,
     root_cause,
 )
-from app.core.observability import RequestContextMiddleware, route_template
+from app.core.observability import (
+    RequestContextMiddleware,
+    mark_expected_failure,
+    route_template,
+)
 from app.core.request_context import (
     REQUEST_ID_HEADER,
     bind_request_context,
@@ -69,7 +74,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="练了么 - AI 健身教练",
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -134,7 +139,18 @@ app.include_router(admin.router, prefix="/api/admin", tags=["管理后台"])
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "lianleme-api"}
+    """存活检查：只回答进程还在不在，永远不探测外部依赖。"""
+    return liveness_report()
+
+
+@app.get("/health/ready")
+async def health_ready(request: Request):
+    """就绪检查：逐项探测依赖，必需依赖不可用时返回 503 让流量被摘走。"""
+    report, status_code = await build_readiness()
+    if status_code >= 500:
+        # 依赖不可用是探针的正常结论，不该按未处理异常刷 error 日志
+        mark_expected_failure(request.scope)
+    return JSONResponse(status_code=status_code, content=report)
 
 
 @app.get("/", response_class=HTMLResponse)

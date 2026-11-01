@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import END, StateGraph
 
 from app.schemas.vision import BodyAnalysisResult
+from app.services.ai import llm_observability as observed
 from app.services.ai.llm_factory import LLMClientFactory
 
 
@@ -20,6 +21,7 @@ class VisionState(TypedDict):
     raw_analysis: str        # vision_node 输出的原始文本
     body_analysis: Optional[BodyAnalysisResult]  # parse_node 结构化后的结果
     error: Optional[str]
+    llm_metadata: Optional[observed.ClientProvenance]
 
 
 class VisionGraph:
@@ -53,6 +55,7 @@ class VisionGraph:
             "raw_analysis": "",
             "body_analysis": None,
             "error": None,
+            "llm_metadata": None,
         }
         result = await self._graph.ainvoke(initial_state)
         if result.get("error"):
@@ -91,8 +94,11 @@ class VisionGraph:
                     },
                 ]
             )
-            response = await llm.ainvoke([message])
-            return {"raw_analysis": response.content}
+            response = await observed.invoke(llm, [message], purpose=observed.PURPOSE_VISION)
+            return {
+                "raw_analysis": response.content,
+                "llm_metadata": observed.client_provenance(llm),
+            }
         except Exception as e:
             return {"error": f"体型分析失败：{str(e)}"}
 
@@ -103,9 +109,16 @@ class VisionGraph:
         try:
             raw = state["raw_analysis"]
             cleaned = self._strip_markdown_fence(raw)
+            if cleaned != raw.strip():
+                observed.degraded(
+                    state.get("llm_metadata"),
+                    purpose=observed.PURPOSE_VISION,
+                    reason=observed.DEGRADED_MARKDOWN_WRAPPED,
+                )
             result = self.parser.parse(cleaned)
             return {"body_analysis": result}
         except Exception:
+            observed.degraded(state.get("llm_metadata"), purpose=observed.PURPOSE_VISION)
             fallback = BodyAnalysisResult(
                 body_type="mesomorph",
                 body_fat_range="未知",

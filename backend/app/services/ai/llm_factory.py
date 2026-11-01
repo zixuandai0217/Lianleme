@@ -31,23 +31,32 @@ class LLMClientFactory:
           ALLOW_SYSTEM_LLM_FALLBACK 时才回退到系统 Key
         - 内部任务：user_id 为空时使用系统 Key
         """
-        provider, api_key = await self._resolve_key(user_id)
-        return self._build_client(provider, api_key, model_type, streaming)
+        provider, api_key, mode = await self._resolve_credentials(user_id)
+        client = self._build_client(provider, api_key, model_type, streaming)
+        # Runtime-only metadata, never credentials; callers use it for content-free logs.
+        object.__setattr__(client, "llm_provider", provider)
+        object.__setattr__(client, "llm_mode", mode)
+        return client
 
     async def _resolve_key(self, user_id: Optional[int]) -> tuple[str, str]:
-        """解析最终使用的 provider 和 api_key"""
+        """Compatibility boundary for callers that only need provider credentials."""
+        provider, api_key, _mode = await self._resolve_credentials(user_id)
+        return provider, api_key
+
+    async def _resolve_credentials(self, user_id: Optional[int]) -> tuple[str, str, str]:
+        """Resolve credentials together with their non-secret provenance."""
         if user_id is not None:
             if self.db is None:
                 raise ValueError("用户 AI 请求缺少数据库会话，无法读取 API Key")
             key_service = ApiKeyService(self.db)
             user_key = await key_service.get_decrypted_key(user_id)
             if user_key is not None:
-                return user_key
+                return (*user_key, "byok")
             # 个人 Key 不可用时，仅在显式开启的中心付费回退下使用系统凭据
             if settings.ALLOW_SYSTEM_LLM_FALLBACK:
                 system_credentials = settings.system_llm_credentials()
                 if system_credentials is not None:
-                    return system_credentials
+                    return (*system_credentials, "system")
             raise ApiKeyRequiredError("使用 AI 功能前，请先配置你自己的 API Key")
 
         # Internal jobs without a user identity may use server-managed credentials.
@@ -57,7 +66,7 @@ class LLMClientFactory:
                 "内部任务缺少系统 LLM 凭据：请配置 DEFAULT_LLM_PROVIDER 对应的"
                 "QWEN_API_KEY 或 OPENAI_API_KEY"
             )
-        return system_credentials
+        return (*system_credentials, "system")
 
     def _build_client(
         self, provider: str, api_key: str, model_type: str, streaming: bool

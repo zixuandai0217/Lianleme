@@ -563,6 +563,7 @@ async def test_qwen_user_key_is_injected_into_coach_voice(
         "hello",
         api_key="sk-user-qwen-123456",
         voice_id="Ryan",
+        llm_mode="byok",
     )
 
 
@@ -626,6 +627,7 @@ async def test_keyless_user_tts_falls_back_to_system_qwen_key_when_enabled(
         "hello",
         api_key="system-qwen-key",
         voice_id="Ryan",
+        llm_mode="system",
     )
 
 
@@ -669,6 +671,7 @@ async def test_personal_qwen_key_priority_over_system_tts_fallback(
         "hello",
         api_key="sk-user-qwen-123456",
         voice_id="Ryan",
+        llm_mode="byok",
     )
 
 

@@ -71,6 +71,22 @@ def route_template(scope: Mapping[str, Any]) -> str | None:
 
 
 STREAM_ERROR_STATE_KEY = "stream_error"
+EXPECTED_FAILURE_STATE_KEY = "expected_failure"
+
+
+def mark_expected_failure(scope: dict) -> None:
+    """Mark a 5xx response as an expected dependency report, not a crash.
+
+    Readiness answers 503 while a dependency is down; that is the probe doing its
+    job. Logging it at error level on every probe would defeat the per-dependency
+    failure throttle, so the completion event drops to warning.
+    """
+    scope.setdefault("state", {})[EXPECTED_FAILURE_STATE_KEY] = True
+
+
+def _is_expected_failure(scope: Mapping[str, Any]) -> bool:
+    state = scope.get("state") or {}
+    return isinstance(state, Mapping) and bool(state.get(EXPECTED_FAILURE_STATE_KEY))
 
 
 def mark_stream_failed(scope: dict, *, error_code: str, error_class: str) -> None:
@@ -109,7 +125,9 @@ def _log_request_completed(
     }
     if status_code is not None and status_code >= 400:
         fields[FIELD_ERROR_CODE] = f"{ERROR_CODE_HTTP_PREFIX}{status_code}"
-        level = logging.ERROR if status_code >= 500 else logging.WARNING
+        level = logging.WARNING
+        if status_code >= 500 and not _is_expected_failure(scope):
+            level = logging.ERROR
     log_event(logger, EVENT_HTTP_COMPLETED, message="请求完成", level=level, **fields)
 
     if duration_ms >= settings.SLOW_REQUEST_THRESHOLD_MS:

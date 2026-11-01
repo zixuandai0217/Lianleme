@@ -1,5 +1,9 @@
 """MinIO 对象存储客户端：初始化 bucket、提供文件上传封装"""
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 from minio import Minio
+from urllib3 import PoolManager, Timeout
 
 from app.core.config import settings
 
@@ -47,3 +51,23 @@ def upload_bytes(
         content_type=content_type,
     )
     return f"http://{settings.MINIO_ENDPOINT}/{bucket}/{object_name}"
+
+
+@contextmanager
+def bounded_minio_client(timeout_seconds: float) -> Iterator[Minio]:
+    """短超时、无重试的探测客户端（就绪检查专用）。
+
+    asyncio 的超时只能取消「等待」，取消不了阻塞 socket 调用；复用共享客户端会让
+    挂掉的存储把连接一直占住。这里按探测超时构造独立连接池，退出时清空。
+    """
+    transport = PoolManager(timeout=Timeout(total=timeout_seconds), retries=False)
+    try:
+        yield Minio(
+            endpoint=settings.MINIO_ENDPOINT,
+            access_key=settings.MINIO_ROOT_USER,
+            secret_key=settings.MINIO_ROOT_PASSWORD,
+            secure=False,
+            http_client=transport,
+        )
+    finally:
+        transport.clear()

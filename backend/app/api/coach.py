@@ -35,6 +35,7 @@ from app.schemas.chat import (
     CoachTurnStartedEvent,
     sse_frame,
 )
+from app.services.ai import llm_observability as observed
 from app.services.ai import tts_runtime
 from app.services.ai.coach_graph import (
     COACH_FALLBACK_REPLY,
@@ -58,23 +59,27 @@ def _system_qwen_tts_key() -> str | None:
     return (settings.QWEN_AUDIO_API_KEY or settings.QWEN_API_KEY or "").strip() or None
 
 
-async def _get_user_qwen_key(db: AsyncSession, user_id: int) -> str | None:
-    """Return the user's Qwen key, else the system Qwen key when fallback is enabled."""
+async def _resolve_voice_credentials(
+    db: AsyncSession, user_id: int
+) -> tuple[str, str] | None:
+    """Resolve the Qwen-only voice key together with its provenance.
+
+    Provenance is decided here, once, from the key that is actually used; the
+    speech runtime must never infer BYOK vs system fallback from "a key was passed".
+    """
     user_key = await ApiKeyService(db).get_decrypted_key(user_id)
     if user_key is not None and user_key[0] == "qwen":
-        return user_key[1]
-    return _system_qwen_tts_key()
+        return user_key[1], observed.MODE_BYOK
+    system_key = _system_qwen_tts_key()
+    return (system_key, observed.MODE_SYSTEM) if system_key else None
 
 
-async def _require_user_qwen_key(db: AsyncSession, user_id: int) -> str:
-    """Require a Qwen key for the Qwen-only coach voice runtime."""
-    api_key = await _get_user_qwen_key(db, user_id)
-    if api_key is None:
-        raise HTTPException(
-            status_code=409,
-            detail="数字教练语音目前需要配置通义千问 API Key",
-        )
-    return api_key
+async def _require_voice_credentials(db: AsyncSession, user_id: int) -> tuple[str, str]:
+    """Require Qwen voice credentials, failing closed with a stable message."""
+    credentials = await _resolve_voice_credentials(db, user_id)
+    if credentials is None:
+        raise HTTPException(status_code=409, detail="数字教练语音目前需要配置通义千问 API Key")
+    return credentials
 
 
 # 流中失败的稳定错误码 → 用户可读文案（错误绝不伪装成正文增量帧）
@@ -209,7 +214,8 @@ async def coach_tts_status(
     current_user: User = Depends(get_current_user),
 ):
     """Report whether the current user's Qwen key can use coach speech."""
-    api_key = await _get_user_qwen_key(db, current_user.id)
+    credentials = await _resolve_voice_credentials(db, current_user.id)
+    api_key = credentials[0] if credentials else None
     voice_id = settings.QWEN_BYOK_TTS_VOICE.strip()
     return CoachTTSStatusResponse(
         available=bool(api_key) and tts_runtime.tts_is_configured(
@@ -227,7 +233,7 @@ async def coach_tts(
     current_user: User = Depends(require_current_user_api_key),
 ):
     """Synthesize coach speech as raw WAV audio for the authenticated user."""
-    api_key = await _require_user_qwen_key(db, current_user.id)
+    api_key, mode = await _require_voice_credentials(db, current_user.id)
     voice_id = settings.QWEN_BYOK_TTS_VOICE.strip()
     if not tts_runtime.tts_is_configured(api_key, voice_id=voice_id):
         raise HTTPException(status_code=503, detail="教练语音未配置")
@@ -239,6 +245,7 @@ async def coach_tts(
     try:
         audio = await tts_runtime.synthesize_speech(
             text,
+            llm_mode=mode,
             api_key=api_key,
             voice_id=voice_id,
         )
@@ -259,7 +266,7 @@ async def coach_tts_animated(
     current_user: User = Depends(require_current_user_api_key),
 ):
     """Synthesize authenticated coach audio and return synchronized mouth cues."""
-    api_key = await _require_user_qwen_key(db, current_user.id)
+    api_key, mode = await _require_voice_credentials(db, current_user.id)
     voice_id = settings.QWEN_BYOK_TTS_VOICE.strip()
     if not tts_runtime.tts_is_configured(api_key, voice_id=voice_id):
         raise HTTPException(status_code=503, detail="教练语音未配置")
@@ -271,6 +278,7 @@ async def coach_tts_animated(
     try:
         speech = await tts_runtime.synthesize_animated_speech(
             text,
+            llm_mode=mode,
             api_key=api_key,
             voice_id=voice_id,
         )

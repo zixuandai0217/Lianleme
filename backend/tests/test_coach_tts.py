@@ -124,8 +124,8 @@ async def test_synthesize_speech_uses_configured_voice_and_caches(monkeypatch):
     monkeypatch.setattr(tts_runtime, "_build_client", lambda http_client: fake_client)
     tts_runtime.clear_tts_cache()
 
-    first = await tts_runtime.synthesize_speech("Hello coach")
-    second = await tts_runtime.synthesize_speech("Hello coach")
+    first = await tts_runtime.synthesize_speech("Hello coach", llm_mode="system")
+    second = await tts_runtime.synthesize_speech("Hello coach", llm_mode="system")
 
     assert first == wav
     assert second == wav
@@ -146,14 +146,14 @@ async def test_synthesize_animated_speech_caches_energy_fallback(monkeypatch):
     monkeypatch.setattr(tts_runtime, "align_wav", align, raising=False)
     tts_runtime.clear_tts_cache()
 
-    first = await tts_runtime.synthesize_animated_speech("Again!")
-    second = await tts_runtime.synthesize_animated_speech("Again!")
+    first = await tts_runtime.synthesize_animated_speech("Again!", llm_mode="system")
+    second = await tts_runtime.synthesize_animated_speech("Again!", llm_mode="system")
 
     assert first == second
     assert first.audio == wav
     assert first.alignment == "energy"
     assert first.mouth_cues == ()
-    synthesize.assert_awaited_once_with("Again!")
+    synthesize.assert_awaited_once_with("Again!", llm_mode="system")
     align.assert_awaited_once()
 
 
@@ -188,8 +188,12 @@ async def test_synthesize_animated_speech_coalesces_concurrent_requests(monkeypa
     monkeypatch.setattr(tts_runtime, "align_wav", align)
     tts_runtime.clear_tts_cache()
 
-    first = asyncio.create_task(tts_runtime.synthesize_animated_speech("Again!"))
-    second = asyncio.create_task(tts_runtime.synthesize_animated_speech("Again!"))
+    first = asyncio.create_task(
+        tts_runtime.synthesize_animated_speech("Again!", llm_mode="system")
+    )
+    second = asyncio.create_task(
+        tts_runtime.synthesize_animated_speech("Again!", llm_mode="system")
+    )
     await synthesis_started.wait()
     await asyncio.sleep(0)
     synthesis_release.set()
@@ -325,6 +329,7 @@ async def test_tts_animated_returns_audio_and_mouth_cues(
         "再来两个！",
         api_key=TEST_USER_QWEN_KEY,
         voice_id="Ryan",
+        llm_mode="byok",
     )
 
 
