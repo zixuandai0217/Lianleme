@@ -43,16 +43,50 @@ export interface BodyAnalysisResult {
   summary: string
 }
 
+export type AnalyzeTaskStatus = "pending" | "processing" | "completed" | "failed" | "expired"
+
+export type AnalyzeTaskStage = "queued" | "vision" | "parse" | "persist" | "done"
+
+/** 服务端稳定错误码；未知码按字符串接纳，前端只展示安全文案。 */
+export type AnalyzeTaskErrorCode =
+  | "api_key_required"
+  | "provider_auth_failed"
+  | "provider_rate_limited"
+  | "provider_timeout"
+  | "output_unparsable"
+  | "image_invalid"
+  | "storage_unavailable"
+  | "retry_exhausted"
+  | "task_expired"
+  | "internal_error"
+
+export interface AnalyzeTaskError {
+  code: AnalyzeTaskErrorCode | string
+  message: string
+  retryable: boolean
+}
+
 export interface AnalyzeResponse {
   task_id: string
-  status: string
+  status: AnalyzeTaskStatus
+  stage?: AnalyzeTaskStage
+  created_at?: string
+  expires_at?: string
+  /** 服务端建议的轮询间隔（毫秒）；缺失时前端回退到默认间隔。 */
+  poll_interval_ms?: number
 }
 
 export interface AnalyzeResultResponse {
   task_id: string
-  status: "processing" | "completed" | "failed"
+  status: AnalyzeTaskStatus
+  stage?: AnalyzeTaskStage
+  attempt?: number
+  progress?: number
   result?: BodyAnalysisResult
-  error?: string
+  error?: AnalyzeTaskError
+  created_at?: string
+  updated_at?: string
+  expires_at?: string
 }
 
 export interface BodyAnalysisRecordItem {

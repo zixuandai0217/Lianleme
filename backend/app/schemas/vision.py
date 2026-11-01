@@ -23,17 +23,37 @@ class BodyAnalysisResult(BaseModel):
 
 
 class AnalyzeResponse(BaseModel):
-    """体型分析接口响应"""
+    """体型分析接口响应（创建任务）"""
     task_id: str = Field(..., description="异步任务 ID，用于轮询结果")
-    status: str = Field(default="processing")
+    status: str = Field(default="pending", description="pending / processing")
+    stage: str = Field(default="queued", description="queued / vision / parse / persist / done")
+    created_at: Optional[datetime.datetime] = None
+    expires_at: Optional[datetime.datetime] = None
+    poll_interval_ms: int = Field(default=2000, description="建议轮询间隔（毫秒）")
+    suggested_poll_interval_ms: Optional[int] = Field(
+        default=None, description="建议轮询间隔别名，兼容既有前端"
+    )
+
+
+class AnalyzeErrorResponse(BaseModel):
+    """对用户可见的、经过分类与脱敏的任务失败原因"""
+    code: str = Field(..., description="稳定错误码")
+    message: str = Field(..., description="安全文案，不包含供应商原文")
+    retryable: bool = False
 
 
 class AnalyzeResultResponse(BaseModel):
-    """体型分析结果轮询响应"""
+    """体型分析结果轮询响应（五态任务）"""
     task_id: str
-    status: str = Field(..., description="processing / completed / failed")
+    status: str = Field(..., description="pending / processing / completed / failed / expired")
+    stage: str = Field(default="queued")
+    attempt: int = 0
+    progress: int = 0
     result: Optional[BodyAnalysisResult] = None
-    error: Optional[str] = None
+    error: Optional[AnalyzeErrorResponse] = None
+    created_at: Optional[datetime.datetime] = None
+    updated_at: Optional[datetime.datetime] = None
+    expires_at: Optional[datetime.datetime] = None
 
 
 class BodyAnalysisRecordResponse(BaseModel):

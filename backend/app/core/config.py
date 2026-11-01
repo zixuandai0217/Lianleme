@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # 数据库
     DATABASE_URL: str = "postgresql+asyncpg://lianleme:lianle123@localhost:5432/lianleme"
 
+    # 体型分析任务：过期时长与建议轮询间隔
+    ANALYSIS_TASK_TTL_MINUTES: int = 10
+    ANALYSIS_TASK_POLL_INTERVAL_MS: int = 2000
+
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 

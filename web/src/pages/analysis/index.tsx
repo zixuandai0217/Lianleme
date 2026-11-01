@@ -18,11 +18,23 @@ import {
   Camera,
   Trophy,
   Target,
+  RefreshCw,
+  KeyRound,
 } from "lucide-react"
 import { generatePlan, getAnalysisHistory, getAnalyzeResult, getCurrentPlan, startAnalyze } from "@/api"
-import type { BodyAnalysisResult, BodyAnalysisRecordItem } from "@/api/types"
+import type {
+  AnalyzeTaskError,
+  AnalyzeTaskStatus,
+  BodyAnalysisResult,
+  BodyAnalysisRecordItem,
+} from "@/api/types"
 import { useAuth } from "@/hooks/use-auth"
 import { buildAnalysisJourney } from "./flow"
+import {
+  mapAnalysisTaskStatus,
+  pollAnalysisTask,
+  type AnalysisTaskAction,
+} from "./task-status"
 import { cn } from "@/lib/utils"
 
 export default function AnalysisPage() {
@@ -45,6 +57,8 @@ export default function AnalysisPage() {
   const [expandedHistoryScores, setExpandedHistoryScores] = useState<number | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [showScores, setShowScores] = useState(false)
+  const [taskStatus, setTaskStatus] = useState<AnalyzeTaskStatus | null>(null)
+  const [taskError, setTaskError] = useState<AnalyzeTaskError | null>(null)
 
   // Track whether the user has explicitly cleared the result (uploaded new photo)
   const clearedByUpload = useRef(false)
@@ -74,6 +88,10 @@ export default function AnalysisPage() {
     hasPlan: planReady,
   })
 
+  const taskView = taskStatus
+    ? mapAnalysisTaskStatus({ status: taskStatus, error: taskError })
+    : null
+
   const handleFile = useCallback((file: File) => {
     if (!file.type.startsWith("image/")) return
     clearedByUpload.current = true
@@ -86,6 +104,8 @@ export default function AnalysisPage() {
       setPlanReady(false)
       setError(null)
       setActionError(null)
+      setTaskStatus(null)
+      setTaskError(null)
     }
     reader.readAsDataURL(file)
   }, [])
@@ -100,35 +120,77 @@ export default function AnalysisPage() {
   )
 
   const startAnalysis = async () => {
-    if (!userId || !imageBase64) return
+    if (!userId || !imageBase64 || analyzing) return
     setAnalyzing(true)
     setError(null)
     setActionError(null)
     setPlanReady(false)
     setProgress(10)
+    setTaskStatus("pending")
+    setTaskError(null)
 
     try {
-      const { task_id } = await startAnalyze(userId, imageBase64, user?.profile || undefined)
+      const start = await startAnalyze(userId, imageBase64, user?.profile || undefined)
       setProgress(30)
 
-      const MAX_POLL_RETRIES = 60
-      const poll = async (attempt = 0): Promise<BodyAnalysisResult> => {
-        if (attempt >= MAX_POLL_RETRIES) throw new Error("分析超时，请稍后重试")
-        const res = await getAnalyzeResult(task_id)
-        if (res.status === "completed" && res.result) return res.result
-        if (res.status === "failed") throw new Error(res.error || "分析失败")
-        setProgress((p) => Math.min(p + 10, 90))
-        await new Promise((r) => setTimeout(r, 2000))
-        return poll(attempt + 1)
+      const outcome = await pollAnalysisTask({
+        taskId: start.task_id,
+        initialIntervalMs: start.poll_interval_ms,
+        fetchStatus: getAnalyzeResult,
+        onUpdate: (response) => {
+          setTaskStatus(response.status)
+          setTaskError(response.error ?? null)
+          setProgress((current) => {
+            const next =
+              typeof response.progress === "number"
+                ? Math.max(current, response.progress)
+                : current + 10
+            return Math.min(next, 90)
+          })
+        },
+      })
+
+      if (outcome.outcome === "completed" && outcome.result) {
+        setTaskStatus("completed")
+        setResult(outcome.result)
+        setProgress(100)
+        void refreshUser().catch(() => undefined)
+        refreshHistory()
+        return
       }
 
-      const analysisResult = await poll()
-      setResult(analysisResult)
-      setProgress(100)
-      await refreshUser()
-      refreshHistory()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "分析失败")
+      if (outcome.outcome === "expired") {
+        setTaskStatus("expired")
+        setTaskError(
+          outcome.error ?? {
+            code: "task_expired",
+            message: "这次分析任务已过期，没有产生结果。",
+            retryable: true,
+          },
+        )
+        return
+      }
+
+      setTaskStatus("failed")
+      setTaskError(
+        outcome.error ??
+          (outcome.outcome === "timeout"
+            ? {
+                code: "internal_error",
+                message: "等待分析结果超时，请稍后重试。",
+                retryable: true,
+              }
+            : {
+                code: "internal_error",
+                message: "分析没有完成，请重新发起。",
+                retryable: true,
+              }),
+      )
+    } catch {
+      // 原始异常、堆栈与供应商原文都不进页面，只给稳定安全文案。
+      setTaskStatus(null)
+      setTaskError(null)
+      setError("分析中断，请稍后重试。")
     } finally {
       setAnalyzing(false)
     }
@@ -154,6 +216,20 @@ export default function AnalysisPage() {
       setActionError(e instanceof Error ? e.message : "训练计划生成失败")
     } finally {
       setPlanGenerating(false)
+    }
+  }
+
+  const handleTaskAction = (action: AnalysisTaskAction) => {
+    switch (action.kind) {
+      case "restart":
+        void startAnalysis()
+        return
+      case "configure-key":
+        navigate("/profile?setup=api-key")
+        return
+      case "generate-plan":
+        void handleJourneyAction("generate-plan")
+        return
     }
   }
 
@@ -324,14 +400,68 @@ export default function AnalysisPage() {
               }}
             />
 
-            {analyzing && (
-              <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/[0.02] p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-primary">
-                  <Loader2 className="size-4 animate-spin" />
-                  {journey.title}
+            {taskView && taskView.status !== "completed" && (analyzing || taskView.terminal) && (
+              <div
+                className={cn(
+                  "space-y-3 rounded-lg border p-4",
+                  taskView.terminal
+                    ? "border-destructive/20 bg-destructive/5"
+                    : "border-primary/20 bg-primary/[0.02]",
+                )}
+              >
+                <div
+                  className={cn(
+                    "flex items-center gap-2 text-sm font-semibold",
+                    taskView.terminal ? "text-destructive" : "text-primary",
+                  )}
+                >
+                  {taskView.terminal ? (
+                    <XCircle className="size-4 shrink-0" />
+                  ) : (
+                    <Loader2 className="size-4 animate-spin" />
+                  )}
+                  {taskView.title}
                 </div>
-                <Progress value={progress} className="h-2" />
-                <p className="text-xs text-muted-foreground">{journey.stages[1]?.description}</p>
+                {!taskView.terminal && <Progress value={progress} className="h-2" />}
+                <p
+                  className={cn(
+                    "text-xs",
+                    taskView.terminal ? "text-destructive/80" : "text-muted-foreground",
+                  )}
+                >
+                  {taskView.description}
+                </p>
+                {taskView.primaryAction && (
+                  <Button
+                    variant={taskView.primaryAction.kind === "restart" ? "default" : "outline"}
+                    size="sm"
+                    className="w-full justify-between"
+                    disabled={analyzing}
+                    onClick={() => handleTaskAction(taskView.primaryAction!)}
+                  >
+                    <span className="flex items-center gap-2">
+                      {taskView.primaryAction.kind === "restart" ? (
+                        <RefreshCw className="size-4" />
+                      ) : (
+                        <KeyRound className="size-4" />
+                      )}
+                      {taskView.primaryAction.label}
+                    </span>
+                    <ArrowRight className="size-4" />
+                  </Button>
+                )}
+                {taskView.secondaryAction && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-between"
+                    disabled={analyzing}
+                    onClick={() => handleTaskAction(taskView.secondaryAction!)}
+                  >
+                    {taskView.secondaryAction.label}
+                    <ArrowRight className="size-4" />
+                  </Button>
+                )}
               </div>
             )}
 
