@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     # 体型分析任务：过期时长与建议轮询间隔
     ANALYSIS_TASK_TTL_MINUTES: int = 10
     ANALYSIS_TASK_POLL_INTERVAL_MS: int = 2000
+    ANALYSIS_TASK_MAX_CONCURRENCY: int = 4
+    ANALYSIS_TASK_WORKER_POLL_SECONDS: float = 1.0
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
