@@ -72,9 +72,15 @@ def upgrade() -> None:
     )
     op.create_index('ix_analysis_tasks_user_id', 'analysis_tasks', ['user_id'])
     op.create_index('ix_analysis_tasks_status', 'analysis_tasks', ['status'])
+    op.create_index(
+        'ix_analysis_tasks_status_created_at', 'analysis_tasks', ['status', 'created_at']
+    )
+    op.create_index('ix_analysis_tasks_lease_expires_at', 'analysis_tasks', ['lease_expires_at'])
 
 
 def downgrade() -> None:
+    op.drop_index('ix_analysis_tasks_lease_expires_at', table_name='analysis_tasks')
+    op.drop_index('ix_analysis_tasks_status_created_at', table_name='analysis_tasks')
     op.drop_index('ix_analysis_tasks_status', table_name='analysis_tasks')
     op.drop_index('ix_analysis_tasks_user_id', table_name='analysis_tasks')
     op.drop_table('analysis_tasks')

@@ -50,6 +50,10 @@ EVENT_TASK_CREATED = "task.analysis.created"
 EVENT_TASK_STARTED = "task.analysis.started"
 EVENT_TASK_COMPLETED = "task.analysis.completed"
 EVENT_TASK_FAILED = "task.analysis.failed"
+EVENT_TASK_CLAIMED = "task.analysis.claimed"
+EVENT_TASK_RECLAIMED = "task.analysis.reclaimed"
+EVENT_TASK_EXPIRED = "task.analysis.expired"
+EVENT_TASK_CLEANED = "task.analysis.cleaned"
 
 # Event used for log calls that predate the structured event vocabulary.
 FALLBACK_EVENT = "log.record.emitted"

@@ -6,12 +6,21 @@ or many workers without coupling callers to an in-process task dictionary.
 from __future__ import annotations
 
 import datetime
+import logging
 import uuid
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging import (
+    EVENT_TASK_CLAIMED,
+    EVENT_TASK_EXPIRED,
+    EVENT_TASK_RECLAIMED,
+    log_event,
+)
 from app.models.analysis_task import AnalysisTask
+
+logger = logging.getLogger(__name__)
 
 
 def utc_now() -> datetime.datetime:
@@ -77,6 +86,14 @@ class AnalysisTaskExecutor:
                 await db.rollback()
                 return None
             await db.commit()
+            log_event(
+                logger,
+                EVENT_TASK_CLAIMED,
+                message="分析任务已认领",
+                task_id=task_id,
+                user_id=candidate.user_id,
+                attempt=(candidate.attempt or 0) + 1,
+            )
             return await db.get(AnalysisTask, task_id)
         finally:
             if owns_session:
@@ -163,6 +180,15 @@ class AnalysisTaskExecutor:
                     task.progress = 0
                 task.updated_at = now
             await db.commit()
+            for task in tasks:
+                log_event(
+                    logger,
+                    EVENT_TASK_RECLAIMED,
+                    message="分析任务租约已回收",
+                    task_id=task.task_id,
+                    user_id=task.user_id,
+                    attempt=task.attempt,
+                )
             return len(tasks)
         finally:
             if owns_session:
@@ -191,7 +217,15 @@ class AnalysisTaskExecutor:
                 )
             )
             await db.commit()
-            return int(result.rowcount or 0)
+            count = int(result.rowcount or 0)
+            if count:
+                log_event(
+                    logger,
+                    EVENT_TASK_EXPIRED,
+                    message="分析任务已过期",
+                    count=count,
+                )
+            return count
         finally:
             if owns_session:
                 await db.close()

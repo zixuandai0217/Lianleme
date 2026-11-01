@@ -1,7 +1,7 @@
 """Persistent body-analysis task execution facts."""
 import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.compat import JSONB
@@ -50,3 +50,8 @@ class AnalysisTask(Base):
 
     user = relationship("User")
     history_record = relationship("BodyAnalysisRecord", foreign_keys=[history_record_id])
+
+    __table_args__ = (
+        Index("ix_analysis_tasks_status_created_at", "status", "created_at"),
+        Index("ix_analysis_tasks_lease_expires_at", "lease_expires_at"),
+    )
