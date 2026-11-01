@@ -1,10 +1,10 @@
 """WorkoutRecord ORM 模型：每次打卡训练的完成数据"""
 import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
-from app.core.compat import JSONB
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.compat import JSONB
 from app.core.database import Base
 
 
@@ -13,7 +13,9 @@ class WorkoutRecord(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    plan_id: Mapped[int | None] = mapped_column(ForeignKey("training_plans.id", ondelete="SET NULL"))
+    plan_id: Mapped[int | None] = mapped_column(
+        ForeignKey("training_plans.id", ondelete="SET NULL")
+    )
 
     # 训练日期
     workout_date: Mapped[datetime.date] = mapped_column(nullable=False, index=True)

@@ -1,6 +1,9 @@
 """
 CoachGraph：AI 陪练对话引擎
 对话历史持久化到 DB（chat_messages 表），LLM 上下文取最近 20 条
+
+模型输出在离开服务端之前统一清洗（见 CoachTextCleaner）：JSON 外壳、代码围栏、
+结构化残留不进入用户可见文本，入库的是清洗后的正文，因此历史回放与实时一致。
 """
 import json
 import logging
@@ -19,6 +22,253 @@ from app.services.ai.llm_factory import LLMClientFactory
 logger = logging.getLogger(__name__)
 
 CONTEXT_WINDOW = 20
+
+# 清洗后整轮没有可读内容时发送的兜底文案（短句、西海岸口气、不含脏话）
+COACH_FALLBACK_REPLY = "刚才那段我卡了一下，homie，再跟我说一遍，我接着带。"
+
+REPLY_FIELD_NAMES = ("reply", "message", "content")
+
+_FENCE = "```"
+_HEAD_JSON_LIMIT = 2048
+_FENCE_LANGUAGE = re.compile(r"^[A-Za-z0-9_+-]*\s*\n")
+_KEY_VALUE_RESIDUE = re.compile(
+    r'"[A-Za-z_][A-Za-z0-9_]*"\s*:\s*'
+    r'(?:"[^"]*"|\[[^\]]*\]|\{[^{}]*\}|-?\d+(?:\.\d+)?|true|false|null)\s*,?'
+)
+
+
+def _reply_text_from_payload(payload: object) -> str | None:
+    """Extract the readable reply from a decoded JSON envelope, if it has one."""
+    if not isinstance(payload, dict):
+        return None
+    for field in REPLY_FIELD_NAMES:
+        value = payload.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _json_is_balanced(text: str) -> bool:
+    """Whether quotes and brackets are balanced, i.e. further input could close it."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "[{":
+            depth += 1
+        elif char in "]}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0 and not in_string
+
+
+def _decode_json_prefix(text: str) -> tuple[object | None, int]:
+    """Decode one leading JSON value, returning (value, consumed characters)."""
+    try:
+        value, consumed = json.JSONDecoder().raw_decode(text)
+    except ValueError:
+        return None, 0
+    return value, consumed
+
+
+def _prose_after_structure(text: str) -> str:
+    """Return the part following the last closing bracket of a broken envelope."""
+    last = max(text.rfind("}"), text.rfind("]"))
+    return text[last + 1:] if last >= 0 else ""
+
+
+def _strip_inline_residue(text: str) -> str:
+    """Remove inline structural residue so it never reaches the bubble."""
+    text = text.replace("`", "")
+    text = text.replace('{"', "").replace('"}', "")
+    return _KEY_VALUE_RESIDUE.sub("", text)
+
+
+def _held_tail_length(text: str) -> int:
+    """Trailing characters kept buffered because they may start a marker."""
+    for size in (2, 1):
+        if text[-size:] in ("``", "`", '{"', '"}', "{", '"'):
+            return size
+    return 0
+
+
+def _fenced_reply(inner: str) -> str:
+    """A fenced block only contributes text when it carries a JSON reply field."""
+    text = inner.strip()
+    if not text:
+        return ""
+    text = _FENCE_LANGUAGE.sub("", text, count=1)
+    payload, _consumed = _decode_json_prefix(text)
+    return _reply_text_from_payload(payload) or ""
+
+
+class CoachTextCleaner:
+    """Turn raw coach model output into user-visible text (spec §2).
+
+    Streaming and order preserving: text is released as soon as it is known not to
+    belong to a JSON envelope or a code fence, and released text is never retracted.
+    Fenced blocks and JSON wrappers never reach the bubble.
+    """
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._mode = "head"
+        self._fence = ""
+        self._pending = ""
+        self._released = False
+
+    def feed(self, chunk: str) -> str:
+        """Consume one model delta and return the text that can be shown now."""
+        if not chunk:
+            return ""
+        self._buffer += chunk
+        return self._release(self._drain(final=False), final=False)
+
+    def flush(self) -> str:
+        """Release whatever is still buffered when the model stops producing."""
+        return self._release(self._drain(final=True), final=True)
+
+    def _release(self, text: str, final: bool) -> str:
+        """Hold whitespace until readable text follows, so no frame is ever empty."""
+        if not text:
+            return ""
+        self._pending += text
+        if not self._pending.strip():
+            if final:
+                self._pending = ""
+            return ""
+        released, self._pending = self._pending, ""
+        if not self._released:
+            released = released.lstrip()
+            if not released:
+                return ""
+            self._released = True
+        return released
+
+    def _drain(self, final: bool) -> str:
+        out: list[str] = []
+        while self._buffer:
+            if self._mode == "fence":
+                if not self._consume_fence(out, final):
+                    break
+            elif self._mode == "head":
+                if not self._decide_head(final):
+                    break
+            elif self._mode == "json":
+                if not self._consume_envelope(out, final):
+                    break
+            elif not self._consume_text(out, final):
+                break
+        return "".join(out)
+
+    def _decide_head(self, final: bool) -> bool:
+        """Decide whether the leading characters are a JSON envelope or plain prose."""
+        stripped = self._buffer.lstrip()
+        if not stripped:
+            if final:
+                self._buffer = ""
+            return False
+        if not final and len(stripped) < len(_FENCE) and _FENCE.startswith(stripped):
+            return False  # a fence marker may still be split across deltas
+        if len(stripped) < 2 and not final:
+            return False
+        self._buffer = stripped
+        if stripped.startswith(_FENCE):
+            self._buffer = stripped[len(_FENCE):]
+            self._fence = ""
+            self._mode = "fence"
+            return True
+        if stripped[0] in "{[":
+            self._mode = "json"
+            return True
+        self._mode = "text"
+        return True
+
+    def _consume_envelope(self, out: list[str], final: bool) -> bool:
+        """Decode the opening JSON envelope and keep its reply field, if any."""
+        text = self._buffer
+        payload, consumed = _decode_json_prefix(text)
+        if payload is not None:
+            self._buffer = text[consumed:]
+            reply = _reply_text_from_payload(payload)
+            if reply:
+                out.append(reply)
+            self._mode = "text"
+            return True
+        if not final and not _json_is_balanced(text) and len(text) < _HEAD_JSON_LIMIT:
+            return False  # the envelope is still open, wait for more deltas
+        if _json_is_balanced(text):
+            # Balanced but undecodable: drop the structure, keep the prose after it.
+            self._buffer = _prose_after_structure(text)
+            self._mode = "text"
+            return bool(self._buffer)
+        # Unterminated or oversized envelope: nothing readable to release.
+        self._buffer = ""
+        self._mode = "text"
+        return False
+
+    def _consume_text(self, out: list[str], final: bool) -> bool:
+        """Release plain prose until a code fence opens."""
+        buffer = self._buffer
+        fence_at = buffer.find(_FENCE)
+        if fence_at >= 0:
+            head = buffer[:fence_at]
+            if head:
+                out.append(_strip_inline_residue(head))
+            self._buffer = buffer[fence_at + len(_FENCE):]
+            self._fence = ""
+            self._mode = "fence"
+            return True
+        if final:
+            out.append(_strip_inline_residue(buffer))
+            self._buffer = ""
+            return False
+        held = _held_tail_length(buffer)
+        if held:
+            chunk, self._buffer = buffer[:-held], buffer[-held:]
+        else:
+            chunk, self._buffer = buffer, ""
+        out.append(_strip_inline_residue(chunk))
+        return False
+
+    def _consume_fence(self, out: list[str], final: bool) -> bool:
+        """Swallow a fenced block; only a JSON reply field survives it."""
+        combined = self._fence + self._buffer
+        closing = combined.find(_FENCE)
+        if closing < 0:
+            if not final:
+                self._fence = combined
+                self._buffer = ""
+                return False
+            self._fence = ""
+            self._buffer = ""
+            self._mode = "text"
+            return False
+        inner = combined[:closing]
+        self._buffer = combined[closing + len(_FENCE):]
+        self._fence = ""
+        self._mode = "text"
+        reply = _fenced_reply(inner)
+        if reply:
+            out.append(reply)
+        return True
+
+
+def clean_coach_text(text: str) -> str:
+    """Clean one complete model output with the same rules as the stream cleaner."""
+    cleaner = CoachTextCleaner()
+    return (cleaner.feed(text) + cleaner.flush()).strip()
 
 
 class CoachGraph:
@@ -86,7 +336,7 @@ class CoachGraph:
         )
 
     async def chat(self, message: str, context: dict) -> CoachResponse:
-        """普通对话：返回完整 JSON 响应，持久化到 DB"""
+        """普通对话：返回完整 JSON 响应，持久化清洗后的正文"""
         llm = await self.factory.get_client(user_id=self.user_id, model_type="chat")
 
         async with AsyncSessionLocal() as db:
@@ -97,15 +347,24 @@ class CoachGraph:
             messages.append(HumanMessage(content=message))
 
             response = await llm.ainvoke(messages)
+            raw = response.content if isinstance(response.content, str) else ""
+            data = self._parse_json_response(raw)
+            payload = data if isinstance(data, dict) else {}
+            reply = (
+                _reply_text_from_payload(payload)
+                or clean_coach_text(raw)
+                or COACH_FALLBACK_REPLY
+            )
 
             await self._save_message(db, "user", message)
-            await self._save_message(db, "assistant", response.content)
+            await self._save_message(db, "assistant", reply)
 
-        data = self._parse_json_response(response.content)
         return CoachResponse(
-            reply=data.get("reply", response.content),
-            coach_state=data.get("coach_state", "guide"),
-            suggested_actions=data.get("suggested_actions", ["完成一组", "换个动作", "怎么做"]),
+            reply=reply,
+            coach_state=payload.get("coach_state", "guide"),
+            suggested_actions=payload.get(
+                "suggested_actions", ["完成一组", "换个动作", "怎么做"]
+            ),
         )
 
     @staticmethod
@@ -121,7 +380,7 @@ class CoachGraph:
     async def stream_chat(
         self, message: str, context: dict
     ) -> AsyncIterator[str]:
-        """流式对话：逐 token yield，完成后持久化到 DB"""
+        """流式对话：逐段 yield 模型原文增量（清洗由协议层在出帧前完成）"""
         llm = await self.factory.get_client(
             user_id=self.user_id, model_type="chat", streaming=True
         )
@@ -133,11 +392,13 @@ class CoachGraph:
             messages.extend(history)
             messages.append(HumanMessage(content=message))
 
-            full_response = ""
             async for chunk in llm.astream(messages):
-                token = chunk.content
-                full_response += token
-                yield token
+                token = chunk.content if isinstance(chunk.content, str) else ""
+                if token:
+                    yield token
 
+    async def save_turn(self, message: str, reply: str) -> None:
+        """将一轮对话入库；reply 必须是清洗后的正文，历史回放才不会泄漏结构残留"""
+        async with AsyncSessionLocal() as db:
             await self._save_message(db, "user", message)
-            await self._save_message(db, "assistant", full_response)
+            await self._save_message(db, "assistant", reply)

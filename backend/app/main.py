@@ -1,4 +1,7 @@
-"""FastAPI 应用入口：注册路由、CORS 中间件、全局异常处理"""
+"""FastAPI 应用入口：注册路由、CORS 中间件、请求关联、全局异常处理"""
+
+import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,8 +12,35 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from app.api import admin, coach, plan, user, vision, weight, workout
 from app.core.config import settings
 from app.core.database import engine
+from app.core.logging import (
+    ERROR_CODE_HTTP_PREFIX,
+    EVENT_HTTP_FAILED,
+    FIELD_DURATION_MS,
+    FIELD_ERROR_CLASS,
+    FIELD_ERROR_CODE,
+    FIELD_METHOD,
+    FIELD_ROUTE,
+    FIELD_STATUS_CODE,
+    configure_logging,
+    log_event,
+    root_cause,
+)
+from app.core.observability import RequestContextMiddleware, route_template
+from app.core.request_context import (
+    REQUEST_ID_HEADER,
+    bind_request_context,
+    new_request_id,
+)
 from app.core.storage import ensure_bucket_exists
-from app.models import record, plan as plan_model, user as user_model, weight as weight_model  # noqa: F401 触发 ORM 注册
+from app.models import record  # noqa: F401 触发 ORM 注册
+
+configure_logging(
+    app_env=settings.APP_ENV,
+    level=settings.LOG_LEVEL,
+    log_format=settings.LOG_FORMAT,
+)
+
+logger = logging.getLogger(__name__)
 
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 INDEX_TEMPLATE = TEMPLATE_DIR / "index.html"
@@ -34,21 +64,51 @@ app = FastAPI(
 )
 
 # CORS（开发环境放开，生产按域名限制）
+# 请求标识必须放进允许暴露列表，否则浏览器端读不到响应头。
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if settings.APP_ENV == "development" else settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[REQUEST_ID_HEADER],
 )
+
+# 请求关联中间件放在最外层：先确定请求标识，再进入业务与异常处理
+app.add_middleware(RequestContextMiddleware)
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """全局兜底异常处理，避免内部错误泄漏到客户端"""
+    """全局兜底异常处理：记录带堆栈的错误事件，对外只返回安全文案"""
+    state = request.scope.setdefault("state", {})
+    request_id = state.get("request_id") or new_request_id()
+    started = state.get("request_started")
+
+    fields: dict = {
+        FIELD_METHOD: request.scope.get("method"),
+        FIELD_ROUTE: route_template(request.scope),
+        FIELD_STATUS_CODE: 500,
+        FIELD_ERROR_CODE: f"{ERROR_CODE_HTTP_PREFIX}500",
+        FIELD_ERROR_CLASS: type(root_cause(exc)).__name__,
+    }
+    if started is not None:
+        fields[FIELD_DURATION_MS] = round((time.perf_counter() - started) * 1000, 3)
+
+    with bind_request_context(request_id=request_id, user_id=state.get("user_id")):
+        log_event(
+            logger,
+            EVENT_HTTP_FAILED,
+            message="未处理异常",
+            level=logging.ERROR,
+            exc_info=(type(exc), exc, exc.__traceback__),
+            **fields,
+        )
+
     return JSONResponse(
         status_code=500,
         content={"code": 500, "message": "服务器内部错误，请稍后重试"},
+        headers={REQUEST_ID_HEADER: request_id},
     )
 
 

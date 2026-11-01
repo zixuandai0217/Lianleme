@@ -3,7 +3,6 @@ WorkoutService：训练完成数据上报、打卡记录存储、连续打卡统
 训练完成后自动触发 AdjustGraph 计划动态调整
 """
 import datetime
-from typing import List
 
 from langchain_core.messages import HumanMessage
 from sqlalchemy import desc, extract, func, select

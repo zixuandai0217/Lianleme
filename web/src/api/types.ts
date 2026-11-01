@@ -99,6 +99,18 @@ export interface PlanResponse {
   message: string
 }
 
+/**
+ * 当前周计划的存在性。
+ * unknown 表示无法判别（网络失败、5xx、鉴权异常等），调用方不得把它当成「没有计划」——
+ * 重新生成计划会归档当前 active 计划，误判的代价由用户承担。
+ */
+export type PlanLookup = "exists" | "missing" | "unknown"
+
+export interface CurrentPlanLookup {
+  lookup: PlanLookup
+  planId?: number
+}
+
 export interface TodayWorkout {
   day?: number
   focus?: string

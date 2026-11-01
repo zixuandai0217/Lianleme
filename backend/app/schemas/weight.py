@@ -1,6 +1,6 @@
 """体重记录相关 Pydantic Schema"""
 import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -34,3 +34,57 @@ class WeightTrendResponse(BaseModel):
     min_weight: Optional[float] = Field(None, description="历史最低")
     max_weight: Optional[float] = Field(None, description="历史最高")
     change: Optional[float] = Field(None, description="总变化量（最新 - 最早）")
+
+
+class WeightExtreme(BaseModel):
+    """窗口内的一个极值点（带日期，便于复盘）"""
+    weight: float
+    recorded_date: datetime.date
+
+
+class WeightWindowInsight(BaseModel):
+    """单个锚点窗口（最近 7 天 / 最近 30 天）的变化与极值"""
+    days: int
+    start_date: Optional[datetime.date] = None
+    end_date: Optional[datetime.date] = None
+    sample_count: int = 0
+    change: Optional[float] = Field(None, description="窗口内最后一条 - 第一条（1 位小数）")
+    direction: str = Field("insufficient", description="down / up / flat / insufficient")
+    min: Optional[WeightExtreme] = None
+    max: Optional[WeightExtreme] = None
+    insufficient: bool = Field(True, description="窗口内记录少于 2 条")
+
+
+class WeightWeeklyComparison(BaseModel):
+    """周对照：该周体重变化与训练天数并列（只做描述性对照）"""
+    week_start: datetime.date
+    week_end: datetime.date
+    sample_count: int = 0
+    weight_change: Optional[float] = None
+    training_days: int = 0
+    relation: str = Field(
+        "insufficient",
+        description="same / reverse / flat / insufficient，均相对最近 30 天方向",
+    )
+
+
+class WeightGoalInsight(BaseModel):
+    """目标判定；目标体重与两档判定由工单 32 落地，本接口先返回中性未设目标"""
+    mode: str = Field("none", description="numeric / direction / none")
+    verdict: str = Field("neutral", description="on_track / off_track / neutral / insufficient")
+    reason: str = ""
+
+
+class WeightInsightResponse(BaseModel):
+    """体重趋势解读：锚点窗口 + 带日期极值 + 四周训练对照"""
+    anchor_date: Optional[datetime.date] = Field(None, description="最新一条记录的日期")
+    is_stale: bool = Field(False, description="锚点距今天超过 7 天")
+    stale_days: int = 0
+    windows: Dict[str, WeightWindowInsight] = Field(
+        default_factory=dict, description="d7 / d30 两个窗口"
+    )
+    weekly: List[WeightWeeklyComparison] = []
+    training_data_available: bool = Field(
+        False, description="训练数据是否可读（读不到则周对照隐藏）"
+    )
+    goal: WeightGoalInsight = Field(default_factory=WeightGoalInsight)

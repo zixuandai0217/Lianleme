@@ -1,10 +1,10 @@
 """TrainingPlan ORM 模型：周计划 + 每日动作列表（JSONB 存储）"""
 import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
-from app.core.compat import JSONB
+from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.compat import JSONB
 from app.core.database import Base
 
 

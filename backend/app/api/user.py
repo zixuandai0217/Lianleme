@@ -15,8 +15,8 @@ from app.schemas.user import (
     UserProfileUpdateRequest,
     UserResponse,
 )
-from app.services.user.user_service import UserService
 from app.services.user.api_key_service import ApiKeyService
+from app.services.user.user_service import UserService
 
 router = APIRouter()
 

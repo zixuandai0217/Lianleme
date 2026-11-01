@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:unit": "vitest",
+    "test:unit:run": "vitest run",
     "validate:coach-assets": "python3 scripts/validate-coach-assets.py"
   },
   "dependencies": {

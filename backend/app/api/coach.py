@@ -1,14 +1,16 @@
 """AI 陪练路由：对话接口（流式 SSE + 普通 JSON）+ 历史记录 + TTS"""
 import base64
 import logging
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.observability import mark_stream_failed
 from app.core.security import (
     ensure_current_user_matches,
     get_current_user,
@@ -21,13 +23,24 @@ from app.schemas.chat import (
     ChatMessage,
     ChatMessageResponse,
     CoachAnimatedTTSResponse,
+    CoachDoneEvent,
+    CoachErrorCode,
+    CoachErrorEvent,
+    CoachFinishReason,
+    CoachMessageChunkEvent,
     CoachMouthCue,
     CoachResponse,
     CoachTTSRequest,
     CoachTTSStatusResponse,
+    CoachTurnStartedEvent,
+    sse_frame,
 )
 from app.services.ai import tts_runtime
-from app.services.ai.coach_graph import CoachGraph
+from app.services.ai.coach_graph import (
+    COACH_FALLBACK_REPLY,
+    CoachGraph,
+    CoachTextCleaner,
+)
 from app.services.ai.tts_service import QwenTTSAPIError
 from app.services.user.api_key_service import ApiKeyService
 
@@ -64,6 +77,39 @@ async def _require_user_qwen_key(db: AsyncSession, user_id: int) -> str:
     return api_key
 
 
+# 流中失败的稳定错误码 → 用户可读文案（错误绝不伪装成正文增量帧）
+_COACH_ERROR_MESSAGES: dict[str, str] = {
+    "provider_unavailable": "教练的模型通道没连上，先检查一下你的 API Key 配置。",
+    "rate_limited": "这会儿请求太多了，缓一下再来。",
+    "upstream_timeout": "模型那边超时了，再试一次。",
+    "internal": "AI 服务暂时不可用，稍后再试。",
+}
+
+_COACH_ERROR_HINTS: tuple[tuple[tuple[str, ...], CoachErrorCode], ...] = (
+    (("rate limit", "ratelimit", "429", "quota", "too many requests"), "rate_limited"),
+    (("timeout", "timed out", "readtimeout"), "upstream_timeout"),
+    (
+        ("auth", "unauthorized", "invalid api", "api key", "apikey", "401", "403"),
+        "provider_unavailable",
+    ),
+)
+
+
+def _coach_error_code(exc: Exception) -> CoachErrorCode:
+    """Map an upstream failure to one stable, user-facing error code."""
+    description = f"{type(exc).__name__} {exc}".lower()
+    for hints, code in _COACH_ERROR_HINTS:
+        if any(hint in description for hint in hints):
+            return code
+    return "internal"
+
+
+def _coach_error_event(exc: Exception) -> CoachErrorEvent:
+    """Build the error frame for an upstream failure without leaking its message."""
+    code = _coach_error_code(exc)
+    return CoachErrorEvent(code=code, message=_COACH_ERROR_MESSAGES[code])
+
+
 @router.post("/chat", response_model=CoachResponse)
 async def chat(
     msg: ChatMessage,
@@ -88,32 +134,73 @@ async def chat(
 @router.post("/chat/stream")
 async def chat_stream(
     msg: ChatMessage,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_current_user_api_key),
 ):
-    """AI 教练流式对话接口（SSE 模式）"""
+    """AI 教练流式对话接口（SSE 事件流）
+
+    每帧是单行 JSON：首帧 turn_started、正文增量帧 message_chunk、末帧 done。
+    模型原文先过清洗环节，只有清洗后的正文进入增量帧与被持久化的内容；
+    失败先发 error 帧（稳定错误码 + 可读文案），再以 done(error) 收尾。
+    """
     ensure_current_user_matches(current_user, msg.user_id)
     graph = CoachGraph(user_id=msg.user_id, db=db)
+    context = {
+        "current_exercise": msg.current_exercise,
+        "completed_sets": msg.completed_sets,
+        "total_sets": msg.total_sets,
+        "plan_id": msg.plan_id,
+    }
 
     async def event_generator():
-        """Stream coach tokens and finish cleanly when the model provider fails."""
-        try:
-            async for chunk in graph.stream_chat(
-                message=msg.message,
-                context={
-                    "current_exercise": msg.current_exercise,
-                    "completed_sets": msg.completed_sets,
-                    "total_sets": msg.total_sets,
-                    "plan_id": msg.plan_id,
-                },
-            ):
-                yield f"data: {chunk}\n\n"
-        except Exception:
-            logger.exception("AI 陪练流式响应失败: user_id=%s", msg.user_id)
-            yield "data: AI 服务暂时不可用，请检查 API Key 配置后重试。\n\n"
-        yield "data: [DONE]\n\n"
+        """Emit the typed coach event stream for exactly one turn."""
+        yield sse_frame(
+            CoachTurnStartedEvent(turn_id=uuid4().hex, message_id=uuid4().hex)
+        )
+        finish_reason: CoachFinishReason = "complete"
+        cleaner = CoachTextCleaner()
+        visible: list[str] = []
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+        def frame_for(text: str) -> str:
+            """Record released正文 and turn it into one delta frame."""
+            visible.append(text)
+            return sse_frame(CoachMessageChunkEvent(text=text))
+
+        try:
+            async for delta in graph.stream_chat(message=msg.message, context=context):
+                cleaned = cleaner.feed(delta)
+                if cleaned:
+                    yield frame_for(cleaned)
+
+            tail = cleaner.flush()
+            if tail:
+                yield frame_for(tail)
+
+            reply = "".join(visible).strip()
+            if not reply:
+                reply = COACH_FALLBACK_REPLY
+                yield frame_for(reply)
+
+            await graph.save_turn(msg.message, reply)
+        except Exception as exc:
+            logger.exception("AI 陪练流式响应失败: user_id=%s", msg.user_id)
+            finish_reason = "error"
+            error_event = _coach_error_event(exc)
+            # 路由把上游失败收敛成 error 帧，但结束事件仍必须是带错误类别的告警事件
+            mark_stream_failed(
+                request.scope,
+                error_code=error_event.code,
+                error_class=type(exc).__name__,
+            )
+            yield sse_frame(error_event)
+        yield sse_frame(CoachDoneEvent(finish_reason=finish_reason))
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/tts/status", response_model=CoachTTSStatusResponse)

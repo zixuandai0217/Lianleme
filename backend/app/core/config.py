@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ALLOWED_ORIGINS: List[str] = []
 
+    # 日志与观测（auto：非开发环境输出单行 JSON，开发环境输出可读文本）
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "auto"
+    SLOW_REQUEST_THRESHOLD_MS: int = 3000
+
     # 数据库
     DATABASE_URL: str = "postgresql+asyncpg://lianleme:lianle123@localhost:5432/lianleme"
 

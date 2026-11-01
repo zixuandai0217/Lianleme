@@ -14,8 +14,12 @@ class BodyAnalysisRecord(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
 
-    image_thumbnail: Mapped[str | None] = mapped_column(Text, comment="缩略图 base64（Pillow 压缩后）")
-    result: Mapped[dict] = mapped_column(JSONB, nullable=False, comment="BodyAnalysisResult 完整 JSON")
+    image_thumbnail: Mapped[str | None] = mapped_column(
+        Text, comment="缩略图 base64（Pillow 压缩后）"
+    )
+    result: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, comment="BodyAnalysisResult 完整 JSON"
+    )
 
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

@@ -10,7 +10,9 @@ import {
   ClipboardList,
   Dumbbell,
   Flame,
+  KeyRound,
   Loader2,
+  Ruler,
   Scale,
   Star,
   Trophy,
@@ -23,9 +25,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DigitalCoach, type DigitalCoachState } from "@/components/digital-coach"
-import { completeWorkout, getCheckinStats, getCurrentPlan, getTodayWorkout } from "@/api"
-import type { CheckInStats, TodayWorkout } from "@/api/types"
+import { completeWorkout, getCheckinStats, getTodayWorkout, lookupCurrentPlan } from "@/api"
+import type { CheckInStats, PlanLookup, TodayWorkout } from "@/api/types"
 import { useAuth } from "@/hooks/use-auth"
+import { NEXT_STEP_ROUTES, buildNextStepGuide, type NextStepTarget } from "@/lib/next-step"
+import { cn } from "@/lib/utils"
 
 const coachActions = [
   { title: "看体型", detail: "拍照分析", to: "/analysis", icon: Camera },
@@ -33,6 +37,15 @@ const coachActions = [
   { title: "问教练", detail: "即时建议", to: "/coach", icon: BotMessageSquare },
   { title: "记体重", detail: "更新记录", to: "/weight", icon: Scale },
 ]
+
+// Intent icons for the single next-step action; the mapping stays in the page, not the helper.
+const nextStepIcons: Record<NextStepTarget, typeof Camera> = {
+  profile: KeyRound,
+  "body-data": Ruler,
+  analysis: Camera,
+  plan: ClipboardList,
+  today: Dumbbell,
+}
 
 interface CoachState {
   eyebrow: string
@@ -105,6 +118,7 @@ export default function DashboardPage() {
   const [checkinDone, setCheckinDone] = useState(false)
   const [aiFeedback, setAiFeedback] = useState<string | null>(null)
   const [planId, setPlanId] = useState<number | undefined>()
+  const [planLookup, setPlanLookup] = useState<PlanLookup>("unknown")
   const [completedSets, setCompletedSets] = useState("")
   const [duration, setDuration] = useState("")
   const [difficulty, setDifficulty] = useState(3)
@@ -119,18 +133,15 @@ export default function DashboardPage() {
   const loadData = useCallback(async () => {
     if (!userId) return
     try {
-      const [todayResponse, statsResponse] = await Promise.all([
+      const [todayResponse, statsResponse, planState] = await Promise.all([
         getTodayWorkout(userId).catch(() => null),
         getCheckinStats(userId).catch(() => null),
-        getCurrentPlan(userId)
-          .then((response) => {
-            setPlanId(response.plan?.id)
-            return response
-          })
-          .catch(() => null),
+        lookupCurrentPlan(userId),
       ])
       setToday(todayResponse)
       setStats(statsResponse)
+      setPlanId(planState.planId)
+      setPlanLookup(planState.lookup)
     } finally {
       setLoading(false)
     }
@@ -190,10 +201,38 @@ export default function DashboardPage() {
     )
   }
 
-  const coachState = getCoachState(hasBodyAnalysis, planId, today)
-  const recommendedAction = coachActions.find((action) => action.to === coachState.primaryTo) ?? coachActions[2]
-  const secondaryActions = coachActions.filter((action) => action.to !== recommendedAction.to)
-  const RecommendedIcon = recommendedAction.icon
+  const guide = buildNextStepGuide({
+    hasApiKey: Boolean(user?.api_key_status?.has_key),
+    hasProfileBasics: Boolean(user?.profile?.goal && user?.profile?.experience),
+    hasBodyAnalysis,
+    planLookup,
+    hasCheckedIn: Boolean(stats?.total_checkins),
+  })
+
+  const dailyState = getCoachState(hasBodyAnalysis, planId, today)
+  const isGuiding = guide.state !== "daily"
+  const primaryTo = isGuiding ? NEXT_STEP_ROUTES[guide.primaryAction.target] : dailyState.primaryTo
+  const recommendedAction = coachActions.find((action) => action.to === primaryTo) ?? coachActions[2]
+  const secondaryActions = coachActions.filter((action) => action.to !== recommendedAction.to).slice(0, 3)
+  const PrimaryIcon = isGuiding ? nextStepIcons[guide.primaryAction.target] : recommendedAction.icon
+  const hero = isGuiding
+    ? {
+        eyebrow: "下一步",
+        title: guide.title,
+        message: guide.description,
+        characterState: (guide.state === "unknown" ? "idle" : "thinking") as DigitalCoachState,
+        actionTitle: guide.primaryAction.label,
+        actionDetail: guide.primaryAction.hint,
+      }
+    : {
+        eyebrow: dailyState.eyebrow,
+        title: dailyState.title,
+        message: dailyState.message,
+        characterState: dailyState.characterState,
+        actionTitle: recommendedAction.title,
+        actionDetail: recommendedAction.detail,
+      }
+  const completedStages = guide.stages.filter((stage) => stage.status === "completed").length
 
   const metricItems = [
     { label: "连续打卡", value: stats?.streak_days ?? 0, unit: "天", icon: Flame, className: "border-t-primary", iconClass: "text-primary" },
@@ -233,27 +272,27 @@ export default function DashboardPage() {
           <div className="relative z-10 flex flex-col justify-center px-5 py-6 pr-24 sm:px-7 sm:py-7 sm:pr-28 md:px-8 md:py-8 md:pr-8">
             <div className="flex items-center gap-2 font-sans text-xs font-semibold text-[#a9c5ad]">
               <span className="size-2 rounded-full bg-[#a9c5ad]" />
-              {coachState.eyebrow}
+              {hero.eyebrow}
             </div>
             <h2 id="digital-coach-title" className="mt-3 max-w-2xl text-xl leading-tight font-semibold text-brand-light sm:text-2xl md:text-3xl">
-              {coachState.title}
+              {hero.title}
             </h2>
             <p className="mt-3 max-w-xl font-sans text-sm leading-6 text-brand-light/62">
-              {coachState.message}
+              {hero.message}
             </p>
             <span className="mt-5 font-sans text-[0.68rem] font-semibold uppercase text-brand-light/55 [letter-spacing:0.1em]">建议下一步</span>
-            <Button className="mt-2 w-fit" onClick={() => navigate(recommendedAction.to)}>
-              <RecommendedIcon className="size-4" />
-              {recommendedAction.title}
-              <span className="hidden text-primary-foreground sm:inline">· {recommendedAction.detail}</span>
+            <Button className="mt-2 w-fit" onClick={() => navigate(primaryTo)}>
+              <PrimaryIcon className="size-4" />
+              {hero.actionTitle}
+              <span className="hidden text-primary-foreground sm:inline">· {hero.actionDetail}</span>
               <ArrowRight className="size-4" />
             </Button>
           </div>
 
           <div className="absolute top-4 right-4 grid size-20 place-items-center overflow-hidden rounded-full border border-white/12 bg-white/5 shadow-inner sm:size-24 md:static md:size-auto md:min-h-64 md:rounded-none md:border-y-0 md:border-r-0 md:border-l md:bg-white/[0.035]">
             <DigitalCoach
-              ariaLabel={`数字教练正在提供建议：${coachState.title}`}
-              state={coachState.characterState}
+              ariaLabel={`数字教练正在提供建议：${hero.title}`}
+              state={hero.characterState}
               variant="portrait"
             />
             <span className="absolute right-2 bottom-2 size-3 rounded-full border-2 border-brand-dark bg-[#8eb396] md:right-5 md:bottom-5 md:size-3.5" />
@@ -282,6 +321,62 @@ export default function DashboardPage() {
           })}
         </div>
       </section>
+
+      {guide.stages.length > 0 && (
+        <section
+          aria-labelledby="next-step-title"
+          className="rounded-lg border border-border bg-card px-5 py-5 shadow-[0_4px_16px_rgba(23,26,23,0.04)]"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="next-step-title" className="font-heading text-base font-semibold">
+              首次使用进度
+            </h2>
+            <span className="font-sans text-xs text-muted-foreground">
+              已完成 {completedStages}/{guide.stages.length}
+            </span>
+          </div>
+          <ol className="mt-4 grid gap-2 sm:grid-cols-5">
+            {guide.stages.map((stage, index) => {
+              const isDone = stage.status === "completed"
+              const isActive = stage.status === "active"
+              return (
+                <li
+                  key={stage.key}
+                  aria-current={isActive ? "step" : undefined}
+                  className={cn(
+                    "flex items-start gap-2 rounded-md border px-3 py-2.5",
+                    isActive ? "border-primary/40 bg-primary/[0.04]" : "border-border",
+                    isDone && "opacity-60",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full font-sans text-[0.62rem] font-semibold",
+                      isDone
+                        ? "bg-primary text-primary-foreground"
+                        : isActive
+                          ? "bg-primary/10 text-primary ring-2 ring-primary/20"
+                          : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {isDone ? <CheckCircle2 className="size-3" /> : index + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block font-sans text-xs font-semibold leading-5">{stage.title}</span>
+                    <span className="mt-0.5 block font-sans text-[0.68rem] leading-4 text-muted-foreground">
+                      {stage.description}
+                    </span>
+                  </span>
+                </li>
+              )
+            })}
+          </ol>
+        </section>
+      )}
+
+      {guide.state === "daily" && guide.secondaryHint && (
+        <p className="font-sans text-xs text-muted-foreground">{guide.secondaryHint}</p>
+      )}
 
       <section aria-labelledby="metrics-title">
         <div className="section-heading">

@@ -2,19 +2,17 @@
 PlanService：训练计划存取、AI 生成计划、今日任务获取、周视图查询
 """
 import datetime
-import json
 from typing import Optional
 
 from langchain.output_parsers import PydanticOutputParser
-from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.plan import TrainingPlan
 from app.schemas.plan import DailyWorkout, TrainingPlanSchema
-from app.services.ai.llm_factory import LLMClientFactory
 from app.services.ai.adjust_graph import AdjustGraph
+from app.services.ai.llm_factory import LLMClientFactory
 
 
 class PlanService:
@@ -169,7 +167,9 @@ class PlanService:
         from app.schemas.plan import Exercise
         default_exercises = [
             Exercise(name="深蹲", sets=3, reps="12", weight_suggestion="体重30%", tips="挺胸收腹"),
-            Exercise(name="俯卧撑", sets=3, reps="15", weight_suggestion="自重", tips="保持身体平直"),
+            Exercise(
+                name="俯卧撑", sets=3, reps="15", weight_suggestion="自重", tips="保持身体平直"
+            ),
         ]
         days = []
         for i in range(1, 8):

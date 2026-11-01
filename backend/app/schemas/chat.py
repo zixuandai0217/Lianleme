@@ -1,8 +1,90 @@
 """AI 陪练对话相关 Pydantic Schema"""
 import datetime
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
+
+# ── 陪练事件流协议（v1，形状见 coach-stream-protocol spec 第 1 节）──
+
+COACH_PROTOCOL_VERSION = 1
+
+CoachStateName = Literal["guide", "count", "rest", "complete"]
+CoachErrorCode = Literal["provider_unavailable", "rate_limited", "upstream_timeout", "internal"]
+CoachFinishReason = Literal["complete", "error", "truncated"]
+
+
+class CoachAction(BaseModel):
+    """One quick action offered under a coach reply."""
+
+    label: str = Field(..., min_length=1, max_length=40, description="按钮文案")
+    prompt: str = Field(..., min_length=1, max_length=200, description="点击后发送的文本")
+
+
+class CoachTurnStartedEvent(BaseModel):
+    """首帧：协议版本与轮次标识。"""
+
+    type: Literal["turn_started"] = "turn_started"
+    protocol: int = COACH_PROTOCOL_VERSION
+    turn_id: str
+    message_id: str
+
+
+class CoachMessageChunkEvent(BaseModel):
+    """正文增量帧：用户可见正文只来自这一类事件。"""
+
+    type: Literal["message_chunk"] = "message_chunk"
+    text: str = Field(..., min_length=1)
+
+
+class CoachStateEvent(BaseModel):
+    """教练状态帧：可多次出现，最后一次生效。"""
+
+    type: Literal["state"] = "state"
+    coach_state: CoachStateName
+
+
+class CoachActionsEvent(BaseModel):
+    """快捷动作帧：一轮最多一次，且必须早于 done 帧。"""
+
+    type: Literal["actions"] = "actions"
+    actions: List[CoachAction] = Field(default_factory=list, max_length=4)
+
+
+class CoachErrorEvent(BaseModel):
+    """错误帧：不是终结帧，必须由 done(finish_reason="error") 收尾。"""
+
+    type: Literal["error"] = "error"
+    code: CoachErrorCode
+    message: str = Field(..., min_length=1)
+
+
+class CoachDoneEvent(BaseModel):
+    """收尾帧：每轮唯一，且为末帧。"""
+
+    type: Literal["done"] = "done"
+    finish_reason: CoachFinishReason
+
+
+CoachStreamEvent = Union[
+    CoachTurnStartedEvent,
+    CoachMessageChunkEvent,
+    CoachStateEvent,
+    CoachActionsEvent,
+    CoachErrorEvent,
+    CoachDoneEvent,
+]
+
+# 判别字段放在 JSON 的 type 上，客户端只有一条解析路径（不使用 SSE event: 字段）
+CoachFrameEvent = Annotated[CoachStreamEvent, Field(discriminator="type")]
+
+
+def sse_frame(event: CoachStreamEvent) -> str:
+    """Serialize one event as a single-line ``data:`` frame.
+
+    JSON serialization escapes newlines, so one frame can never be split by the
+    client's line-based reader.
+    """
+    return f"data: {event.model_dump_json()}\n\n"
 
 
 class ChatMessage(BaseModel):

@@ -3,6 +3,7 @@ import asyncio
 import base64
 import io
 import logging
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,6 +12,15 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal, get_db
+from app.core.logging import (
+    ERROR_CODE_TASK_FAILED,
+    EVENT_TASK_COMPLETED,
+    EVENT_TASK_CREATED,
+    EVENT_TASK_FAILED,
+    EVENT_TASK_STARTED,
+    log_event,
+)
+from app.core.request_context import bind_request_context, get_request_id
 from app.core.security import (
     ensure_current_user_matches,
     get_current_user,
@@ -62,7 +72,17 @@ async def start_analyze(
         "result": None,
         "error": None,
         "user_id": req.user_id,
+        "request_id": get_request_id(),
+        "attempt": 1,
     }
+    log_event(
+        logger,
+        EVENT_TASK_CREATED,
+        message="体型分析任务已创建",
+        task_id=task_id,
+        user_id=req.user_id,
+        attempt=1,
+    )
     asyncio.create_task(_run_analysis(task_id, req))
     return AnalyzeResponse(task_id=task_id, status="processing")
 
@@ -137,37 +157,84 @@ async def get_analysis_record(
 
 async def _run_analysis(task_id: str, req: AnalyzeRequest):
     """后台任务：分析 + 保存最新结果到用户表 + 插入历史记录"""
-    async with AsyncSessionLocal() as db:
-        try:
-            graph = VisionGraph(user_id=req.user_id, db=db)
-            result = await graph.run(image_base64=req.image_base64, profile=req.profile)
-            _tasks[task_id] = {
-                "status": "completed",
-                "result": result,
-                "error": None,
-                "user_id": req.user_id,
-            }
+    task = _tasks.get(task_id) or {}
+    request_id = task.get("request_id") or get_request_id()
+    user_id = task.get("user_id", req.user_id)
+    attempt = int(task.get("attempt") or 1)
+    started = time.perf_counter()
 
-            user_service = UserService(db)
-            await user_service.save_body_analysis(req.user_id, result.model_dump())
-
+    # 后台任务运行在独立上下文：重新注入触发请求的关联信息
+    with bind_request_context(
+        request_id=request_id,
+        user_id=user_id,
+        task_id=task_id,
+        attempt=attempt,
+    ):
+        log_event(
+            logger,
+            EVENT_TASK_STARTED,
+            message="体型分析任务开始执行",
+            task_id=task_id,
+            user_id=user_id,
+            attempt=attempt,
+        )
+        async with AsyncSessionLocal() as db:
             try:
-                thumbnail = _make_thumbnail(req.image_base64)
-            except Exception:
-                thumbnail = None
+                graph = VisionGraph(user_id=req.user_id, db=db)
+                result = await graph.run(image_base64=req.image_base64, profile=req.profile)
+                _tasks[task_id] = {
+                    "status": "completed",
+                    "result": result,
+                    "error": None,
+                    "user_id": req.user_id,
+                    "request_id": request_id,
+                    "attempt": attempt,
+                }
 
-            history_record = BodyAnalysisRecord(
-                user_id=req.user_id,
-                image_thumbnail=thumbnail,
-                result=result.model_dump(),
-            )
-            db.add(history_record)
-            await db.commit()
-        except Exception as e:
-            logger.exception("体型分析失败: task_id=%s", task_id)
-            _tasks[task_id] = {
-                "status": "failed",
-                "result": None,
-                "error": str(e),
-                "user_id": req.user_id,
-            }
+                user_service = UserService(db)
+                await user_service.save_body_analysis(req.user_id, result.model_dump())
+
+                try:
+                    thumbnail = _make_thumbnail(req.image_base64)
+                except Exception:
+                    thumbnail = None
+
+                history_record = BodyAnalysisRecord(
+                    user_id=req.user_id,
+                    image_thumbnail=thumbnail,
+                    result=result.model_dump(),
+                )
+                db.add(history_record)
+                await db.commit()
+
+                log_event(
+                    logger,
+                    EVENT_TASK_COMPLETED,
+                    message="体型分析任务完成",
+                    task_id=task_id,
+                    user_id=user_id,
+                    attempt=attempt,
+                    duration_ms=round((time.perf_counter() - started) * 1000, 3),
+                )
+            except Exception as e:
+                log_event(
+                    logger,
+                    EVENT_TASK_FAILED,
+                    message="体型分析任务失败",
+                    level=logging.ERROR,
+                    exc_info=True,
+                    task_id=task_id,
+                    user_id=user_id,
+                    attempt=attempt,
+                    duration_ms=round((time.perf_counter() - started) * 1000, 3),
+                    error_code=ERROR_CODE_TASK_FAILED,
+                    error_class=type(e).__name__,
+                )
+                _tasks[task_id] = {
+                    "status": "failed",
+                    "result": None,
+                    "error": str(e),
+                    "user_id": req.user_id,
+                    "request_id": request_id,
+                    "attempt": attempt,
+                }

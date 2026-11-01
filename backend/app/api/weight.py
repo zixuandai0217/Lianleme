@@ -5,7 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import ensure_current_user_matches, get_current_user
 from app.models.user import User
-from app.schemas.weight import WeightRecordCreate, WeightRecordResponse, WeightTrendResponse
+from app.schemas.weight import (
+    WeightInsightResponse,
+    WeightRecordCreate,
+    WeightRecordResponse,
+    WeightTrendResponse,
+)
 from app.services.weight.weight_service import WeightService
 
 router = APIRouter()
@@ -34,6 +39,18 @@ async def get_weight_trend(
     ensure_current_user_matches(current_user, user_id)
     service = WeightService(db)
     return await service.get_trend(user_id, days)
+
+
+@router.get("/{user_id}/insights", response_model=WeightInsightResponse)
+async def get_weight_insights(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取体重趋势解读（锚点窗口、带日期极值、四周训练对照）"""
+    ensure_current_user_matches(current_user, user_id)
+    service = WeightService(db)
+    return await service.get_insights(user_id)
 
 
 @router.delete("/{user_id}/{record_id}")

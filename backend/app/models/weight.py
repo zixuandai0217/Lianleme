@@ -1,7 +1,7 @@
 """WeightRecord ORM 模型：用户每日体重打卡记录"""
 import datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, Text, func
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -14,7 +14,9 @@ class WeightRecord(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
 
     weight: Mapped[float] = mapped_column(Float, nullable=False, comment="体重 kg")
-    recorded_date: Mapped[datetime.date] = mapped_column(Date, nullable=False, index=True, comment="记录日期")
+    recorded_date: Mapped[datetime.date] = mapped_column(
+        Date, nullable=False, index=True, comment="记录日期"
+    )
 
     note: Mapped[str | None] = mapped_column(Text, comment="备注，如饮食/状态/围度等")
 

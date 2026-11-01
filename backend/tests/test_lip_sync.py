@@ -172,7 +172,7 @@ async def test_align_wav_runs_rhubarb_without_a_shell_and_supplies_dialog(monkey
 
     args = captured["args"]
     assert isinstance(args, tuple)
-    assert args[0] == "/opt/rhubarb/rhubarb"
+    assert Path(args[0]) == Path("/opt/rhubarb/rhubarb")
     assert args[args.index("--recognizer") + 1] == "phonetic"
     assert args[args.index("--extendedShapes") + 1] == "GHX"
     assert "--dialogFile" in args

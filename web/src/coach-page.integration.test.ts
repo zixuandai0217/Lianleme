@@ -18,14 +18,30 @@ describe("AI coach page", () => {
     expect(coachPage).toContain("getChatHistory")
     expect(coachPage).toContain("getTodayWorkout")
     expect(coachPage).toContain("getCoachTTSStatus")
-    expect(coachPage).toContain("streamFetch")
-    expect(coachPage).toContain('/api/coach/chat/stream')
     expect(coachPage).toContain("useCoachVoice")
     expect(app).toContain('lazy(() => import("@/pages/coach"))')
     expect(client).toContain("signal?: AbortSignal")
     expect(coachPage).toContain("streamAbortRef")
     expect(voiceHook).toContain("mountedRef")
     expect(voiceHook).toContain("prepare")
+  })
+
+  it("renders only what the protocol layer reduced instead of splicing raw frames", () => {
+    expect(coachPage).toContain("streamCoachTurn")
+    expect(coachPage).toContain('"/api/coach/chat/stream"')
+    expect(coachPage).toContain("CoachTurnState")
+    expect(coachPage).toContain("onUpdate: renderTurn")
+    // The old line-by-line data: splice and its DONE marker are gone.
+    expect(coachPage).not.toContain("streamFetch")
+    expect(coachPage).not.toContain("replyText")
+    expect(coachPage).toContain("EMPTY_COACH_REPLY")
+  })
+
+  it("takes quick actions from the reducer and sends the action prompt", () => {
+    expect(coachPage).toContain("quickActions")
+    expect(coachPage).toContain("action.label")
+    expect(coachPage).toContain("sendMessage(action.prompt)")
+    expect(coachPage).not.toContain("SUGGESTED_PROMPTS")
   })
 
   it("presents the coach as a live character instead of a WebGL demo", () => {

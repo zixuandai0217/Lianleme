@@ -1,6 +1,5 @@
 """MinIO 对象存储客户端：初始化 bucket、提供文件上传封装"""
 from minio import Minio
-from minio.error import S3Error
 
 from app.core.config import settings
 
@@ -33,7 +32,9 @@ def ensure_bucket_exists() -> None:
         logging.getLogger(__name__).warning("MinIO 不可用，跳过 bucket 初始化: %s", e)
 
 
-def upload_bytes(object_name: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+def upload_bytes(
+    object_name: str, data: bytes, content_type: str = "application/octet-stream"
+) -> str:
     """上传字节数据到 MinIO，返回对象访问 URL"""
     import io
     client = get_minio_client()

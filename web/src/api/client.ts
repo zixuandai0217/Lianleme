@@ -28,55 +28,6 @@ client.interceptors.response.use(
 
 export default client
 
-/** SSE 流式读取，逐段回调 */
-export async function streamFetch(
-  url: string,
-  body: unknown,
-  onChunk: (text: string) => void,
-  onDone: () => void,
-  signal?: AbortSignal,
-) {
-  const token = localStorage.getItem("token")
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-    signal,
-  })
-
-  if (!resp.ok || !resp.body) {
-    throw new Error(`Stream request failed: ${resp.status}`)
-  }
-
-  const reader = resp.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ""
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split("\n")
-    buffer = lines.pop() || ""
-
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const data = line.slice(6)
-        if (data === "[DONE]") {
-          onDone()
-          return
-        }
-        onChunk(data)
-      }
-    }
-  }
-  onDone()
-}
-
 /** Fetch coach TTS status without relying on axios JSON helpers. */
 export async function fetchCoachTTSStatus(): Promise<CoachTTSStatusResponse> {
   const token = localStorage.getItem("token")

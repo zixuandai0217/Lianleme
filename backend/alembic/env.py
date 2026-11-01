@@ -6,18 +6,19 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+# 导入所有模型以确保 metadata 包含所有表
+import app.models  # noqa: F401
 from alembic import context
 
 # 加载 FastAPI 应用配置
 from app.core.config import settings
 from app.core.database import Base  # noqa: F401
-# 导入所有模型以确保 metadata 包含所有表
-import app.models  # noqa: F401
 
 config = context.config
 
-# 注入实际数据库 URL
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# 数据库 URL：以编程方式注入（测试 / 多库场景）优先，未注入时回落到应用配置
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

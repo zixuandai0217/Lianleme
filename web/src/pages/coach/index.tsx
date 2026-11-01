@@ -14,7 +14,6 @@ import {
   Volume2,
 } from "lucide-react"
 import { getChatHistory, getCoachTTSStatus, getTodayWorkout } from "@/api"
-import { streamFetch } from "@/api/client"
 import type { ChatMessageItem, TodayWorkout } from "@/api/types"
 import {
   resolveCoachPresentationState,
@@ -29,6 +28,12 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAuth } from "@/hooks/use-auth"
 import { useCoachVoice } from "@/hooks/use-coach-voice"
+import {
+  EMPTY_COACH_REPLY,
+  streamCoachTurn,
+  type CoachAction,
+  type CoachTurnState,
+} from "@/lib/coach-protocol"
 
 interface DisplayMessage {
   id: string
@@ -67,12 +72,13 @@ declare global {
   }
 }
 
-const SUGGESTED_PROMPTS = [
+// Fallback quick actions used until the server sends this turn's own actions.
+const DEFAULT_QUICK_ACTIONS: CoachAction[] = [
   "根据今天的计划，帮我安排热身",
   "第一个动作应该注意什么？",
   "今天状态一般，训练怎么调整？",
   "给我一句开练前的提醒",
-]
+].map((prompt) => ({ label: prompt, prompt }))
 
 const STATUS_COPY: Record<DigitalCoachState, string> = {
   idle: "随时可以开始",
@@ -183,6 +189,7 @@ export default function CoachPage() {
   const [workout, setWorkout] = useState<TodayWorkout | null>(null)
   const [input, setInput] = useState("")
   const [conversationStatus, setConversationStatus] = useState<CoachConversationStatus>("idle")
+  const [quickActions, setQuickActions] = useState<CoachAction[]>(DEFAULT_QUICK_ACTIONS)
   const [historyLoading, setHistoryLoading] = useState(true)
   const [ttsAvailable, setTtsAvailable] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
@@ -254,7 +261,7 @@ export default function CoachPage() {
     return () => streamAbortRef.current?.abort()
   }, [])
 
-  // Send a user turn, stream the AI reply into one bubble, then speak the final text.
+  // Send a user turn, stream the reply through the protocol layer, then speak it.
   const sendMessage = async (rawMessage: string) => {
     const message = rawMessage.trim()
     if (!message || !userId || isBusy) return
@@ -284,48 +291,68 @@ export default function CoachPage() {
     streamAbortRef.current?.abort()
     const streamController = new AbortController()
     streamAbortRef.current = streamController
-    let replyText = ""
+
+    // Render only what the protocol layer reduced; never raw response text.
+    const renderTurn = (turn: CoachTurnState) => {
+      if (streamController.signal.aborted) return
+      setMessages((current) => current.map((item) => (
+        item.id === assistantId
+          ? {
+            ...item,
+            content: turn.body || (turn.status === "error" ? EMPTY_COACH_REPLY : ""),
+            pending: turn.status === "thinking" || turn.status === "streaming",
+          }
+          : item
+      )))
+      if (turn.actions.length) setQuickActions(turn.actions)
+      setConversationStatus(
+        turn.status === "error" ? "error" : turn.status === "idle" ? "idle" : "thinking",
+      )
+    }
+
     try {
-      await streamFetch(
-        "/api/coach/chat/stream",
-        {
+      const turn = await streamCoachTurn({
+        url: "/api/coach/chat/stream",
+        body: {
           user_id: userId,
           message,
           current_exercise: firstExercise?.name,
           completed_sets: 0,
           total_sets: firstExercise?.sets,
         },
-        (chunk) => {
-          if (streamController.signal.aborted) return
-          replyText += chunk
-          setMessages((current) => current.map((item) => (
-            item.id === assistantId ? { ...item, content: replyText } : item
-          )))
-        },
-        () => undefined,
-        streamController.signal,
-      )
-
+        signal: streamController.signal,
+        onUpdate: renderTurn,
+      })
       if (streamController.signal.aborted) return
-      const finalReply = replyText.trim()
-      const completedReply = finalReply || "我在，换个方式再问我一次。"
-      setMessages((current) => current.map((item) => (
-        item.id === assistantId
-          ? { ...item, content: completedReply, pending: false }
-          : item
-      )))
+
+      const reply = turn.body.trim()
+      if (turn.error) {
+        setConversationStatus("error")
+        setPageError(turn.error.message)
+        setAnnouncement("数字教练暂时没法回复，请稍后再试。")
+        return
+      }
       setConversationStatus("idle")
-      setAnnouncement(`教练回复：${completedReply}`)
-      if (finalReply && ttsAvailable) await voice.play(assistantId, finalReply)
+      if (turn.finishReason === "truncated") setPageError("连接中断，回复可能不完整。")
+      setAnnouncement(reply ? `教练回复：${reply}` : "")
+      if (reply && ttsAvailable) await voice.play(assistantId, reply)
     } catch (error) {
-      if (streamController.signal.aborted || (error instanceof Error && error.name === "AbortError")) return
+      if (streamController.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
+        setConversationStatus("idle")
+        // A user interrupt keeps any partial reply but never leaves an empty bubble.
+        setMessages((current) => current.flatMap((item) => {
+          if (item.id !== assistantId) return [item]
+          return item.content ? [{ ...item, pending: false }] : []
+        }))
+        return
+      }
       const errorMessage = error instanceof Error ? error.message : "AI 教练暂时无法连接"
       setConversationStatus("error")
       setPageError(errorMessage)
       setAnnouncement("数字教练连接中断，请重新发送。")
       setMessages((current) => current.map((item) => (
         item.id === assistantId
-          ? { ...item, content: "刚才的连接中断了，请重新发送。", pending: false }
+          ? { ...item, content: item.content || EMPTY_COACH_REPLY, pending: false }
           : item
       )))
     } finally {
@@ -494,15 +521,15 @@ export default function CoachPage() {
             {pageError && <p className="mb-3 text-xs font-medium text-[#b83227]" role="alert">{pageError}</p>}
             {speech.error && <p className="mb-3 text-xs font-medium text-[#b83227]" role="alert">{speech.error}</p>}
             <div className="mb-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {SUGGESTED_PROMPTS.map((prompt) => (
+              {quickActions.map((action) => (
                 <button
-                  key={prompt}
+                  key={`${action.label}-${action.prompt}`}
                   type="button"
                   disabled={isBusy}
-                  onClick={() => void sendMessage(prompt)}
+                  onClick={() => void sendMessage(action.prompt)}
                   className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-[#dddcd7] bg-white px-2.5 text-xs font-medium text-[#454c48] transition-colors hover:border-[#ff6a00]/50 hover:bg-[#fff2e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6a00]/40 disabled:pointer-events-none disabled:opacity-50"
                 >
-                  {prompt}
+                  {action.label}
                   <ChevronRight className="size-3" />
                 </button>
               ))}

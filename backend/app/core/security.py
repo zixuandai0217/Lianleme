@@ -1,12 +1,13 @@
 """JWT bearer auth dependencies and ownership guards."""
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.request_context import set_user_id
 from app.models.user import User
 from app.services.user.api_key_service import ApiKeyService
 
@@ -23,6 +24,7 @@ def _raise_unauthorized(detail: str = "未登录或登录已过期") -> None:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -52,6 +54,9 @@ async def get_current_user(
     if user is None:
         _raise_unauthorized("用户不存在或登录已失效")
 
+    # 认证结果写入请求上下文：本次请求内所有日志自动携带统一的 user_id
+    set_user_id(user.id)
+    request.state.user_id = user.id
     return user
 
 

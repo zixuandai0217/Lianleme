@@ -22,7 +22,9 @@ import {
   TrendingUp,
 } from "lucide-react"
 import { addWeightRecord, deleteWeightRecord, getWeightTrend, updateProfile } from "@/api"
+import { getWeightInsights } from "@/api/weight-insights"
 import type { WeightTrend } from "@/api/types"
+import { buildWeightInsightView, type WeightInsightView } from "@/lib/weight-insight"
 import { useAuth } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
 
@@ -176,6 +178,7 @@ export default function WeightPage() {
 
   // Weight tracking state
   const [trend, setTrend] = useState<WeightTrend | null>(null)
+  const [insight, setInsight] = useState<WeightInsightView | null>(null)
   const [loading, setLoading] = useState(true)
   const [weightInput, setWeightInput] = useState("")
   const [noteInput, setNoteInput] = useState("")
@@ -192,12 +195,20 @@ export default function WeightPage() {
     setSynced(true)
   }
 
-  // Load weight trend
+  // Load weight trend + derived insight (insight failure must not break the trend)
   const loadTrend = useCallback(async () => {
     if (!userId) return
     try {
-      const t = await getWeightTrend(userId, days)
-      setTrend(t)
+      const [trendResult, insightResult] = await Promise.allSettled([
+        getWeightTrend(userId, days),
+        getWeightInsights(userId),
+      ])
+      if (trendResult.status === "fulfilled") setTrend(trendResult.value)
+      setInsight(
+        insightResult.status === "fulfilled"
+          ? buildWeightInsightView(insightResult.value)
+          : null,
+      )
     } finally {
       setLoading(false)
     }
@@ -359,6 +370,81 @@ export default function WeightPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── Trend insight ── */}
+      {insight?.visible && (
+        <section
+          aria-label="体重趋势解读"
+          className="rounded-lg border border-border bg-card shadow-[0_4px_16px_rgba(23,26,23,0.04)]"
+        >
+          <div className="border-b border-border px-6 py-4">
+            <h2 className="flex items-center gap-2 font-heading text-base font-semibold">
+              <Sparkles className="size-4 text-primary" />
+              趋势解读
+            </h2>
+          </div>
+          <div className="space-y-4 p-6">
+            {insight.staleNotice && (
+              <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                {insight.staleNotice}
+              </p>
+            )}
+            <div>
+              <p className="font-heading text-base font-semibold">{insight.headline}</p>
+              {insight.caption && (
+                <p className="mt-1 text-xs text-muted-foreground">{insight.caption}</p>
+              )}
+            </div>
+            {insight.singleRecordHint && (
+              <p className="text-sm text-muted-foreground">{insight.singleRecordHint}</p>
+            )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {insight.windows.map((item) => (
+                <div key={item.key} className="rounded-md border border-border px-4 py-3">
+                  <p className="font-sans text-xs text-muted-foreground">{item.label}</p>
+                  <p className="mt-1 flex items-baseline gap-2">
+                    <span
+                      className={cn(
+                        "font-heading text-lg font-semibold tabular-nums",
+                        item.tone === "positive" && "text-brand-green",
+                        item.tone === "warning" && "text-destructive",
+                      )}
+                    >
+                      {item.changeText ?? item.directionWord}
+                    </span>
+                    {item.changeText && (
+                      <span className="text-xs text-muted-foreground">{item.directionWord}</span>
+                    )}
+                  </p>
+                  {item.rangeText && (
+                    <p className="mt-1 text-xs text-muted-foreground">{item.rangeText}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+            {insight.weeklyVisible && (
+              <div>
+                <p className="font-sans text-xs font-semibold text-muted-foreground">
+                  {insight.weeklyTitle}
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {insight.weeklyRows.map((row) => (
+                    <li
+                      key={row.key}
+                      className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-1.5 text-sm last:border-0"
+                    >
+                      <span className="shrink-0 text-muted-foreground tabular-nums">
+                        {row.label}
+                      </span>
+                      <span className="text-right">{row.factText}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       {/* ── Trend chart ── */}

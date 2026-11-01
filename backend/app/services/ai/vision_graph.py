@@ -2,11 +2,9 @@
 VisionGraph：体型分析 LangGraph DAG
 节点流程：vision_node（多模态识别）→ parse_node（PydanticOutputParser）→ plan_node（生成训练计划）
 """
-import base64
 from typing import Any, Optional, TypedDict
 
 from langchain.output_parsers import PydanticOutputParser
-from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, StateGraph
 

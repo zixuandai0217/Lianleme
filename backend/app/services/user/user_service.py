@@ -1,9 +1,8 @@
 """用户档案 CRUD、邮箱认证和开发身份服务。"""
-import time
-from typing import Optional
-
 import hashlib
 import os
+import time
+from typing import Optional
 
 from jose import jwt
 from sqlalchemy import select

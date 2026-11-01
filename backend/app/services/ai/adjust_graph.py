@@ -4,7 +4,6 @@ AdjustGraph：训练计划动态调整 LangGraph 条件分支
 """
 from typing import Any, Optional, TypedDict
 
-from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, StateGraph
 
@@ -85,9 +84,15 @@ class AdjustGraph:
         """分析节点：确定调整类型（实际路由由条件边完成）"""
         rate = state["completion_rate"]
         if rate >= 0.8:
-            return {"adjustment_type": "increase", "reason": f"完成率 {rate:.0%}，表现优秀，适当加量"}
+            return {
+                "adjustment_type": "increase",
+                "reason": f"完成率 {rate:.0%}，表现优秀，适当加量",
+            }
         elif rate < 0.5:
-            return {"adjustment_type": "decrease", "reason": f"完成率 {rate:.0%}，难度过高，适当减量"}
+            return {
+                "adjustment_type": "decrease",
+                "reason": f"完成率 {rate:.0%}，难度过高，适当减量",
+            }
         return {"adjustment_type": "keep", "reason": f"完成率 {rate:.0%}，保持当前难度"}
 
     async def _increase_node(self, state: AdjustState) -> dict:
@@ -118,7 +123,8 @@ class AdjustGraph:
 
     def _safe_parse(self, content: str, fallback: dict) -> dict:
         """安全解析 LLM 返回的 JSON，失败则使用原计划"""
-        import json, re
+        import json
+        import re
         match = re.search(r"\{.*\}", content, re.DOTALL)
         if match:
             try:

@@ -14,6 +14,7 @@ import type {
   PaginatedUsers,
   AdminStats,
   PlanResponse,
+  CurrentPlanLookup,
   TodayWorkout,
   UserResponse,
   WeightRecord,
@@ -72,6 +73,42 @@ export const getAnalysisRecord = (recordId: number) =>
 // ── Plan ──
 export const getCurrentPlan = (userId: number) =>
   client.get<unknown, PlanResponse>(`/api/plan/${userId}/current`)
+
+/**
+ * 判断当前用户是否已有可用计划，并保留 HTTP 状态码语义。
+ *
+ * 与 getCurrentPlan 的区别：404 是「还没有计划」这一正常首用状态，网络失败与 5xx
+ * 只能算「无法判别」，绝不降级成 missing。
+ *
+ * 为什么这里不走 axios 封装：共享封装的响应拦截器把任何失败都压成一句字符串消息，
+ * 并丢掉 HTTP 状态码，调用方无法区分「资源不存在」与「网络/服务失败」。而首用引导必须
+ * 区分两者——404 可以引导用户去生成计划；请求失败只能算「无法判别」。若误判成没有
+ * 计划，用户会被引导去重新生成，而重新生成会归档当前 active 计划。因此这里直接读
+ * 状态码；等封装层统一保留状态码后，再收敛回 client。
+ */
+export async function lookupCurrentPlan(userId: number): Promise<CurrentPlanLookup> {
+  const token = localStorage.getItem("token")
+  let response: Response
+
+  try {
+    response = await fetch(`/api/plan/${userId}/current`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+  } catch {
+    return { lookup: "unknown" }
+  }
+
+  if (response.status === 404) return { lookup: "missing" }
+  if (!response.ok) return { lookup: "unknown" }
+
+  try {
+    const payload = (await response.json()) as PlanResponse
+    if (!payload?.plan) return { lookup: "unknown" }
+    return { lookup: "exists", planId: payload.plan.id }
+  } catch {
+    return { lookup: "unknown" }
+  }
+}
 
 export const generatePlan = (userId: number, bodyAnalysis?: Record<string, unknown>, profile?: Record<string, unknown>) =>
   client.post<unknown, PlanResponse>("/api/plan/generate", {

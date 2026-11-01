@@ -1,14 +1,9 @@
-/* Behavioral coverage for browser speech transcripts and cancellable coach streams. */
-import { afterEach, describe, expect, it, vi } from "vitest"
-import { streamFetch } from "./api/client"
+/* Behavioral coverage for browser speech transcripts and coach presentation states. */
+import { describe, expect, it } from "vitest"
 import {
   resolveCoachPresentationState,
   transcriptFromSpeechResults,
 } from "./components/coach-conversation"
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-})
 
 describe("coach conversation helpers", () => {
   it("combines the complete cumulative speech-recognition result list", () => {
@@ -30,17 +25,4 @@ describe("coach conversation helpers", () => {
     expect(resolveCoachPresentationState("idle", false, "paused")).toBe("idle")
   })
 
-  it("forwards an AbortSignal to the streamed request", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("data: [DONE]\n\n"))
-    vi.stubGlobal("fetch", fetchMock)
-    vi.stubGlobal("localStorage", { getItem: () => null })
-    const controller = new AbortController()
-
-    await streamFetch("/api/coach/chat/stream", {}, () => undefined, () => undefined, controller.signal)
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/coach/chat/stream",
-      expect.objectContaining({ signal: controller.signal }),
-    )
-  })
 })
