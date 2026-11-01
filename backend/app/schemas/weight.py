@@ -1,6 +1,6 @@
 """体重记录相关 Pydantic Schema"""
 import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -68,11 +68,37 @@ class WeightWeeklyComparison(BaseModel):
     )
 
 
+GoalMode = Literal["numeric", "direction", "none"]
+GoalVerdict = Literal["on_track", "off_track", "steady", "insufficient", "neutral"]
+GoalReason = Literal[
+    "no_goal",
+    "insufficient_samples",
+    "change_matches_target",
+    "change_against_target",
+    "change_within_flat_band",
+    "target_reached",
+    "change_matches_goal_direction",
+    "change_against_goal_direction",
+    "hold_within_band",
+    "drift_outside_band",
+]
+GoalExpectedDirection = Literal["down", "up", "hold"]
+
+
 class WeightGoalInsight(BaseModel):
-    """目标判定；目标体重与两档判定由工单 32 落地，本接口先返回中性未设目标"""
-    mode: str = Field("none", description="numeric / direction / none")
-    verdict: str = Field("neutral", description="on_track / off_track / neutral / insufficient")
-    reason: str = ""
+    """目标判定：数值目标优先，其次按健身目标方向推断，无目标时保持中性"""
+    mode: GoalMode = Field("none", description="numeric / direction / none")
+    verdict: GoalVerdict = Field(
+        "neutral",
+        description="on_track / off_track / steady / insufficient / neutral",
+    )
+    reason: GoalReason = Field("no_goal", description="稳定的判定码，由前端映射文案")
+    gap: Optional[float] = Field(None, description="最新体重 - 目标体重（1 位小数）")
+    target_weight: Optional[float] = Field(None, description="档案里的目标体重 kg")
+    goal_label: Optional[str] = Field(None, description="档案健身目标原值")
+    expected_direction: Optional[GoalExpectedDirection] = Field(
+        None, description="期望方向：down / up / hold"
+    )
 
 
 class WeightInsightResponse(BaseModel):

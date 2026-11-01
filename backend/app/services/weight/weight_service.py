@@ -5,6 +5,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.record import WorkoutRecord
+from app.models.user import User
 from app.models.weight import WeightRecord
 from app.schemas.weight import (
     WeightExtreme,
@@ -24,6 +25,12 @@ INSIGHT_LOOKBACK_DAYS = 34
 WEEKLY_WEEKS = 4
 # 判定"持平"的体重变化下限（kg）
 FLAT_CHANGE_EPSILON = 0.1
+# 判定"已达目标体重"的差距下限（kg）：按 0.1 kg 的记录精度取其一半
+TARGET_REACHED_EPSILON = 0.05
+# 维持型目标（塑形 / 提升体能）的容差带：当前体重的 0.5%
+MAINTENANCE_BAND_RATIO = 0.005
+# 健身目标 -> 期望体重方向（无数值目标时按方向推断）
+GOAL_DIRECTIONS = {"减脂": "down", "增肌": "up", "塑形": "hold", "提升体能": "hold"}
 
 
 def _direction_of(change: float) -> str:
@@ -112,6 +119,7 @@ class WeightService:
         自己的最近 7 天；锚点距今天超过 7 天时标记数据陈旧。
         """
         today = self._today()
+        profile = await self._load_profile(user_id)
         anchor = await self._latest_record_date(user_id)
 
         if anchor is None:
@@ -124,6 +132,7 @@ class WeightService:
                 windows=empty_windows,
                 weekly=[],
                 training_data_available=False,
+                goal=self._build_goal(profile, None, None),
             )
 
         records = await self._load_insight_records(user_id, anchor)
@@ -143,7 +152,132 @@ class WeightService:
             windows=windows,
             weekly=weekly,
             training_data_available=training_available,
-            goal=WeightGoalInsight(),
+            goal=self._build_goal(profile, records[-1].weight, windows["d30"]),
+        )
+
+    async def _load_profile(self, user_id: int) -> dict:
+        """读取用户档案（JSONB dict），缺失时按空档案处理"""
+        result = await self.db.execute(select(User.profile).where(User.id == user_id))
+        return result.scalar_one_or_none() or {}
+
+    @staticmethod
+    def _goal(
+        mode: str,
+        verdict: str,
+        reason: str,
+        *,
+        gap: float | None = None,
+        target_weight: float | None = None,
+        goal_label: str | None = None,
+        expected_direction: str | None = None,
+    ) -> WeightGoalInsight:
+        """构造一条目标判定：各分支只填自己关心的字段，避免重复搬运整批参数"""
+        return WeightGoalInsight(
+            mode=mode,
+            verdict=verdict,
+            reason=reason,
+            gap=gap,
+            target_weight=target_weight,
+            goal_label=goal_label,
+            expected_direction=expected_direction,
+        )
+
+    @classmethod
+    def _build_goal(
+        cls,
+        profile: dict,
+        current_weight: float | None,
+        month_window: WeightWindowInsight | None,
+    ) -> WeightGoalInsight:
+        """按档案目标判定当前体重走向：数值目标优先，其次方向推断
+
+        判定只描述"当前体重与目标的差距 + 最近 30 天方向"，不下因果或医学结论。
+        """
+        target_weight = profile.get("target_weight")
+        goal_label = profile.get("goal")
+        change = month_window.change if month_window else None
+
+        if target_weight is None:
+            expected = GOAL_DIRECTIONS.get(goal_label)
+            if expected is None:
+                return cls._goal("none", "neutral", "no_goal")
+            if current_weight is None or change is None:
+                return cls._goal(
+                    "direction",
+                    "insufficient",
+                    "insufficient_samples",
+                    goal_label=goal_label,
+                    expected_direction=expected,
+                )
+            if expected == "hold":
+                within_band = abs(change) < current_weight * MAINTENANCE_BAND_RATIO
+                verdict, reason = (
+                    ("steady", "hold_within_band")
+                    if within_band
+                    else ("off_track", "drift_outside_band")
+                )
+            elif abs(change) < FLAT_CHANGE_EPSILON:
+                verdict, reason = "steady", "change_within_flat_band"
+            else:
+                matched = _direction_of(change) == expected
+                verdict = "on_track" if matched else "off_track"
+                reason = (
+                    "change_matches_goal_direction"
+                    if matched
+                    else "change_against_goal_direction"
+                )
+            return cls._goal(
+                "direction",
+                verdict,
+                reason,
+                goal_label=goal_label,
+                expected_direction=expected,
+            )
+
+        if current_weight is None:
+            return cls._goal(
+                "numeric",
+                "insufficient",
+                "insufficient_samples",
+                target_weight=target_weight,
+                goal_label=goal_label,
+            )
+
+        raw_gap = current_weight - target_weight
+        gap = round(raw_gap, 1)
+        target_fields = {"target_weight": target_weight, "goal_label": goal_label}
+        if abs(raw_gap) < TARGET_REACHED_EPSILON:
+            return cls._goal(
+                "numeric", "on_track", "target_reached", gap=gap, **target_fields
+            )
+
+        expected = "down" if target_weight < current_weight else "up"
+        if change is None:
+            return cls._goal(
+                "numeric",
+                "insufficient",
+                "insufficient_samples",
+                gap=gap,
+                expected_direction=expected,
+                **target_fields,
+            )
+        if abs(change) < FLAT_CHANGE_EPSILON:
+            return cls._goal(
+                "numeric",
+                "steady",
+                "change_within_flat_band",
+                gap=gap,
+                expected_direction=expected,
+                **target_fields,
+            )
+        matched = _direction_of(change) == expected
+        return cls._goal(
+            "numeric",
+            "on_track" if matched else "off_track",
+            "change_matches_target" if matched else "change_against_target",
+            gap=gap,
+            expected_direction=expected,
+            **target_fields,
         )
 
     async def _latest_record_date(self, user_id: int) -> datetime.date | None:

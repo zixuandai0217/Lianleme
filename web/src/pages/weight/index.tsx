@@ -173,8 +173,10 @@ export default function WeightPage() {
   const [gender, setGender] = useState("")
   const [goal, setGoal] = useState("")
   const [experience, setExperience] = useState("")
+  const [targetWeight, setTargetWeight] = useState("")
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileSaved, setProfileSaved] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
 
   // Weight tracking state
   const [trend, setTrend] = useState<WeightTrend | null>(null)
@@ -192,6 +194,7 @@ export default function WeightPage() {
     setGender(user.profile?.gender || "")
     setGoal(user.profile?.goal || "")
     setExperience(user.profile?.experience || "")
+    setTargetWeight(user.profile?.target_weight != null ? user.profile.target_weight.toFixed(1) : "")
     setSynced(true)
   }
 
@@ -216,9 +219,21 @@ export default function WeightPage() {
 
   useEffect(() => { loadTrend() }, [loadTrend])
 
-  // Save profile
+  // Save profile（后端档案保存是整体替换：未提交的既有字段会被清空）
   const handleSaveProfile = async () => {
     if (!userId) return
+    const parsedTargetWeight = targetWeight.trim() === "" ? undefined : Number(targetWeight)
+    if (
+      parsedTargetWeight !== undefined &&
+      (!Number.isFinite(parsedTargetWeight) ||
+        parsedTargetWeight <= 0 ||
+        parsedTargetWeight >= 500)
+    ) {
+      // 非法值不能静默转换成 undefined：那会在整体替换时清掉已存的目标体重
+      setProfileError("目标体重需为 0–500 kg 之间的数字，或留空")
+      return
+    }
+    setProfileError(null)
     setProfileSaving(true)
     setProfileSaved(false)
     try {
@@ -232,11 +247,17 @@ export default function WeightPage() {
           gender: gender || undefined,
           goal: goal || undefined,
           experience: experience || undefined,
+          target_weight: parsedTargetWeight,
         },
       })
       await refreshUser()
+      // 目标判定的口径来自档案（目标 + 目标体重），保存后必须重算解读，
+      // 否则用户刚设完目标会看到上一轮的旧结论。
+      await loadTrend()
       setProfileSaved(true)
       setTimeout(() => setProfileSaved(false), 2000)
+    } catch {
+      setProfileError("档案保存失败，请稍后重试")
     } finally {
       setProfileSaving(false)
     }
@@ -309,15 +330,34 @@ export default function WeightPage() {
 
           <Separator />
 
-          <div className="grid gap-5 sm:grid-cols-2">
+          <div className="grid gap-5 sm:grid-cols-3">
             <OptionGroup label="健身目标" options={GOALS} value={goal} onChange={setGoal} />
             <OptionGroup label="训练经验" options={EXPERIENCE_LEVELS} value={experience} onChange={setExperience} />
+            <div className="space-y-1.5">
+              <Label htmlFor="p-target-weight" className="font-sans text-xs font-semibold text-muted-foreground">目标体重 (kg)</Label>
+              <Input
+                id="p-target-weight"
+                type="number"
+                step="0.1"
+                value={targetWeight}
+                onChange={(e) => setTargetWeight(e.target.value)}
+                placeholder="可不填"
+              />
+              <p className="text-xs text-muted-foreground">保留 1 位小数</p>
+            </div>
           </div>
 
-          <Button onClick={handleSaveProfile} disabled={profileSaving}>
-            {profileSaving ? <Loader2 className="animate-spin" /> : profileSaved ? null : <Save />}
-            {profileSaved ? "已保存 ✓" : "保存档案"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={handleSaveProfile} disabled={profileSaving}>
+              {profileSaving ? <Loader2 className="animate-spin" /> : profileSaved ? null : <Save />}
+              {profileSaved ? "已保存 ✓" : "保存档案"}
+            </Button>
+            {profileError && (
+              <p role="alert" className="text-xs text-destructive">
+                {profileError}
+              </p>
+            )}
+          </div>
         </div>
       </section>
 
@@ -399,6 +439,20 @@ export default function WeightPage() {
                 <p className="mt-1 text-xs text-muted-foreground">{insight.caption}</p>
               )}
             </div>
+            {insight.goal && (
+              <div
+                data-tone={insight.goal.tone}
+                data-testid="weight-goal"
+                className={cn(
+                  "rounded-md border border-border px-4 py-3",
+                  insight.goal.tone === "positive" && "text-brand-green",
+                  insight.goal.tone === "warning" && "text-destructive",
+                )}
+              >
+                <p className="font-heading text-base font-semibold">{insight.goal.headline}</p>
+                {insight.goal.note && <p className="mt-1 text-xs text-muted-foreground">{insight.goal.note}</p>}
+              </div>
+            )}
             {insight.singleRecordHint && (
               <p className="text-sm text-muted-foreground">{insight.singleRecordHint}</p>
             )}
@@ -407,13 +461,7 @@ export default function WeightPage() {
                 <div key={item.key} className="rounded-md border border-border px-4 py-3">
                   <p className="font-sans text-xs text-muted-foreground">{item.label}</p>
                   <p className="mt-1 flex items-baseline gap-2">
-                    <span
-                      className={cn(
-                        "font-heading text-lg font-semibold tabular-nums",
-                        item.tone === "positive" && "text-brand-green",
-                        item.tone === "warning" && "text-destructive",
-                      )}
-                    >
+                    <span className="font-heading text-lg font-semibold tabular-nums">
                       {item.changeText ?? item.directionWord}
                     </span>
                     {item.changeText && (

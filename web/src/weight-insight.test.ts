@@ -189,11 +189,11 @@ describe("buildWeightInsightView", () => {
     expect(view.windows[1].changeText).toBe("-1.4 kg")
   })
 
-  it("keeps neutral tone when no goal is configured", () => {
+  it("keeps the windows neutral when no goal is configured", () => {
     const view = buildWeightInsightView(insightsView())
 
-    expect(view.windows.every((item) => item.tone === "neutral")).toBe(true)
-    expect(view.goalNote).toBeNull()
+    expect(view.goal).toBeNull()
+    expect(view.windows.map((item) => item.directionWord)).toEqual(["下降", "下降"])
   })
 
   it("still reports the 7-day window when the newest record is a few days old", () => {
@@ -218,6 +218,131 @@ describe("buildWeightInsightView", () => {
 
     expect(view.windows[0].changeText).toBe("-1.4 kg")
     expect(view.windows[1].changeText).toBe("+2.1 kg")
+  })
+
+  it.each([
+    {
+      name: "numeric on track",
+      goal: { mode: "numeric", verdict: "on_track", reason: "change_matches_target", gap: 4, target_weight: 68, expected_direction: "down" },
+      d30: { change: -1.4, direction: "down" },
+      headline: "朝目标前进",
+      tone: "positive",
+      note: "距目标 4.0 kg（目标 68.0 kg） · 最近 30 天下降 1.4 kg",
+    },
+    {
+      name: "numeric off track",
+      goal: { mode: "numeric", verdict: "off_track", reason: "change_against_target", gap: 4, target_weight: 68, expected_direction: "down" },
+      d30: { change: 1.4, direction: "up" },
+      headline: "偏离目标",
+      tone: "warning",
+      note: "距目标 4.0 kg（目标 68.0 kg） · 最近 30 天上升 1.4 kg",
+    },
+    {
+      name: "numeric steady",
+      goal: { mode: "numeric", verdict: "steady", reason: "change_within_flat_band", gap: 4, target_weight: 68, expected_direction: "down" },
+      d30: { change: 0, direction: "flat" },
+      headline: "基本持平",
+      tone: "neutral",
+      note: "距目标 4.0 kg（目标 68.0 kg） · 最近 30 天持平 0.0 kg",
+    },
+    {
+      name: "numeric insufficient",
+      goal: { mode: "numeric", verdict: "insufficient", reason: "insufficient_samples", gap: 4, target_weight: 68, expected_direction: "down" },
+      d30: { change: null, direction: "insufficient", insufficient: true },
+      headline: "数据不足，暂不判断",
+      tone: "neutral",
+      note: "距目标 4.0 kg（目标 68.0 kg） · 最近 30 天数据不足",
+    },
+  ])("maps $name to the goal view model", ({ goal, d30, headline, tone, note }) => {
+    const view = buildWeightInsightView(
+      insightsView({
+        goal,
+        windows: { d7: windowView({ days: 7 }), d30: windowView(d30) },
+      }),
+    )
+
+    expect(view.goal?.headline).toBe(headline)
+    expect(view.goal?.note).toBe(note)
+    expect(view.goal?.tone).toBe(tone)
+  })
+
+  it("keeps the window cards neutral instead of reusing the 30-day verdict tone", () => {
+    const view = buildWeightInsightView(
+      insightsView({
+        goal: { mode: "numeric", verdict: "off_track", reason: "change_against_target", gap: 4, target_weight: 68, expected_direction: "down" },
+        windows: { d7: windowView({ days: 7, change: -0.4, direction: "down" }), d30: windowView({ change: 1.4, direction: "up" }) },
+      }),
+    )
+
+    expect(view.goal?.tone).toBe("warning")
+    expect(view.windows[0].changeText).toBe("-0.4 kg")
+    expect(JSON.stringify(view.windows)).not.toContain("tone")
+  })
+
+  it("uses a reached-target headline", () => {
+    const view = buildWeightInsightView(
+      insightsView({
+        goal: { mode: "numeric", verdict: "on_track", reason: "target_reached", gap: 0, target_weight: 72 },
+      }),
+    )
+    expect(view.goal?.headline).toBe("已达目标体重")
+    expect(view.goal?.note).toContain("已到目标体重（目标 72.0 kg）")
+  })
+
+  it("treats direction goals according to their expected direction", () => {
+    const gaining = buildWeightInsightView(
+      insightsView({
+        goal: { mode: "direction", verdict: "on_track", reason: "change_matches_goal_direction", goal_label: "增肌", expected_direction: "up" },
+        windows: { d7: windowView({ days: 7, change: 0.2, direction: "up" }), d30: windowView({ change: 1.2, direction: "up" }) },
+      }),
+    )
+    expect(gaining.goal?.tone).toBe("positive")
+    expect(gaining.goal?.headline).toBe("朝目标前进（按目标方向推断）")
+    expect(gaining.goal?.note).toBe("增肌期望上升 · 最近 30 天上升 1.2 kg")
+
+    const losing = buildWeightInsightView(
+      insightsView({
+        goal: { mode: "direction", verdict: "off_track", reason: "change_against_goal_direction", goal_label: "减脂", expected_direction: "down" },
+        windows: { d7: windowView({ days: 7, change: 0.2, direction: "up" }), d30: windowView({ change: 1.2, direction: "up" }) },
+      }),
+    )
+    expect(losing.goal?.tone).toBe("warning")
+    expect(losing.goal?.headline).toBe("偏离目标（按目标方向推断）")
+  })
+
+  it("keeps 塑形 within its flat band neutral and steady", () => {
+    const view = buildWeightInsightView(
+      insightsView({
+        goal: { mode: "direction", verdict: "steady", reason: "hold_within_band", goal_label: "塑形", expected_direction: "hold" },
+        windows: { d7: windowView({ days: 7, change: 0.1, direction: "up" }), d30: windowView({ change: 0.2, direction: "up" }) },
+      }),
+    )
+    expect(view.goal?.headline).toBe("基本持平（按目标方向推断）")
+    expect(view.goal?.tone).toBe("neutral")
+    expect(view.goal?.note).toContain("塑形期望维持")
+  })
+
+  it("treats 提升体能 like 塑形 but warns when the change drifts outside the band", () => {
+    const view = buildWeightInsightView(
+      insightsView({
+        goal: { mode: "direction", verdict: "off_track", reason: "drift_outside_band", goal_label: "提升体能", expected_direction: "hold" },
+        windows: { d7: windowView({ days: 7, change: -0.6, direction: "down" }), d30: windowView({ change: -1.2, direction: "down" }) },
+      }),
+    )
+
+    expect(view.goal?.headline).toBe("偏离目标（按目标方向推断）")
+    expect(view.goal?.tone).toBe("warning")
+    expect(view.goal?.note).toContain("提升体能期望维持")
+    expect(view.goal?.note).toContain("最近 30 天下降 1.2 kg")
+  })
+
+  it("never renders an empty goal block for an unknown verdict", () => {
+    const view = buildWeightInsightView(
+      insightsView({
+        goal: { mode: "numeric", verdict: "unknown_code", reason: "future_reason", gap: 3, target_weight: 68 },
+      }),
+    )
+    expect(view.goal).toBeNull()
   })
 })
 

@@ -111,6 +111,14 @@ async def seed_workouts(factory, user_id: int, dates: list[datetime.date]) -> No
         await session.commit()
 
 
+async def seed_profile(factory, user_id: int, profile: dict) -> None:
+    """Attach a fitness profile (JSONB container) to a seeded user."""
+    async with factory() as session:
+        user = await session.get(User, user_id)
+        user.profile = profile
+        await session.commit()
+
+
 async def fetch_insights(client: AsyncClient, user_id: int) -> dict:
     response = await client.get(f"/api/weight/{user_id}/insights", headers=_auth(user_id))
     assert response.status_code == 200
@@ -362,3 +370,171 @@ async def test_insights_are_owner_only(client: AsyncClient, users):
 
     assert forbidden.status_code == 403
     assert anonymous.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_numeric_goal_matching_direction_is_on_track(
+    client: AsyncClient, session_factory, users
+):
+    """数值目标下，30 天体重朝目标下降时判为朝目标前进。"""
+    owner = users["owner"]
+    await seed_profile(
+        session_factory, owner.id, {"goal": "减脂", "target_weight": 68.0}
+    )
+    await seed_weights(session_factory, owner.id, [(day(20), 71.2), (day(1), 70.6)])
+
+    goal = (await fetch_insights(client, owner.id))["goal"]
+
+    assert goal["mode"] == "numeric"
+    assert goal["verdict"] == "on_track"
+    assert goal["reason"] == "change_matches_target"
+    assert goal["gap"] == 2.6
+    assert goal["target_weight"] == 68.0
+    assert goal["goal_label"] == "减脂"
+    assert goal["expected_direction"] == "down"
+
+
+@pytest.mark.asyncio
+async def test_numeric_goal_against_direction_is_off_track(
+    client: AsyncClient, session_factory, users
+):
+    """数值目标下，30 天体重背离目标时判为偏离。"""
+    owner = users["owner"]
+    await seed_profile(session_factory, owner.id, {"target_weight": 68.0})
+    await seed_weights(session_factory, owner.id, [(day(20), 70.0), (day(1), 70.5)])
+    goal = (await fetch_insights(client, owner.id))["goal"]
+    assert goal["mode"] == "numeric"
+    assert goal["verdict"] == "off_track"
+    assert goal["reason"] == "change_against_target"
+    assert goal["gap"] == 2.5
+    assert goal["expected_direction"] == "down"
+
+
+@pytest.mark.asyncio
+async def test_numeric_goal_steady(client: AsyncClient, session_factory, users):
+    """数值目标下变化过小判持平。"""
+    owner = users["owner"]
+    await seed_profile(session_factory, owner.id, {"target_weight": 68.0})
+    await seed_weights(session_factory, owner.id, [(day(20), 70.0), (day(1), 70.05)])
+    goal = (await fetch_insights(client, owner.id))["goal"]
+    assert goal["verdict"] == "steady"
+    assert goal["reason"] == "change_within_flat_band"
+    assert goal["expected_direction"] == "down"
+
+
+@pytest.mark.asyncio
+async def test_numeric_goal_insufficient(client: AsyncClient, session_factory, users):
+    """数值目标下 30 天记录不足时不下方向结论。"""
+    owner = users["owner"]
+    await seed_profile(session_factory, owner.id, {"target_weight": 68.0})
+    await seed_weights(session_factory, owner.id, [(day(1), 70.0)])
+    goal = (await fetch_insights(client, owner.id))["goal"]
+    assert goal["mode"] == "numeric"
+    assert goal["verdict"] == "insufficient"
+    assert goal["reason"] == "insufficient_samples"
+    assert goal["gap"] == 2.0
+    assert goal["target_weight"] == 68.0
+    assert goal["expected_direction"] == "down"
+
+
+@pytest.mark.asyncio
+async def test_direction_goal_hold_band(client: AsyncClient, session_factory, users):
+    """塑形目标在当前体重 0.5% 带内判为持平。"""
+    owner = users["owner"]
+    await seed_profile(session_factory, owner.id, {"goal": "塑形"})
+    await seed_weights(session_factory, owner.id, [(day(20), 70.0), (day(1), 70.2)])
+    goal = (await fetch_insights(client, owner.id))["goal"]
+    assert goal["mode"] == "direction"
+    assert goal["verdict"] == "steady"
+    assert goal["reason"] == "hold_within_band"
+    assert goal["expected_direction"] == "hold"
+
+
+@pytest.mark.asyncio
+async def test_direction_goal_hold_outside_band(client: AsyncClient, session_factory, users):
+    """塑形目标超出当前体重 0.5% 带时判为偏离。"""
+    owner = users["owner"]
+    await seed_profile(session_factory, owner.id, {"goal": "塑形"})
+    await seed_weights(session_factory, owner.id, [(day(20), 70.0), (day(1), 70.5)])
+    goal = (await fetch_insights(client, owner.id))["goal"]
+    assert goal["verdict"] == "off_track"
+    assert goal["reason"] == "drift_outside_band"
+
+
+@pytest.mark.asyncio
+async def test_direction_goal_uses_goal_specific_direction(
+    client: AsyncClient, session_factory, users
+):
+    """无数值目标时，增肌上升朝目标、减脂上升背离目标。"""
+    owner = users["owner"]
+    await seed_profile(session_factory, owner.id, {"goal": "增肌"})
+    await seed_weights(session_factory, owner.id, [(day(20), 70.0), (day(1), 70.5)])
+    goal = (await fetch_insights(client, owner.id))["goal"]
+    assert goal["mode"] == "direction"
+    assert goal["verdict"] == "on_track"
+    assert goal["reason"] == "change_matches_goal_direction"
+    assert goal["expected_direction"] == "up"
+
+
+@pytest.mark.asyncio
+async def test_no_goal_is_neutral(client: AsyncClient, session_factory, users):
+    """档案没有目标时返回中性判定。"""
+    owner = users["owner"]
+    await seed_weights(session_factory, owner.id, [(day(20), 70.0), (day(1), 70.5)])
+    goal = (await fetch_insights(client, owner.id))["goal"]
+    assert goal == {
+        "mode": "none",
+        "verdict": "neutral",
+        "reason": "no_goal",
+        "gap": None,
+        "target_weight": None,
+        "goal_label": None,
+        "expected_direction": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_numeric_goal_without_records_is_insufficient(
+    client: AsyncClient, session_factory, users
+):
+    """只有数值目标而没有体重记录时，目标模式仍保留但无法判定。"""
+    owner = users["owner"]
+    await seed_profile(session_factory, owner.id, {"target_weight": 68.0})
+    goal = (await fetch_insights(client, owner.id))["goal"]
+    assert goal["mode"] == "numeric"
+    assert goal["verdict"] == "insufficient"
+    assert goal["reason"] == "insufficient_samples"
+    assert goal["gap"] is None
+    assert goal["target_weight"] == 68.0
+
+
+@pytest.mark.asyncio
+async def test_direction_goal_losing_against_cut_is_off_track(
+    client: AsyncClient, session_factory, users
+):
+    """减脂目标下 30 天体重上升，按目标方向推断判为偏离。"""
+    owner = users["owner"]
+    await seed_profile(session_factory, owner.id, {"goal": "减脂"})
+    await seed_weights(session_factory, owner.id, [(day(20), 70.0), (day(1), 70.6)])
+    goal = (await fetch_insights(client, owner.id))["goal"]
+    assert goal["mode"] == "direction"
+    assert goal["verdict"] == "off_track"
+    assert goal["reason"] == "change_against_goal_direction"
+    assert goal["goal_label"] == "减脂"
+    assert goal["expected_direction"] == "down"
+    assert goal["gap"] is None
+
+
+@pytest.mark.asyncio
+async def test_direction_goal_fitness_holds_within_band(
+    client: AsyncClient, session_factory, users
+):
+    """提升体能目标与塑形同属"维持"，带内变化判为持平。"""
+    owner = users["owner"]
+    await seed_profile(session_factory, owner.id, {"goal": "提升体能"})
+    await seed_weights(session_factory, owner.id, [(day(20), 70.0), (day(1), 69.9)])
+    goal = (await fetch_insights(client, owner.id))["goal"]
+    assert goal["mode"] == "direction"
+    assert goal["verdict"] == "steady"
+    assert goal["reason"] == "hold_within_band"
+    assert goal["expected_direction"] == "hold"

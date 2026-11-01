@@ -29,6 +29,7 @@ class UserProfile(BaseModel):
     height: Optional[float] = Field(None, description="身高 cm")
     weight: Optional[float] = Field(None, description="体重 kg")
     goal: Optional[str] = Field(None, description="健身目标：减脂/增肌/塑形/提升体能")
+    target_weight: Optional[float] = Field(None, gt=0, lt=500, description="目标体重 kg")
     experience: Optional[str] = Field(None, description="训练经验：新手/初级/中级/高级")
     age: Optional[int] = None
     gender: Optional[str] = None

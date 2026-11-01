@@ -14,6 +14,7 @@ export interface UserProfile {
   experience?: string
   age?: number
   gender?: string
+  target_weight?: number
 }
 
 export interface ApiKeyStatus {
