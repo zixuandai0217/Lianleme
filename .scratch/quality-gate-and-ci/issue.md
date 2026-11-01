@@ -222,3 +222,52 @@ sources:
 - `docs/plans/2026-06-02-production-readiness-roadmap.md` — 2.6 节给出原始基线结论（lint 7 错、pytest 0 测试），现已过期，说明基线需要由门产出。
 - `docs/plans/2026-06-02-launch-backlog.md` — P0-6 的验收项来源。
 - `.github/workflows/`（待创建）— 门在 CI 侧的编排落点。
+
+## Implementation Decisions（工单 01 / 02 落地修订）
+
+### 工单 01（前端类型检查修复）
+
+- **前端类型检查此前是空跑，现已修复**：`web/package.json` 原脚本 `tsc --noEmit` 读取的是
+  solution 风格的 `web/tsconfig.json`（`files: []` + references），实测
+  `npx tsc --noEmit --listFilesOnly | grep -c src/` 为 `0`——一个文件都没检查；往 `src`
+  注入类型错误后 `--step web-typecheck` 仍然 PASS。现改为 `tsc -b --force`（同时构建 app
+  与 node 两个 referenced project；`--force` 避免增量缓存跳过），并修掉因此暴露的 11 个
+  既有类型错误与两处配置问题（弃用的 `baseUrl`、`vite.config.ts` 的 `test` 字段类型）。
+- 本修订同时把「门步骤必须能被负向金丝雀打红」写进验收：类型检查步骤的负向实验现在是真实
+  红（注入 `const canary: number = "boom"` → `python tools/quality_gate.py --step
+  web-typecheck` exit 1，报 `error TS2322`；还原后恢复 PASS），不再依赖人工判断。
+
+### 工单 02（CI 编排）
+
+以下修订由工单 02 的实现回写，覆盖正文中与之冲突的旧表述：
+
+1. **必需检查 = 7 个**（修订第 3 节「阶段 A 五个 + smoke」）：`web-typecheck`、`web-lint`、
+   `web-unit`、`backend-lint`、`backend-unit`、`smoke`、`web-build`。阶段 B 的 `smoke` 与
+   `web-build` 都计入必需：工单 02 把阶段 B 定义为「主链路 smoke + 构建自检」，且 AC2
+   要求任一必需步骤失败整体失败并阻断合并；若把构建自检排除在必需检查之外，它失败时不会
+   挡住合并，与 AC2 冲突。分支保护必须逐字要求这 7 个 job 名。
+2. **草稿 PR 也跑阶段 B**（修订第 3 节「草稿只跑阶段 A」）。让必需检查在草稿期处于
+   skipped，比「草稿多跑十几秒」更糟：skipped 的必需检查在分支保护语义下等同未通过，且
+   容易被误读成「门已经绿了」。因此 workflow 不做 draft 条件跳过；AC1 的「推送或开 PR
+   即自动触发」按字面执行。
+3. **push 事件不做分支过滤**（补充第 3 节触发规则）。`on.push` 不限定分支，向任意分支
+   推送都会跑门；若将来只想在主分支推送时跑，再收紧，但当前优先保证 AC1 字面成立。
+4. **CI 配置契约测试是 AC5 的刻意例外**。Testing Decisions 的一般原则是「不为 CI 配置
+   文件的内部结构写测试」，但 AC5 明确要求「门的必需步骤集合与 CI 的必需检查集合一一
+   对应，任一侧多出或缺少都必须可发现」；这条只能通过读取工作流来验证，因此
+   `backend/tests/test_ci_contract.py` + `tools/ci_contract.py` 是刻意保留的唯一例外，
+   且只断言清单、依赖与「必需 job 调用门同名步骤」，不测 YAML 语法细节。
+5. **报告制步骤纳入门的 `report` 档**（修订第 1 节关于 mypy / 资源校验归属的表述）。门用
+   同一份 STEP_SPECS 声明必需步骤（fast / full）与报告步骤（`report`），CI 阶段 C 通过
+   `--report --step <name>` 调门，并用 `continue-on-error: true` + 不被 needs 表达
+   「不参与结论」。门对报告档仍返回非零（报告步骤本身失败），是否阻断由 CI 的
+   continue-on-error 决定——单一命令来源，两种结论语义。
+6. **步骤超时上限落到 StepSpec.timeout_seconds**（落实第 2 节要求的「超时上限」）：
+   `run_step` 超时按失败处理（exit 124）并终止子进程；CI job 的 `timeout-minutes` 必须
+   >= 对应步骤上限，由 tools/ci_contract.py 校验。
+7. **必需检查名固定为 7 个稳定字符串**，在 tools/ci_contract.py 的 REQUIRED_CHECKS 钉死；
+   门新增步骤时必须同步 workflow、契约常量、文档与 GitHub 分支保护，任一侧漏改即失败。
+8. **缓存键不含分支**：只用 runner.os + 锁文件哈希，分支局部性交给 restore-keys；
+   per-branch 键（含 github.ref）永不命中，等于没有缓存。
+
+

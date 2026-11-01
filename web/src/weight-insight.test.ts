@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 
 import {
   buildWeightInsightView,
+  type InsightTone,
+  type WeightGoalInsight,
   type WeightInsightWindow,
   type WeightInsights,
   type WeightWeeklyComparison,
@@ -220,7 +222,16 @@ describe("buildWeightInsightView", () => {
     expect(view.windows[1].changeText).toBe("+2.1 kg")
   })
 
-  it.each([
+  interface GoalCase {
+    name: string
+    goal: WeightGoalInsight
+    d30: Partial<WeightInsightWindow>
+    headline: string
+    tone: InsightTone
+    note: string
+  }
+
+  it.each<GoalCase>([
     {
       name: "numeric on track",
       goal: { mode: "numeric", verdict: "on_track", reason: "change_matches_target", gap: 4, target_weight: 68, expected_direction: "down" },

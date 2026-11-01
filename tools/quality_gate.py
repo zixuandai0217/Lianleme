@@ -3,8 +3,10 @@
 用法：
     python tools/quality_gate.py          # 快速档：静态检查 + 单元测试（提交前）
     python tools/quality_gate.py --full   # 完整档：快速档 + 主链路 smoke + 前端构建自检
+    python tools/quality_gate.py --report # 报告档：不阻断的检查（CI 阶段 C 使用）
 
 退出码：0 表示全绿；非 0 表示至少一步失败（摘要首行给出失败步骤与可定位线索）。
+每一步都有超时上限（StepSpec.timeout_seconds）：超时按失败处理并终止子进程，不会挂死。
 """
 from __future__ import annotations
 
@@ -27,15 +29,91 @@ LOCATOR_RE = re.compile(r"^(?:FAILED|ERROR) (\S+?)(?: - (.*))?$", re.M)
 TAIL_LINES = 40
 
 
+PROFILES = ("fast", "full", "report")
+
+
 @dataclass(frozen=True)
 class Step:
-    """一个质量门步骤。两档共用同一定义，只差在 profiles。"""
+    """一个可执行步骤：命令、工作目录、跳过收集与超时上限。"""
 
     name: str
     cmd: tuple[str, ...]
     cwd: Path
+    collects_skips: bool = False
+    timeout_seconds: int = 300
+
+
+@dataclass(frozen=True)
+class StepSpec:
+    """步骤定义（可执行文件尚未解析）：所有档位共用同一份，只按 profiles 选子集。
+
+    CI 契约只需要步骤名与超时上限，不该因为没有 npm/uv 就起不来，所以「清单元数据」
+    与「可执行文件解析」分成两层：step_names() / step_timeouts() 是纯函数，
+    build_steps() 才解析可执行文件。
+    """
+
+    name: str
+    tool: str
+    args: tuple[str, ...]
+    cwd: str
     profiles: frozenset[str] = frozenset({"fast", "full"})
     collects_skips: bool = False
+    timeout_seconds: int = 300
+
+
+STEP_SPECS: tuple[StepSpec, ...] = (
+    StepSpec("web-typecheck", "npm", ("run", "typecheck"), "web", timeout_seconds=300),
+    StepSpec("web-lint", "npm", ("run", "lint"), "web", timeout_seconds=300),
+    StepSpec("web-unit", "npm", ("run", "test:unit:run"), "web", timeout_seconds=300),
+    StepSpec(
+        "backend-lint",
+        "uv",
+        ("run", "ruff", "check", "."),
+        "backend",
+        timeout_seconds=180,
+    ),
+    StepSpec(
+        "backend-unit",
+        "uv",
+        ("run", "pytest", "-q", "-rs"),
+        "backend",
+        collects_skips=True,
+        timeout_seconds=600,
+    ),
+    StepSpec(
+        "smoke",
+        "uv",
+        ("run", "pytest", "-q", "tests/test_smoke_main_path.py"),
+        "backend",
+        frozenset({"full"}),
+        collects_skips=True,
+        timeout_seconds=600,
+    ),
+    StepSpec(
+        "web-build",
+        "npm",
+        ("run", "build"),
+        "web",
+        frozenset({"full"}),
+        timeout_seconds=600,
+    ),
+    StepSpec(
+        "backend-mypy-report",
+        "uv",
+        ("run", "mypy", "app"),
+        "backend",
+        frozenset({"report"}),
+        timeout_seconds=600,
+    ),
+    StepSpec(
+        "coach-assets-report",
+        "uv",
+        ("run", "python", "../web/scripts/validate-coach-assets.py"),
+        "backend",
+        frozenset({"report"}),
+        timeout_seconds=300,
+    ),
+)
 
 
 @dataclass
@@ -111,12 +189,17 @@ def run_step(step: Step, allowlist: list[tuple[str, str]]) -> StepResult:
             encoding="utf-8",
             errors="replace",
             env=env,
+            timeout=step.timeout_seconds,
         )
         returncode = completed.returncode
         output = (completed.stdout or "") + (completed.stderr or "")
     except FileNotFoundError as exc:
         returncode = 127
         output = f"命令未找到：{exc}"
+    except subprocess.TimeoutExpired:
+        # 超时即失败并终止子进程：不允许挂死整个门，也不允许降级为跳过。
+        returncode = 124
+        output = f"步骤超时：超过 {step.timeout_seconds}s 未结束（已终止）"
     duration = time.monotonic() - started
 
     result = StepResult(step=step, returncode=returncode, duration=duration, output=output)
@@ -161,39 +244,52 @@ def render_summary(results: list[StepResult], profile: str, total: float) -> str
     return "\n".join(lines)
 
 
-def build_steps(profile: str) -> list[Step]:
-    npm = shutil.which("npm")
-    uv = shutil.which("uv")
-    if npm is None or uv is None:
-        missing = [name for name, path in (("npm", npm), ("uv", uv)) if path is None]
+def _validate_profile(profile: str) -> None:
+    """档位只允许 PROFILES 里声明的那几档，写错时立刻报错而不是跑出一个空集合。"""
+    if profile not in PROFILES:
+        raise ValueError(f"未知的质量门档位：{profile}（可选：{', '.join(PROFILES)}）")
+
+
+def _specs_for(profile: str, names: set[str] | None = None) -> list[StepSpec]:
+    """选定档位的步骤定义；可选再按步骤名过滤，未知名字直接报错。"""
+    _validate_profile(profile)
+    specs = [spec for spec in STEP_SPECS if profile in spec.profiles]
+    if names is None:
+        return specs
+    unknown = names - {spec.name for spec in specs}
+    if unknown:
+        raise ValueError(f"档位 {profile} 没有步骤：{', '.join(sorted(unknown))}")
+    return [spec for spec in specs if spec.name in names]
+
+
+def step_names(profile: str) -> list[str]:
+    """该档位的步骤名清单（纯函数，不解析可执行文件，供 CI 契约比对必需检查）。"""
+    return [spec.name for spec in _specs_for(profile)]
+
+
+def step_timeouts(profile: str) -> dict[str, int]:
+    """该档位每个步骤的超时上限（秒），供 CI 契约校验 job timeout 覆盖步骤上限。"""
+    return {spec.name: spec.timeout_seconds for spec in _specs_for(profile)}
+
+
+def build_steps(profile: str, *, names: set[str] | None = None) -> list[Step]:
+    """把步骤定义解析成可执行步骤；CI 可选单步，但仍共用命令、跳过检查与超时。"""
+    specs = _specs_for(profile, names)
+    resolved = {spec.tool: shutil.which(spec.tool) for spec in specs}
+    missing = sorted(tool for tool, path in resolved.items() if path is None)
+    if missing:
         raise SystemExit(f"质量门缺少必需的可执行文件：{', '.join(missing)}")
 
-    web = ROOT / "web"
-    backend = ROOT / "backend"
-    guaranteed = frozenset({profile})
-
-    steps = [
-        Step("web-typecheck", (npm, "run", "typecheck"), web, guaranteed),
-        Step("web-lint", (npm, "run", "lint"), web, guaranteed),
-        Step("web-unit", (npm, "run", "test:unit:run"), web, guaranteed),
-        Step("backend-lint", (uv, "run", "ruff", "check", "."), backend, guaranteed),
+    return [
         Step(
-            "backend-unit",
-            (uv, "run", "pytest", "-q", "-rs"),
-            backend,
-            guaranteed,
-            collects_skips=True,
-        ),
-        Step(
-            "smoke",
-            (uv, "run", "pytest", "-q", "tests/test_smoke_main_path.py"),
-            backend,
-            frozenset({"full"}),
-            collects_skips=True,
-        ),
-        Step("web-build", (npm, "run", "build"), web, frozenset({"full"})),
+            name=spec.name,
+            cmd=(resolved[spec.tool], *spec.args),
+            cwd=ROOT / spec.cwd,
+            collects_skips=spec.collects_skips,
+            timeout_seconds=spec.timeout_seconds,
+        )
+        for spec in specs
     ]
-    return [step for step in steps if profile in step.profiles]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -205,11 +301,30 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="完整档：额外跑主链路 smoke 与前端构建自检",
     )
-    parser.add_argument("--profile", choices=["fast", "full"], default=None, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--report",
+        action="store_true",
+        help="报告档：只跑不阻断的检查（CI 阶段 C；结论由 CI 的 continue-on-error 决定）",
+    )
+    parser.add_argument("--profile", choices=PROFILES, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--step", action="append", help="只跑指定步骤（CI 并行 job 使用）")
     args = parser.parse_args(argv)
 
-    profile = args.profile or ("full" if args.full else "fast")
-    steps = build_steps(profile)
+    if args.profile:
+        profile = args.profile
+    elif args.full:
+        profile = "full"
+    elif args.report:
+        profile = "report"
+    else:
+        profile = "fast"
+    if args.step:
+        try:
+            steps = build_steps(profile, names=set(args.step))
+        except ValueError as exc:
+            parser.error(str(exc))
+    else:
+        steps = build_steps(profile)
     allowlist = load_allowlist()
 
     results: list[StepResult] = []

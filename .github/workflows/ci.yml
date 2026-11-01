@@ -1,0 +1,287 @@
+# 练了么 CI —— 质量门的 GitHub Actions 编排。
+#
+# 三阶段（必需检查名必须与 tools/quality_gate.py 的步骤名逐字一致，分支保护
+# 引用的是 job 名，任何改名都会让合并卡死或悄悄少跑一项）：
+#   阶段 A（并行）：web-typecheck / web-lint / web-unit / backend-lint / backend-unit
+#   阶段 B（A 全绿后）：smoke / web-build
+#   阶段 C（报告制，continue-on-error，不影响整体结论）：backend-mypy-report / coach-assets-report
+#
+# 必需检查共 7 个（阶段 A 五个 + 阶段 B 两个，含构建自检）；工单 02 的
+# Implementation Decisions 记录了这一定义与 spec 原文第 87 行的差异。
+# 每个 job 都设 timeout-minutes，且必须 >= 门步骤的超时上限（StepSpec.timeout_seconds）。
+#
+# 清单一致性由 tools/ci_contract.py（CLI）与 backend/tests/test_ci_contract.py（随 backend-unit 跑）
+# 双向校验：门里新增步骤而这里没加 job，或这里多出必需 job 而门里没有，都会变红。
+#
+# 安装一律按锁文件：npm ci（缺 package-lock.json 直接失败）、uv lock --check +
+# uv sync --frozen（uv.lock 缺失/过期/与 pyproject 不一致都直接失败）。
+# 缓存键只含 runner.os 与锁文件哈希（分支局部性交给 restore-keys），不做跨分支写入。
+name: CI
+
+on:
+  push:
+  pull_request:
+    # 不跳过草稿：阶段 B 也是必需检查，始终执行以避免 skipped 被误当成通过。
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+# 同一分支 / PR 的新提交取消上一轮未完成的运行：旧运行的结论不会覆盖新结论。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.12"
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  # ---------------------------------------------------------------- 阶段 A
+  # 五个必需检查并行执行，互不 needs，任一失败即整体失败。
+  web-typecheck:
+    # stage: A
+    name: web-typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+      - name: 按锁文件安装前端依赖
+        run: npm ci
+      - name: 前端类型检查
+        run: python ../tools/quality_gate.py --step web-typecheck
+
+  web-lint:
+    # stage: A
+    name: web-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+      - name: 按锁文件安装前端依赖
+        run: npm ci
+      - name: 前端 lint
+        run: python ../tools/quality_gate.py --step web-lint
+
+  web-unit:
+    # stage: A
+    name: web-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+      - name: 按锁文件安装前端依赖
+        run: npm ci
+      - name: 前端单元测试（单次运行，不进 watch）
+        run: python ../tools/quality_gate.py --step web-unit
+
+  backend-lint:
+    # stage: A
+    name: backend-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: 按锁文件安装后端依赖
+        run: |
+          test -f uv.lock
+          uv lock --check
+          uv sync --frozen
+      - name: 后端静态检查（ruff）
+        run: uv run python ../tools/quality_gate.py --step backend-lint
+
+  backend-unit:
+    # stage: A
+    name: backend-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      # 质量门自测（backend/tests/test_quality_gate.py）会解析 npm 与 uv 两侧的步骤定义，
+      # 所以这个 Python job 也要有 Node，否则「本地绿、CI 红」。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: 按锁文件安装后端依赖
+        run: |
+          test -f uv.lock
+          uv lock --check
+          uv sync --frozen
+      - name: 后端单元测试（含质量门与 CI 契约自测）
+        run: uv run python ../tools/quality_gate.py --step backend-unit
+
+  # ---------------------------------------------------------------- 阶段 B
+  # 只在阶段 A 全绿后执行；任一步失败同样让整个运行失败。
+  smoke:
+    # stage: B
+    name: smoke
+    needs: [web-typecheck, web-lint, web-unit, backend-lint, backend-unit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: 按锁文件安装后端依赖
+        run: |
+          test -f uv.lock
+          uv lock --check
+          uv sync --frozen
+      - name: 主链路 smoke（无模型密钥、无对象存储）
+        run: uv run python ../tools/quality_gate.py --full --step smoke
+
+  web-build:
+    # stage: B
+    name: web-build
+    needs: [web-typecheck, web-lint, web-unit, backend-lint, backend-unit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+      - name: 按锁文件安装前端依赖
+        run: npm ci
+      - name: 前端构建自检
+        run: python ../tools/quality_gate.py --full --step web-build
+
+  # ---------------------------------------------------------------- 阶段 C
+  # 报告制：continue-on-error 且不被任何 job needs，失败不影响整体结论。
+  # 报告步骤同样定义在质量门的 `report` 档（与必需步骤共用 STEP_SPECS），CI 只负责
+  # 声明 continue-on-error 与隔离 needs；升级为必需的门槛写在工单 issue.md 里。
+  backend-mypy-report:
+    # stage: C
+    name: backend-mypy-report
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: 按锁文件安装后端依赖
+        run: |
+          test -f uv.lock
+          uv lock --check
+          uv sync --frozen
+      - name: 后端类型检查（报告制，不阻断）
+        run: uv run python ../tools/quality_gate.py --report --step backend-mypy-report
+
+  coach-assets-report:
+    # stage: C
+    name: coach-assets-report
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: 按锁文件安装后端依赖（校验脚本复用后端 Pillow）
+        run: |
+          test -f uv.lock
+          uv lock --check
+          uv sync --frozen
+      - name: 教练资源校验（报告制，不阻断）
+        run: uv run python ../tools/quality_gate.py --report --step coach-assets-report

@@ -17,6 +17,8 @@ import type {
   CurrentPlanLookup,
   TodayWorkout,
   UserResponse,
+  UserProfile,
+  BodyAnalysisResult,
   WeightRecord,
   WeightTrend,
   WorkoutCompleteRequest,
@@ -54,7 +56,7 @@ export const deleteApiKey = (userId: number) =>
   client.delete<unknown, ApiKeyStatus>(`/api/user/${userId}/api-key`)
 
 // ── Vision ──
-export const startAnalyze = (userId: number, imageBase64: string, profile?: Record<string, unknown>) =>
+export const startAnalyze = (userId: number, imageBase64: string, profile?: UserProfile) =>
   client.post<unknown, AnalyzeResponse>("/api/vision/analyze", {
     user_id: userId,
     image_base64: imageBase64,
@@ -110,7 +112,11 @@ export async function lookupCurrentPlan(userId: number): Promise<CurrentPlanLook
   }
 }
 
-export const generatePlan = (userId: number, bodyAnalysis?: Record<string, unknown>, profile?: Record<string, unknown>) =>
+export const generatePlan = (
+  userId: number,
+  bodyAnalysis?: BodyAnalysisResult,
+  profile?: UserProfile,
+) =>
   client.post<unknown, PlanResponse>("/api/plan/generate", {
     user_id: userId,
     body_analysis: bodyAnalysis,

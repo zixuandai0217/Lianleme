@@ -4,7 +4,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { PlanLookup, UserResponse } from "@/api/types"
+import type { BodyAnalysisResult, PlanLookup, UserResponse } from "@/api/types"
 
 const authState = vi.hoisted(() => ({ user: null as UserResponse | null }))
 const planState = vi.hoisted(() => ({
@@ -12,6 +12,18 @@ const planState = vi.hoisted(() => ({
   planId: undefined as number | undefined,
 }))
 const checkinState = vi.hoisted(() => ({ total: 0 }))
+
+/** 首页只读体型分类，但类型要求完整结果；给齐字段避免测试靠类型断言作弊。 */
+function bodyAnalysis(bodyType: string): BodyAnalysisResult {
+  return {
+    body_type: bodyType,
+    body_fat_range: "18-22%",
+    weak_muscles: [],
+    strengths: [],
+    muscle_scores: {},
+    summary: "",
+  }
+}
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ userId: 1, user: authState.user }),
@@ -87,7 +99,7 @@ afterEach(async () => {
 describe("首页首用引导", () => {
   it("没有 AI Key 时引导配置 Key，且不提供会生成计划的入口", async () => {
     const text = await renderDashboard({
-      user: { profile: readyProfile, api_key_status: { has_key: false }, body_analysis: { body_type: "ectomorph" } },
+      user: { profile: readyProfile, api_key_status: { has_key: false }, body_analysis: bodyAnalysis("ectomorph") },
       lookup: "missing",
     })
 
@@ -109,7 +121,7 @@ describe("首页首用引导", () => {
 
   it("计划查询返回 404 时引导生成计划，并展示首次使用进度", async () => {
     const text = await renderDashboard({
-      user: { profile: readyProfile, api_key_status: { has_key: true }, body_analysis: { body_type: "mesomorph" } },
+      user: { profile: readyProfile, api_key_status: { has_key: true }, body_analysis: bodyAnalysis("mesomorph") },
       lookup: "missing",
     })
 
@@ -120,7 +132,7 @@ describe("首页首用引导", () => {
 
   it("计划查询失败时进入中性未知态，不显示进度也不引导重建计划", async () => {
     const text = await renderDashboard({
-      user: { profile: readyProfile, api_key_status: { has_key: true }, body_analysis: { body_type: "endomorph" } },
+      user: { profile: readyProfile, api_key_status: { has_key: true }, body_analysis: bodyAnalysis("endomorph") },
       lookup: "unknown",
     })
 
@@ -132,7 +144,7 @@ describe("首页首用引导", () => {
 
   it("全部就绪时回到日常训练态，不再出现引导进度", async () => {
     const text = await renderDashboard({
-      user: { profile: readyProfile, api_key_status: { has_key: true }, body_analysis: { body_type: "ectomorph" } },
+      user: { profile: readyProfile, api_key_status: { has_key: true }, body_analysis: bodyAnalysis("ectomorph") },
       lookup: "exists",
       planId: 7,
       totalCheckins: 3,

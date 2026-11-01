@@ -241,7 +241,7 @@ export default function WeightPage() {
         profile: {
           // 后端档案保存是整体替换：必须把未在表单里的既有字段一起带上，
           // 否则只提交这五个字段会把体重等其余档案数据清空。
-          ...(user.profile ?? {}),
+          ...(user?.profile ?? {}),
           height: height ? Number(height) : undefined,
           age: age ? Number(age) : undefined,
           gender: gender || undefined,

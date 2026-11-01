@@ -166,3 +166,40 @@ def test_main_returns_zero_when_all_steps_pass(monkeypatch):
     )
 
     assert qg.main(["--profile", "fast"]) == 0
+
+
+def test_run_step_timeout_kills_and_reports_failure():
+    step = qg.Step(
+        name="hanging-step",
+        cmd=(sys.executable, "-c", "import time; time.sleep(30)"),
+        cwd=REPO_ROOT,
+        timeout_seconds=1,
+    )
+
+    result = qg.run_step(step, [])
+
+    assert result.returncode == 124
+    assert result.ok is False
+    assert "超时" in result.output
+    summary = qg.render_summary([result], "fast", 1.0)
+    assert summary.splitlines()[0].startswith("FAIL hanging-step")
+
+
+def test_profiles_declare_timeouts_and_report_steps():
+    assert qg.PROFILES == ("fast", "full", "report")
+    assert set(qg.step_names("fast")) <= set(qg.step_names("full"))
+    assert qg.step_names("report") == ["backend-mypy-report", "coach-assets-report"]
+    for profile in qg.PROFILES:
+        timeouts = qg.step_timeouts(profile)
+        assert set(timeouts) == set(qg.step_names(profile))
+        assert all(seconds > 0 for seconds in timeouts.values())
+
+
+def test_step_selection_uses_the_same_specs():
+    selected = qg._specs_for("fast", {"backend-unit"})
+
+    assert [spec.name for spec in selected] == ["backend-unit"]
+    assert selected[0].collects_skips is True
+    assert selected[0].timeout_seconds == qg.step_timeouts("fast")["backend-unit"]
+    with pytest.raises(ValueError, match="没有步骤"):
+        qg._specs_for("fast", {"smoke"})
