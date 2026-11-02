@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 84608d0
 feature: analysis-task-persistence
 ticket: 12
 blocked_by: ["10"]

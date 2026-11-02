@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 4c3fdb9
 feature: adaptive-plan-adjustment
 ticket: 27
 blocked_by: ["26"]

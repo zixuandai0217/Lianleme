@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: ad72e26
 feature: first-run-onboarding
 ticket: 30
 blocked_by: ["29"]

@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 539cd8b
 feature: muscle-heatmap-3d
 ticket: 44
 blocked_by: []

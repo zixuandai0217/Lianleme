@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 7f384a1
 feature: pose-correction
 ticket: 42
 blocked_by: ["41", "05"]

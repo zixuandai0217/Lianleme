@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: b6c7ef9
 feature: admin-ops-console
 sources:
   - docs/plans/2026-06-02-launch-backlog.md

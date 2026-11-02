@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 66f2aa4
 feature: plan-explainability
 ticket: 20
 blocked_by: ["08"]

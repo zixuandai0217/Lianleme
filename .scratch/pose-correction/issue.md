@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: ad72e26
 feature: pose-correction
 sources:
   - docs/adr/0002-mediapipe-pose-detection.md

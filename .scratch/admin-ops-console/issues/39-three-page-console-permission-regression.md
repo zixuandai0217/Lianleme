@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: b6c7ef9
 feature: admin-ops-console
 ticket: 39
 blocked_by: ["36"]

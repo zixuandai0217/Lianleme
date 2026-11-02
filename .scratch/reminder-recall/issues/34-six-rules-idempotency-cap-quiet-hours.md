@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 66f2aa4
 feature: reminder-recall
 ticket: 34
 blocked_by: ["33"]

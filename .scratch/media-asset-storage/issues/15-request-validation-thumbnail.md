@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 89fb9c6
 feature: media-asset-storage
 ticket: 15
 blocked_by: ["11", "14"]

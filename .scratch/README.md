@@ -1,6 +1,6 @@
 # 练了么 — 规格索引（PRD / ADR → issue specs）
 
-本目录把 `docs/plans/` 的两份 PRD 与 `docs/adr/` 中**尚未实现**的架构决策，切成 14 份可独立交付的规格。每份规格是一个独立 issue，`frontmatter.status` 均为 `ready-for-agent`，可直接按 `docs/agents/issue-tracker.md` 的流程领取实施。
+本目录把 `docs/plans/` 的两份 PRD 与 `docs/adr/` 中此前**尚未实现**的架构决策，切成 14 份可独立交付的规格。每份规格是一个独立 issue，交付后 `frontmatter.status` 从 `ready-for-agent` 改为 `delivered` 并回填 `delivered_in` 提交号；当前 14 份规格与 45 张工单均已交付。
 
 已经落地、因此**没有**出 spec 的条目：PRD P0-1 鉴权与权限收口、P0-2 正式登录接入（已由 JWT + 用户/管理员分离 + `test_auth_guards.py` 覆盖）；ADR-0006 西海岸口语风格教练（CoachGraph 与计划/反馈文案已落地）。
 

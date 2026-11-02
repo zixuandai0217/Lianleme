@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 539cd8b
 feature: coach-stream-protocol
 ticket: 19
 blocked_by: ["17"]

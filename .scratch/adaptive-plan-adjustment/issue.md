@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 7f384a1
 feature: adaptive-plan-adjustment
 sources:
   - docs/adr/0001-five-way-parallel-analyzers.md

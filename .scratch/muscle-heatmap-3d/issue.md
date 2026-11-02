@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 4c3fdb9
 feature: muscle-heatmap-3d
 sources:
   - docs/adr/0005-threejs-3d-muscle-heatmap.md

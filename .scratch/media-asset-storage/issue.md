@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 4c3fdb9
 feature: media-asset-storage
 sources:
   - docs/plans/2026-06-02-launch-backlog.md

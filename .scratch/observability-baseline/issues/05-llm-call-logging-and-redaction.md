@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 3c4507c
 feature: observability-baseline
 ticket: 5
 blocked_by: ["03"]

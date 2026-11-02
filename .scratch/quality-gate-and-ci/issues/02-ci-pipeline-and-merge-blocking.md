@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 8f346c3
 feature: quality-gate-and-ci
 ticket: 2
 blocked_by: ["01"]

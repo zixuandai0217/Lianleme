@@ -19,9 +19,13 @@ Issues 以 markdown 文件形式存储在 `.scratch/<feature>/` 目录下。
 
 ```yaml
 ---
-status: needs-triage | needs-info | ready-for-agent | ready-for-human | wontfix
+status: needs-triage | needs-info | ready-for-agent | ready-for-human | delivered | wontfix
+delivered_in: <short-sha>   # 仅 delivered 时必填，记录交付提交
 ---
 ```
+
+`delivered` 表示验收范围已实现并通过质量门；交付时把状态从 `ready-for-agent`
+改为 `delivered`，并回填 `delivered_in` 提交号。
 
 ### 查找 issues
 

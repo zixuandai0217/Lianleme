@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 9f8a51c
 feature: reminder-recall
 sources:
   - docs/plans/2026-06-02-launch-backlog.md

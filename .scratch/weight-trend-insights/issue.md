@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 8dd3b3f
 feature: weight-trend-insights
 sources:
   - docs/plans/2026-06-02-launch-backlog.md

@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: ad72e26
 feature: first-run-onboarding
 sources:
   - docs/plans/2026-06-02-launch-backlog.md

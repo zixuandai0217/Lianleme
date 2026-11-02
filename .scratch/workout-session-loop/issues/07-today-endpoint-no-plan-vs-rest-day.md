@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 85785ca
 feature: workout-session-loop
 ticket: 7
 blocked_by: []

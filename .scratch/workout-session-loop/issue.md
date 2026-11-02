@@ -1,5 +1,6 @@
 ---
-status: ready-for-agent
+status: delivered
+delivered_in: 84608d0
 feature: workout-session-loop
 sources:
   - docs/plans/2026-06-02-launch-backlog.md

@@ -59,8 +59,12 @@ def main() -> int:
         else:
             fm_end = text.find("\n---\n", 4)
             fm = text[4:fm_end] if fm_end > 0 else ""
-            if "status: ready-for-agent" not in fm:
-                issues.append("frontmatter status != ready-for-agent")
+            status_match = re.search(r"^status:\s*(\S+)", fm, re.M)
+            status = status_match.group(1) if status_match else ""
+            if status not in {"ready-for-agent", "delivered"}:
+                issues.append(f"frontmatter status {status!r} not in ready-for-agent/delivered")
+            elif status == "delivered" and not re.search(r"^delivered_in:\s*[0-9a-f]{7,40}", fm, re.M):
+                issues.append("delivered spec needs delivered_in short sha")
             m = re.search(r"^feature:\s*(\S+)", fm, re.M)
             if not m:
                 issues.append("frontmatter missing feature")

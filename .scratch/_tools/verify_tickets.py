@@ -30,6 +30,8 @@ PATH_PATTERNS = [
 AC_RE = re.compile(r"^- \[ \] .+", re.M)
 FM_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
 
+ALLOWED_STATUSES = {"ready-for-agent", "delivered"}
+
 DECISIONS = [
     "**08 的存储形态**：独立「调整结论」记录（一次调整一条、带稳定标识），计划侧只保存最近一次的引用，不复制理由文本；20 读引用、21 与 28 都投影同一来源，24 在该记录上扩展五维明细与合并分。",
     "**09 / 10 的切法**：09 以「测试可 verify」为完成定义（创建即持久、428 不产生记录、重启后仍可查），不为了页面可 demo 而引入内存读取过渡或双写；用户可感知的等待体验从 10 开始。",
@@ -86,8 +88,11 @@ def main() -> int:
 
         if not t["fm"]:
             issues.append("missing frontmatter")
-        if t["fm"].get("status") != "ready-for-agent":
-            issues.append("status != ready-for-agent")
+        status = t["fm"].get("status")
+        if status not in ALLOWED_STATUSES:
+            issues.append(f"status {status!r} not in {sorted(ALLOWED_STATUSES)}")
+        if status == "delivered" and not re.fullmatch(r"[0-9a-f]{7,40}", t["fm"].get("delivered_in", "")):
+            issues.append("delivered ticket needs delivered_in short sha")
         if t["fm"].get("feature") != path.parent.parent.name:
             issues.append(f"feature mismatch: {t['fm'].get('feature')} vs {path.parent.parent.name}")
         if t["fm"].get("ticket") is None:
@@ -156,11 +161,18 @@ def main() -> int:
         "由 14 份规格竖切而来。每张票都是 tracer bullet：跨层、可单独 demo，声明了阻塞它的票。",
         "工单文件位于 `.scratch/<feature>/issues/<NN>-<slug>.md`，`NN` 是全局依赖序号。",
         "",
-        "## 可立即开工（无阻塞）",
-        "",
     ]
-    frontier = [n for n, t in sorted(tickets.items()) if not t["blocked"]]
-    lines.append("、".join(f"{n:02d}" for n in frontier))
+    delivered = [n for n, t in sorted(tickets.items()) if t["fm"].get("status") == "delivered"]
+    lines.append(f"已交付 {len(delivered)}/{len(tickets)} 张（交付提交见各票 frontmatter 的 `delivered_in`）。")
+    lines.append("")
+    lines.append("## 可立即开工（无阻塞且未交付）")
+    lines.append("")
+    frontier = [
+        n
+        for n, t in sorted(tickets.items())
+        if not t["blocked"] and t["fm"].get("status") != "delivered"
+    ]
+    lines.append("、".join(f"{n:02d}" for n in frontier) if frontier else "（无：全部工单已交付）")
     lines.append("")
     lines.append("## 全量表")
     lines.append("")
@@ -170,21 +182,23 @@ def main() -> int:
             continue
         lines.append(f"### 批次 {code} — {name}")
         lines.append("")
-        lines.append("| # | 工单 | 规格 | 阻塞 |")
-        lines.append("|---|---|---|---|")
+        lines.append("| # | 工单 | 规格 | 阻塞 | 状态 |")
+        lines.append("|---|---|---|---|---|")
         for n in batch_nums:
             t = tickets[n]
             feature = t["path"].parent.parent.name
             rel = t["path"].relative_to(SCRATCH).as_posix()
             blocked = "、".join(f"{b:02d}" for b in t["blocked"]) or "—"
-            lines.append(f"| {n:02d} | [{t['title']}]({rel}) | `{feature}` | {blocked} |")
+            state = "✅ 已交付" if t["fm"].get("status") == "delivered" else "待领取"
+            lines.append(f"| {n:02d} | [{t['title']}]({rel}) | `{feature}` | {blocked} | {state} |")
         lines.append("")
     lines.append("## 使用方式")
     lines.append("")
-    lines.append("1. 只领取「阻塞」全部完成、且无阻塞的票（frontier）。")
+    lines.append("1. 只领取「阻塞」全部完成、且状态仍为 `ready-for-agent` 的票（frontier）。")
     lines.append("2. 一张票就是一次完整交付：`What to build` 是验收范围，`Acceptance criteria` 是完成定义。")
     lines.append("3. 规格正文在同目录上一级的 `issue.md`；票与规格冲突时以票为准，并回头修规格。")
-    lines.append("4. 校验脚本：`.scratch/_tools/verify_tickets.py`；新增或调整票后跑一次。")
+    lines.append("4. 交付后把票与规格的 `status` 改为 `delivered` 并回填 `delivered_in`，再跑校验脚本。")
+    lines.append("5. 校验脚本：`.scratch/_tools/verify_tickets.py`；新增或调整票后跑一次。")
     lines.append("")
     lines.append("## 已裁决的切票边界")
     lines.append("")
