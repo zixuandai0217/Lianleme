@@ -5,9 +5,10 @@ ADR-0001 定义统一输出 ``{score, reason, suggestion}``，本 spec 在此基
 （真实数据 / 部分真实 / 完全缺省）。``score`` 一律是**健康评分**：10 最好、0 最差；
 模型侧若给出「风险值」，必须在分析器内部翻转成健康评分再出栈。
 
-本票只实现三路确定性规则（completion / fatigue / sleep），两路模型维度
-（injury_risk / body_composition）以「未评估」占位，保证五维形状恒定。
-占位与规则都不调用模型：工单 25 才接入真实 LLM 分析器。
+工单 24 实现三路确定性规则（completion / fatigue / sleep），两路模型维度
+（injury_risk / body_composition）以「未评估」占位；工单 25 通过
+:func:`run_llm_analyzer` 把真实 LLM 分析器接到同一注册表与同一输出形状，
+三路规则与五维顺序保持不变。
 """
 
 from __future__ import annotations
@@ -45,6 +46,12 @@ COMPLETENESS_FULL = "full"
 COMPLETENESS_PARTIAL = "partial"
 COMPLETENESS_DEFAULT = "default"
 
+# 降级原因分类（稳定枚举）：模型侧的具体失败分类定义在 llm_adjust_analyzers。
+DEGRADATION_INSUFFICIENT_DATA = "insufficient_data"
+DEGRADATION_INVALID_INPUT = "invalid_input"
+DEGRADATION_NOT_EVALUATED = "not_evaluated"
+DEGRADATION_NOTE = "本次未做深度分析"
+
 # 缺省值来自 ADR-0001「用户不填写时使用默认值（fatigue=3, sleep=3）」与 spec §8。
 DEFAULT_FATIGUE_SCORE = 3
 DEFAULT_SLEEP_HOURS = 7.0
@@ -70,6 +77,8 @@ class AnalyzerResult:
     source: str = SOURCE_RULE
     degraded: bool = False
     data_completeness: str = COMPLETENESS_FULL
+    # 仅内部使用的降级分类：不进入五维对外形状，由 Merge 汇总进 degraded_reasons。
+    degradation_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """固定字段顺序的对外形状；下游（合并 / 落盘 / 读取）只认这一份。"""
@@ -190,6 +199,7 @@ def analyze_completion(payload: Mapping[str, Any]) -> AnalyzerResult:
             source=SOURCE_RULE,
             degraded=True,
             data_completeness=COMPLETENESS_DEFAULT,
+            degradation_reason=DEGRADATION_INSUFFICIENT_DATA,
         )
 
     average = sum(rates) / len(rates)
@@ -227,6 +237,7 @@ def analyze_fatigue(payload: Mapping[str, Any]) -> AnalyzerResult:
             source=SOURCE_RULE,
             degraded=True,
             data_completeness=COMPLETENESS_DEFAULT,
+            degradation_reason=DEGRADATION_INSUFFICIENT_DATA,
         )
 
     average = sum(ratings) / len(ratings)
@@ -262,6 +273,7 @@ def analyze_sleep(payload: Mapping[str, Any]) -> AnalyzerResult:
             source=SOURCE_RULE,
             degraded=True,
             data_completeness=COMPLETENESS_DEFAULT,
+            degradation_reason=DEGRADATION_INSUFFICIENT_DATA,
         )
 
     hours = DEFAULT_SLEEP_HOURS if raw_hours is None else _as_hours(raw_hours)
@@ -306,6 +318,7 @@ def not_evaluated(name: str) -> AnalyzerResult:
         source=SOURCE_LLM,
         degraded=True,
         data_completeness=COMPLETENESS_DEFAULT,
+        degradation_reason=DEGRADATION_NOT_EVALUATED,
     )
 
 
@@ -328,11 +341,16 @@ def _degraded_result(name: str) -> AnalyzerResult:
         source=source,
         degraded=True,
         data_completeness=COMPLETENESS_DEFAULT,
+        degradation_reason=DEGRADATION_INVALID_INPUT,
     )
 
 
 def run_analyzer(name: str, payload: Mapping[str, Any]) -> AnalyzerResult:
-    """执行单维分析：异常必须由该路自己吞掉，绝不冒泡到 Merge 之前。"""
+    """执行单维规则分析：异常必须由该路自己吞掉，绝不冒泡到 Merge 之前。
+
+    模型维度的同步入口保留「未评估」占位，供只做规则评估的调用方使用；
+    Graph 走异步的 :func:`run_llm_analyzer` 接入真实模型。
+    """
     if name in LLM_DIMENSIONS:
         return not_evaluated(name)
     analyzer = ANALYZERS.get(name)
@@ -342,6 +360,21 @@ def run_analyzer(name: str, payload: Mapping[str, Any]) -> AnalyzerResult:
         return analyzer(payload)
     except Exception:  # noqa: BLE001 - 单路失败隔离是并行编排的硬要求
         return _degraded_result(name)
+
+
+async def run_llm_analyzer(
+    name: str,
+    payload: Mapping[str, Any],
+    context: Any = None,
+) -> AnalyzerResult:
+    """执行单路模型分析：失败由本函数收敛成降级结果，绝不冒泡到 Merge。
+
+    具体 Prompt、解析与失败分类在 ``llm_adjust_analyzers``；这里只做注册表入口，
+    保证 Graph 与规则维度使用同一套输出形状。延迟导入避免模块循环依赖。
+    """
+    from app.services.ai.llm_adjust_analyzers import analyze_llm_dimension
+
+    return await analyze_llm_dimension(name, payload, context)
 
 
 def evaluate_dimensions(payload: Mapping[str, Any]) -> list[AnalyzerResult]:

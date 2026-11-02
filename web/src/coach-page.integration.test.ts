@@ -52,6 +52,10 @@ describe("AI coach page", () => {
     expect(coachPage).toContain("action.label")
     expect(coachPage).toContain("sendMessage(action.prompt)")
     expect(coachPage).not.toContain("SUGGESTED_PROMPTS")
+    // History snapshots are validated by the protocol layer, not re-planned in the page.
+    expect(coachPage).toContain("normalizeCoachActions")
+    expect(coachPage).toContain("message.actions")
+    expect(coachPage).toContain("COACH_STATE_COPY")
   })
 
   it("presents the coach as a live character instead of a WebGL demo", () => {

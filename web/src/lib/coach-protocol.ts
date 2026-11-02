@@ -50,6 +50,19 @@ export type CoachEvent =
   | { type: "error"; code: CoachErrorCode; message: string }
   | { type: "done"; finishReason: CoachFinishReason }
 
+/** Narrow a persisted state string to the four protocol values. */
+export function isCoachStateName(value: unknown): value is CoachStateName {
+  return asMember(value, COACH_STATES) !== null
+}
+
+/**
+ * Validate a persisted actions snapshot with the same rules as an `actions` frame.
+ * Missing or malformed rows degrade to an empty list so old history never errors.
+ */
+export function normalizeCoachActions(value: unknown): CoachAction[] {
+  return asActions(value) ?? []
+}
+
 type UnknownRecord = Record<string, unknown>
 
 // ── 帧解码 ──

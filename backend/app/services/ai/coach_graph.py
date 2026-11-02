@@ -16,9 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.models.chat_message import ChatMessageRecord
-from app.schemas.chat import CoachResponse
+from app.schemas.chat import CoachAction, CoachResponse, CoachStateName
 from app.services.ai import llm_observability as observed
 from app.services.ai.llm_factory import LLMClientFactory
+from app.services.coach.planner import (
+    CoachContext,
+    CoachTurnPlan,
+    plan_coach_turn,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -283,6 +288,9 @@ class CoachGraph:
         self.user_id = user_id
         self.db = db
         self.factory = LLMClientFactory(db)
+        # 只在「写助手消息」这一瞬间有值：路由把本轮规划结果交给 save_turn，
+        # _save_message 读取它写入动作快照与状态，写完立即清空。
+        self._turn_snapshot: CoachTurnPlan | None = None
 
     async def _load_history(self, db: AsyncSession) -> list:
         """从 DB 加载最近 N 条对话，转为 LangChain Message 格式"""
@@ -302,11 +310,18 @@ class CoachGraph:
         return messages
 
     async def _save_message(self, db: AsyncSession, role: str, content: str):
-        """将一条消息写入 DB"""
+        """将一条消息写入 DB；助手消息带上本轮的动作快照与教练状态。"""
+        snapshot = self._turn_snapshot if role == "assistant" else None
         record = ChatMessageRecord(
             user_id=self.user_id,
             role=role,
             content=content,
+            actions=(
+                [action.model_dump() for action in snapshot.actions]
+                if snapshot is not None
+                else None
+            ),
+            coach_state=snapshot.coach_state if snapshot is not None else None,
         )
         db.add(record)
         await db.commit()
@@ -325,12 +340,15 @@ class CoachGraph:
         )
 
     def _build_system_prompt(self, context: dict) -> str:
-        """非流式接口的系统 Prompt，要求返回 JSON"""
+        """非流式接口的系统 Prompt：与流式共用自然语言契约。
+
+        快捷动作与教练状态由服务端规划，模型既不返回也不影响它们；要求模型
+        再输出一份 JSON 动作只会制造第二套真相。
+        """
         return (
             self._build_base_prompt(context)
-            + "根据用户消息给出简短有力的教练回复（50字以内），并给出1-3个快捷操作建议。"
-            '回复格式：JSON {"reply": "...", "coach_state": "guide|count|rest|complete", '
-            '"suggested_actions": [...]}'
+            + "根据用户消息给出简短有力的教练回复（50字以内），语气亲切、简洁有力，"
+            "直接用自然语言回复，不要用 JSON 格式。"
         )
 
     def _build_stream_prompt(self, context: dict) -> str:
@@ -340,8 +358,17 @@ class CoachGraph:
             + "根据用户消息给出教练回复，语气亲切、简洁有力，直接用自然语言回复，不要用 JSON 格式。"
         )
 
+    @staticmethod
+    def _coach_context(context: dict) -> CoachContext:
+        """Use the server-resolved context when present, else the request payload."""
+        resolved = context.get("coach_context") if context else None
+        if isinstance(resolved, CoachContext):
+            return resolved
+        return CoachContext.from_request(context)
+
     async def chat(self, message: str, context: dict) -> CoachResponse:
-        """普通对话：返回完整 JSON 响应，持久化清洗后的正文"""
+        """普通对话：返回完整 JSON 响应，持久化清洗后的正文与规划快照"""
+        plan = plan_coach_turn(self._coach_context(context), message)
         llm = await self.factory.get_client(user_id=self.user_id, model_type="chat")
 
         async with AsyncSessionLocal() as db:
@@ -364,14 +391,17 @@ class CoachGraph:
                 observed.degraded(llm, reason=observed.DEGRADED_OUTPUT_UNPARSEABLE)
 
             await self._save_message(db, "user", message)
-            await self._save_message(db, "assistant", reply)
+            self._turn_snapshot = plan
+            try:
+                await self._save_message(db, "assistant", reply)
+            finally:
+                self._turn_snapshot = None
 
         return CoachResponse(
             reply=reply,
-            coach_state=payload.get("coach_state", "guide"),
-            suggested_actions=payload.get(
-                "suggested_actions", ["完成一组", "换个动作", "怎么做"]
-            ),
+            coach_state=plan.coach_state,
+            quick_actions=plan.actions,
+            suggested_actions=[action.prompt for action in plan.actions],
         )
 
     @staticmethod
@@ -410,8 +440,34 @@ class CoachGraph:
             if cleaner.discarded_structure or not has_text:
                 observed.degraded(llm, reason=observed.DEGRADED_OUTPUT_UNPARSEABLE)
 
-    async def save_turn(self, message: str, reply: str) -> None:
-        """将一轮对话入库；reply 必须是清洗后的正文，历史回放才不会泄漏结构残留"""
+    async def save_turn(
+        self,
+        message: str,
+        reply: str,
+        *,
+        actions: list[CoachAction] | None = None,
+        coach_state: CoachStateName | None = None,
+    ) -> None:
+        """将一轮对话入库；reply 必须是清洗后的正文，历史回放才不会泄漏结构残留。
+
+        ``actions`` / ``coach_state`` 是路由算好的本轮快照，写入助手消息；
+        不带快照时照旧只写正文，兼容旧调用方。
+        """
+        snapshot = None
+        if actions or coach_state:
+            snapshot = CoachTurnPlan(
+                coach_state=coach_state or "guide",
+                actions=[
+                    action
+                    if isinstance(action, CoachAction)
+                    else CoachAction.model_validate(action)
+                    for action in actions or []
+                ],
+            )
         async with AsyncSessionLocal() as db:
             await self._save_message(db, "user", message)
-            await self._save_message(db, "assistant", reply)
+            self._turn_snapshot = snapshot
+            try:
+                await self._save_message(db, "assistant", reply)
+            finally:
+                self._turn_snapshot = None

@@ -68,6 +68,15 @@ class AdjustmentMergedSummary(BaseModel):
         default_factory=list, description="缺省、未计入平均的维度"
     )
     completeness: AdjustmentCompleteness = Field(..., description="本次评估的数据完整度")
+    # 工单 25：降级维度到稳定原因分类；模型两维都成功时 note 为 null。
+    degraded_reasons: dict[str, str] = Field(
+        default_factory=dict,
+        description="降级维度 → timeout / rate_limit / auth_failed / output_unparseable 等",
+    )
+    degradation_note: Optional[str] = Field(
+        default=None,
+        description="至少一维模型分析降级时为「本次未做深度分析」，否则为 null",
+    )
 
 
 class AdjustmentOutcomeResponse(BaseModel):

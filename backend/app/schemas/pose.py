@@ -48,6 +48,32 @@ _MEDIA_PAYLOAD_FIELDS = frozenset(
 CameraView = Literal["front", "side"]
 CycleState = Literal["waiting", "completed"]
 IssueSeverity = Literal["info", "warn", "critical"]
+ActionSource = Literal["llm", "user"]
+FeedbackSource = Literal["llm", "template"]
+
+# 动作词表：模型识别与用户手选共用；未知动作一律 other。
+ACTION_TYPES = ("squat", "deadlift", "other")
+ActionName = Literal["squat", "deadlift", "other"]
+
+# 降级原因的稳定词表（跨端契约）：前端据此决定文案与埋点，不允许自由文本。
+PoseDegradeReason = Literal[
+    "api_key_unavailable",
+    "timeout",
+    "rate_limited",
+    "auth_failed",
+    "unparsable",
+    "provider_error",
+    "budget_exhausted",
+    "circuit_open",
+]
+
+
+class PoseAction(BaseModel):
+    """动作判断：``source=llm`` 是模型识别，``source=user`` 是用户手动指定。"""
+
+    name: ActionName
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    source: ActionSource = "llm"
 
 
 class PoseIssue(BaseModel):
@@ -149,14 +175,33 @@ class PoseCycle(BaseModel):
         default=None,
         ge=0.0,
         le=10.0,
-        description="规则质量分；不可评估周期恒为空，绝不编造评分",
+        description=(
+            "最终质量分：规则问题主导，模型分只可下调；不可评估周期恒为空，绝不编造评分"
+        ),
     )
     issues: List[PoseIssue] = Field(default_factory=list, description="规则问题项，按严重度排序")
     highlights: List[PoseHighlight] = Field(
         default_factory=list, description="与问题项一一对应的骨架高亮"
     )
     hint: Optional[str] = Field(
-        default=None, description="一句主提示（至多一句补充）；无问题为空"
+        default=None, description="一句主提示（至多一句补充）；无问题或去重抑制时为空"
+    )
+    action: Optional[PoseAction] = Field(
+        default=None, description="动作判断；无模型且用户未指定时为空"
+    )
+    model_score: Optional[float] = Field(
+        default=None, ge=0.0, le=10.0, description="模型给出的综合质量分（融合前）"
+    )
+    feedback_source: Optional[FeedbackSource] = Field(
+        default=None, description="llm：模型改写；template：规则模板（降级路径）"
+    )
+    degraded: bool = Field(default=False, description="本周期是否降级为规则结果")
+    degrade_reason: Optional[PoseDegradeReason] = Field(
+        default=None, description="降级原因（稳定码）：timeout/rate_limited/auth_failed/..."
+    )
+    spoken: bool = Field(default=True, description="False 表示命中 20 秒去重窗口，不重复播报")
+    notice: Optional[str] = Field(
+        default=None, description="一次性会话提示（如「深度点评已暂停」），其余周期为空"
     )
 
 
@@ -206,3 +251,9 @@ class PoseFinishResponse(BaseModel):
     )
     issues_histogram: dict[str, int] = Field(default_factory=dict)
     quality_available: bool = False
+    model_calls: int = Field(default=0, description="本会话模型调用次数")
+    degraded_cycles: int = Field(default=0, description="降级为纯规则的周期数")
+    model_degraded: bool = Field(default=False, description="本会话是否出现过模型降级")
+    circuit_open: bool = Field(default=False, description="连续失败熔断：后续周期不再调用模型")
+    model_paused: bool = Field(default=False, description="模型调用已达单会话上限")
+    paused_notice_sent: bool = Field(default=False, description="「深度点评已暂停」是否已提示过")

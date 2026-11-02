@@ -9,6 +9,7 @@
 """
 
 import datetime
+import json
 import logging
 import types
 from pathlib import Path
@@ -28,6 +29,7 @@ from app.core.database import Base, get_db
 from app.main import app
 from app.models.plan import TrainingPlan
 from app.models.user import User
+from app.models.weight import WeightRecord
 from app.services.ai.adjust_analyzers import (
     DIMENSION_BODY_COMPOSITION,
     DIMENSION_COMPLETION,
@@ -46,6 +48,10 @@ from app.services.ai.adjust_merge import (
     decide_direction,
     delta_percent_for,
     merge_results,
+)
+from app.services.ai.llm_adjust_analyzers import (
+    DEGRADATION_NO_KEY,
+    DEGRADATION_NOTE,
 )
 
 TODAY = datetime.date.today()
@@ -367,9 +373,13 @@ def test_run_analyzer_never_raises_for_bad_dimension():
 
 
 class _OfflineLLM:
-    """打卡反馈的离线模型替身：绝不联网。"""
+    """打卡反馈与模型维度的离线替身：绝不联网。
 
-    async def ainvoke(self, messages):
+    模型维度拿到的是非 JSON 文本，因此两维都会走「输出不可解析」降级，
+    保持工单 24 既有测试对「无深度分析」的断言。
+    """
+
+    async def ainvoke(self, messages, **kwargs):
         return types.SimpleNamespace(content="离线替身反馈：注意补水与休息。")
 
 
@@ -453,7 +463,7 @@ def background_tasks(monkeypatch, session_factory):
 
 @pytest.fixture(autouse=True)
 def offline_feedback_llm(monkeypatch):
-    """打卡反馈走离线替身；评估侧的零调用由 model_calls 单独断言。"""
+    """打卡反馈与模型维度都走离线替身，测试绝不联网。"""
 
     async def fake_get_client(self, *args, **kwargs):
         return _OfflineLLM()
@@ -464,8 +474,8 @@ def offline_feedback_llm(monkeypatch):
 
 
 @pytest.fixture
-def model_calls(monkeypatch):
-    """把 AdjustGraph 的模型工厂换成计数替身（构造即失败于任何调用）。"""
+def graph_factory_calls(monkeypatch):
+    """计数 AdjustGraph 自行解析客户端的次数：运行上下文应由 PlanService 注入。"""
     calls: list[object] = []
 
     class _StandIn:
@@ -474,7 +484,7 @@ def model_calls(monkeypatch):
 
         async def get_client(self, *args, **kwargs):
             calls.append(args or kwargs)
-            raise AssertionError("工单 24 不得调用任何模型")
+            raise AssertionError("Graph 不应自行解析模型客户端")
 
     monkeypatch.setattr(adjust_graph_module, "LLMClientFactory", _StandIn)
     return calls
@@ -525,14 +535,14 @@ async def latest_outcome(client, user_id: int) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_checkin_evaluates_five_dimensions_with_zero_model_calls(
-    client, users, active_plan, background_tasks, model_calls
+async def test_checkin_evaluates_five_dimensions_with_injected_llm_context(
+    client, users, active_plan, background_tasks, graph_factory_calls
 ):
-    """AC1/AC5：一次评估产出五维条目，整趟不调用任何模型。"""
+    """AC1/AC5：模型上下文由 PlanService 注入，Graph 不重复解析客户端。"""
     await run_adjustment(
         client, users["owner"].id, background_tasks, completed=9, total=10, difficulty=3
     )
-    assert model_calls == [], f"本票不应调用模型：{model_calls}"
+    assert graph_factory_calls == [], f"Graph 不应自行解析客户端：{graph_factory_calls}"
 
     outcome = await latest_outcome(client, users["owner"].id)
     assert outcome is not None
@@ -549,12 +559,12 @@ async def test_checkin_evaluates_five_dimensions_with_zero_model_calls(
     for name in (DIMENSION_INJURY_RISK, DIMENSION_BODY_COMPOSITION):
         assert by_name[name]["source"] == "llm"
         assert by_name[name]["degraded"] is True
-    assert model_calls == []
+    assert graph_factory_calls == []
 
 
 @pytest.mark.asyncio
 async def test_merged_summary_and_direction_are_persisted_and_readable(
-    client, users, active_plan, background_tasks, model_calls
+    client, users, active_plan, background_tasks, graph_factory_calls
 ):
     """AC2：合并分、剔除清单、顶层理由与方向都落进 08 的结论并读得出来。"""
     await run_adjustment(
@@ -633,7 +643,7 @@ async def test_low_completion_still_decreases(
 
 @pytest.mark.asyncio
 async def test_missing_fatigue_and_sleep_inputs_default_without_error(
-    client, users, active_plan, background_tasks, model_calls
+    client, users, active_plan, background_tasks, graph_factory_calls
 ):
     """AC3：不填疲劳与睡眠时按缺省参与、标注「数据为缺省」，响应仍 200。"""
     response = await check_in(client, users["owner"].id, completed=9, total=10)
@@ -651,7 +661,7 @@ async def test_missing_fatigue_and_sleep_inputs_default_without_error(
     assert by_name[DIMENSION_COMPLETION]["score"] == 9
     assert outcome["direction"] == "increase"
     assert outcome["merged"]["completeness"] == "partial"
-    assert model_calls == []
+    assert graph_factory_calls == []
 
 
 @pytest.mark.asyncio
@@ -694,6 +704,109 @@ async def test_low_completion_surfaces_a_red_flag_and_a_decrease(
     codes = [flag["code"] for flag in outcome["merged"]["red_flags"]]
     assert "completion_low" in codes
     assert outcome["direction"] == "decrease"
+
+
+@pytest.mark.asyncio
+async def test_missing_key_route_degrades_both_dimensions_without_credential_copy(
+    client, users, active_plan, background_tasks, monkeypatch
+):
+    """AC3：无可用 Key 时接口仍 200，两维降级，响应不出现凭据错误文案。"""
+    from app.services.user.api_key_service import ApiKeyRequiredError
+
+    async def _no_key(self, *args, **kwargs):
+        raise ApiKeyRequiredError("使用 AI 功能前，请先配置你自己的 API Key")
+
+    monkeypatch.setattr(
+        plan_service_module.LLMClientFactory, "get_client", _no_key
+    )
+
+    response = await check_in(
+        client, users["owner"].id, completed=9, total=10, difficulty=3
+    )
+    assert response.status_code == 200
+    await background_tasks[-1]
+
+    outcome = await latest_outcome(client, users["owner"].id)
+    by_name = {entry["name"]: entry for entry in outcome["dimensions"]}
+    for name in (DIMENSION_INJURY_RISK, DIMENSION_BODY_COMPOSITION):
+        entry = by_name[name]
+        assert entry["degraded"] is True
+        assert entry["data_completeness"] == "default"
+        assert DEGRADATION_NOTE in entry["reason"]
+        assert outcome["merged"]["degraded_reasons"][name] == DEGRADATION_NO_KEY
+    assert outcome["merged"]["degradation_note"] == DEGRADATION_NOTE
+
+    serialized = json.dumps(outcome, ensure_ascii=False)
+    for forbidden in ("API Key", "请配置", "401", "403"):
+        assert forbidden not in serialized
+
+    # 规则维度与决策照常产出。
+    assert by_name[DIMENSION_COMPLETION]["score"] == 9
+    assert outcome["direction"] == "increase"
+
+
+@pytest.mark.asyncio
+async def test_route_prompt_uses_only_aggregate_summary(
+    client, users, active_plan, session_factory, background_tasks, monkeypatch
+):
+    """AC5：真实链路里 Prompt 只含均值/趋势/计数，不含逐日体重与身份字段。"""
+
+    class _StructuredLLM:
+        def __init__(self):
+            self.prompts: list[str] = []
+
+        async def ainvoke(self, messages, **kwargs):
+            self.prompts.append(messages[-1].content)
+            return types.SimpleNamespace(
+                content=json.dumps(
+                    {"score": 7, "reason": "按聚合趋势判断", "suggestion": "保持当前计划"},
+                    ensure_ascii=False,
+                )
+            )
+
+    async with session_factory() as session:
+        for offset, weight in enumerate((70.0, 69.5, 69.2)):
+            session.add(
+                WeightRecord(
+                    user_id=users["owner"].id,
+                    weight=weight,
+                    recorded_date=TODAY - datetime.timedelta(days=offset),
+                )
+            )
+        await session.commit()
+
+    fake_llm = _StructuredLLM()
+
+    async def _get_client(self, *args, **kwargs):
+        return fake_llm
+
+    monkeypatch.setattr(plan_service_module.LLMClientFactory, "get_client", _get_client)
+
+    response = await check_in(
+        client, users["owner"].id, completed=9, total=10, difficulty=3
+    )
+    assert response.status_code == 200
+    await background_tasks[-1]
+
+    analyzer_prompts = [
+        entry for entry in fake_llm.prompts if "聚合摘要" in entry
+    ]
+    assert len(analyzer_prompts) == 2
+    prompt = "\n".join(analyzer_prompts)
+    assert "completion_average" in prompt
+    assert "weight_mean_kg" in prompt
+    assert "weight_trend" in prompt
+    assert "training_days" in prompt
+    assert "rule_scores" in prompt
+    # 原始逐日体重、昵称与邮箱不得进入 Prompt。
+    assert "69.5" not in prompt
+    assert "69.2" not in prompt
+    assert "Owner" not in prompt
+    assert "@" not in prompt
+
+    outcome = await latest_outcome(client, users["owner"].id)
+    assert outcome["merged"]["degradation_note"] is None
+    assert outcome["merged"]["degraded_reasons"].get(DIMENSION_INJURY_RISK) is None
 
 
 @pytest.mark.asyncio

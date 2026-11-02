@@ -134,6 +134,77 @@ afterEach(async () => {
 })
 
 describe("coach page turn notices", () => {
+  it("renders streamed quick actions and sends the streamed prompt", async () => {
+    streamMock.mockResolvedValue(
+      turnState({
+        body: "先热身，bro。",
+        coachState: "count",
+        actions: [{ label: "加一组", prompt: "再加一组深蹲" }],
+      }),
+    )
+
+    await mountPage()
+    await sendViaQuickAction()
+
+    expect(container.textContent).toContain("正在计组")
+    const action = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("加一组"),
+    )
+    expect(action, "streamed quick action should render under the assistant turn").toBeTruthy()
+    await act(async () => {
+      action?.click()
+    })
+    await flush()
+
+    expect(streamMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({ message: "再加一组深蹲" }),
+      }),
+    )
+  })
+
+  it("renders history quick actions and sends the server prompt", async () => {
+    apiMocks.getChatHistory.mockResolvedValue({
+      messages: [
+        {
+          id: 1,
+          role: "assistant",
+          content: "先热身，bro。",
+          actions: [{ label: "完成这组", prompt: "我完成了深蹲第2组" }],
+          coach_state: "count",
+        },
+      ],
+      total: 1,
+    })
+    streamMock.mockResolvedValue(
+      turnState({ body: "接着干。", coachState: "rest" }),
+    )
+
+    await mountPage()
+
+    expect(container.querySelector("[data-coach-phase]")?.getAttribute("data-coach-phase")).toBe(
+      "count",
+    )
+    expect(container.textContent).toContain("正在计组")
+    // 有服务端动作时不再显示写死的通用动作。
+    expect(container.textContent).not.toContain("根据今天的计划")
+
+    const action = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("完成这组"),
+    )
+    expect(action, "history quick action should render").toBeTruthy()
+    await act(async () => {
+      action?.click()
+    })
+    await flush()
+
+    expect(streamMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({ message: "我完成了深蹲第2组" }),
+      }),
+    )
+  })
+
   it("renders a provider error as its own notice and never speaks it", async () => {
     streamMock.mockResolvedValue(
       turnState({

@@ -129,7 +129,7 @@ def scripted_coach_graph(tokens: list[str]):
             for token in tokens:
                 yield token
 
-        async def save_turn(self, message: str, reply: str):
+        async def save_turn(self, message: str, reply: str, *, actions=None, coach_state=None):
             self.saved = (message, reply)
 
     return ScriptedCoachGraph
@@ -148,7 +148,7 @@ class FailingCoachGraph:
             yield ""
         raise RuntimeError("invalid provider key")
 
-    async def save_turn(self, message: str, reply: str):
+    async def save_turn(self, message: str, reply: str, *, actions=None, coach_state=None):
         raise AssertionError("a failed turn must not be persisted")
 
 
@@ -212,6 +212,8 @@ async def test_stream_frames_follow_the_protocol_contract(monkeypatch):
         "turn_started",
         "message_chunk",
         "message_chunk",
+        "state",
+        "actions",
         "done",
     ]
     assert visible_text(frames) == "开练吧 homie，先练胸。"
@@ -326,7 +328,13 @@ async def test_upstream_failure_emits_error_frame_and_finishing_done(monkeypatch
 
     frames = decode_frames(response.text)
     assert_stream_contract(frames)
-    assert [frame["type"] for frame in frames] == ["turn_started", "error", "done"]
+    assert [frame["type"] for frame in frames] == [
+        "turn_started",
+        "error",
+        "state",
+        "actions",
+        "done",
+    ]
     error = frames[1]
     assert error["code"] in ERROR_CODES
     assert isinstance(error["message"], str) and error["message"].strip()
@@ -375,7 +383,12 @@ async def test_non_stream_reply_is_cleaned_before_it_is_returned_and_saved(monke
     assert response.status_code == 200
     payload = response.json()
     assert payload["reply"] == "先做热身，homie。"
-    assert payload["coach_state"] == "count"
+    # 状态由服务端确定性推导，模型自述的 count 不再决定呈现。
+    assert payload["coach_state"] == "guide"
+    assert payload["quick_actions"]
+    assert payload["suggested_actions"] == [
+        action["prompt"] for action in payload["quick_actions"]
+    ]
     assert saved[-1] == ("assistant", "先做热身，homie。")
 
 
@@ -434,7 +447,7 @@ class PartiallyFailingCoachGraph:
         yield "先来一组卧推"
         raise RuntimeError("invalid provider key")
 
-    async def save_turn(self, message: str, reply: str):
+    async def save_turn(self, message: str, reply: str, *, actions=None, coach_state=None):
         raise AssertionError("a failed turn must not be persisted")
 
 
@@ -450,7 +463,7 @@ def abortable_coach_graph(tokens: list[str], saved: list[tuple[str, str]]):
             for token in tokens:
                 yield token
 
-        async def save_turn(self, message: str, reply: str):
+        async def save_turn(self, message: str, reply: str, *, actions=None, coach_state=None):
             saved.append((message, reply))
 
     return AbortableCoachGraph
@@ -562,6 +575,8 @@ async def test_failure_after_partial_body_keeps_text_and_never_sends_error_as_de
         "turn_started",
         "message_chunk",
         "error",
+        "state",
+        "actions",
         "done",
     ]
     error = frames[2]

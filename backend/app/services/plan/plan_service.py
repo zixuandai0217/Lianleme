@@ -17,6 +17,9 @@ from app.models.adjustment import (
 )
 from app.models.adjustment_job import PlanAdjustmentJob
 from app.models.plan import TrainingPlan
+from app.models.record import WorkoutRecord
+from app.models.user import User
+from app.models.weight import WeightRecord
 from app.schemas.plan import (
     DailyWorkout,
     PlanAdjustmentExplanation,
@@ -27,10 +30,24 @@ from app.schemas.plan import (
 )
 from app.services.ai import llm_observability as observed
 from app.services.ai.adjust_graph import AdjustGraph
+from app.services.ai.llm_adjust_analyzers import resolve_llm_context
 from app.services.ai.llm_factory import LLMClientFactory
 
 # 休息日提示沿用原接口文案：前端空态与历史文案都依赖它，改文案属于产品决策而非本次契约变更。
 REST_DAY_MESSAGE = "今日休息，好好恢复"
+
+# LLM 输入最小化：只取窗口内的聚合统计，原始逐日序列永远不进入 Prompt。
+LLM_WEIGHT_WINDOW_DAYS = 30
+LLM_TRAINING_WINDOW_DAYS = 7
+LLM_BODY_FLAT_EPSILON_KG = 0.1
+LLM_AGE_UNDER_18 = "18 岁以下"
+LLM_AGE_BANDS: tuple[tuple[int, str], ...] = (
+    (18, "18-29"),
+    (30, "30-39"),
+    (40, "40-49"),
+    (50, "50-59"),
+    (60, "60 岁及以上"),
+)
 
 
 def _text(value: object) -> Optional[str]:
@@ -40,6 +57,28 @@ def _text(value: object) -> Optional[str]:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return str(value)
     return None
+
+
+def _number(value: object) -> Optional[float]:
+    """把档案里的数值收敛成 float；布尔与非法形态返回 None。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return round(float(value), 2)
+
+
+def _consecutive_days(dates: list[datetime.date]) -> int:
+    """从最近一次训练往回数连续天数；日期已去重并升序。"""
+    if not dates:
+        return 0
+    streak = 0
+    expected = dates[-1]
+    for current in reversed(dates):
+        if current == expected:
+            streak += 1
+            expected = current - datetime.timedelta(days=1)
+        else:
+            break
+    return streak
 
 
 def _text_list(value: object) -> Optional[list[str]]:
@@ -267,6 +306,113 @@ class PlanService:
         schema.id = db_plan.id
         return schema
 
+    async def _build_llm_aggregate_summary(
+        self, user_id: int, completion_rate: float
+    ) -> dict:
+        """构造送给模型两维的聚合摘要：只有均值、趋势、计数与训练统计。
+
+        逐日体重序列、用户标识、邮箱、昵称与照片都不在这里出现；Prompt 侧还会
+        再做一次白名单过滤，两层共同保证输入最小化。
+        """
+        profile = await self._load_user_profile(user_id)
+        weight = await self._weight_aggregate(user_id)
+        training = await self._training_aggregate(user_id, completion_rate)
+        return {
+            "goal": _text(profile.get("goal")),
+            "height_cm": _number(profile.get("height")),
+            "weight_kg": _number(profile.get("weight")),
+            "age_band": self._age_band(profile.get("age")),
+            "weekly_completion_average": training["weekly_completion_average"],
+            "completion_sample_count": training["sample_count"],
+            "training": {
+                "training_days": training["training_days"],
+                "consecutive_training_days": training["consecutive_training_days"],
+            },
+            "weight": weight,
+        }
+
+    async def _load_user_profile(self, user_id: int) -> dict:
+        """只取档案 JSON；不读取昵称、邮箱、头像等身份字段。"""
+        result = await self.db.execute(select(User.profile).where(User.id == user_id))
+        profile = result.scalar_one_or_none()
+        return profile if isinstance(profile, dict) else {}
+
+    async def _weight_aggregate(self, user_id: int) -> dict:
+        """体重窗口聚合：均值、趋势方向与记录条数，不携带逐日原始序列。"""
+        since = self._today() - datetime.timedelta(days=LLM_WEIGHT_WINDOW_DAYS)
+        result = await self.db.execute(
+            select(WeightRecord.weight)
+            .where(
+                WeightRecord.user_id == user_id,
+                WeightRecord.recorded_date >= since,
+            )
+            .order_by(WeightRecord.recorded_date.asc())
+        )
+        weights = [float(weight) for weight in result.scalars().all()]
+        if not weights:
+            return {
+                "mean_kg": None,
+                "trend_direction": "insufficient",
+                "record_count": 0,
+                "window_days": LLM_WEIGHT_WINDOW_DAYS,
+            }
+        change = weights[-1] - weights[0]
+        if len(weights) < 2:
+            trend = "insufficient"
+        elif abs(change) < LLM_BODY_FLAT_EPSILON_KG:
+            trend = "flat"
+        else:
+            trend = "down" if change < 0 else "up"
+        return {
+            "mean_kg": round(sum(weights) / len(weights), 1),
+            "trend_direction": trend,
+            "record_count": len(weights),
+            "window_days": LLM_WEIGHT_WINDOW_DAYS,
+        }
+
+    async def _training_aggregate(
+        self, user_id: int, completion_rate: float
+    ) -> dict:
+        """近 7 天训练聚合：完成率均值、训练天数与连续训练天数。"""
+        since = self._today() - datetime.timedelta(days=LLM_TRAINING_WINDOW_DAYS - 1)
+        result = await self.db.execute(
+            select(WorkoutRecord.workout_date, WorkoutRecord.completion_rate)
+            .where(
+                WorkoutRecord.user_id == user_id,
+                WorkoutRecord.workout_date >= since,
+            )
+            .order_by(WorkoutRecord.workout_date.asc())
+        )
+        rows = list(result.all())
+        dates = sorted({row.workout_date for row in rows if row.workout_date})
+        rates = [
+            float(row.completion_rate)
+            for row in rows
+            if isinstance(row.completion_rate, (int, float))
+        ]
+        weekly_average = (
+            round(sum(rates) / len(rates), 3) if rates else round(float(completion_rate), 3)
+        )
+        return {
+            "weekly_completion_average": weekly_average,
+            "sample_count": len(rates),
+            "training_days": len(dates),
+            "consecutive_training_days": _consecutive_days(dates),
+        }
+
+    @staticmethod
+    def _age_band(age: object) -> Optional[str]:
+        """只下送年龄段，不下送精确年龄。"""
+        if isinstance(age, bool) or not isinstance(age, int) or age <= 0:
+            return None
+        if age < LLM_AGE_BANDS[0][0]:
+            return LLM_AGE_UNDER_18
+        band = LLM_AGE_BANDS[0][1]
+        for threshold, label in LLM_AGE_BANDS:
+            if age >= threshold:
+                band = label
+        return band
+
     async def adjust_plan_after_workout(
         self,
         user_id: int,
@@ -289,7 +435,13 @@ class PlanService:
         if not plan or not plan.id:
             return None
 
+        summary = await self._build_llm_aggregate_summary(user_id, completion_rate)
+        llm_context = await resolve_llm_context(
+            self.factory, user_id, summary=summary
+        )
         adjuster = AdjustGraph(user_id=user_id, db=self.db)
+        # 兼容既有替身：运行上下文以属性注入，不改变 run() 的既有调用契约。
+        adjuster.llm_context = llm_context
         run_kwargs: dict[str, object] = {
             "completion_rate": completion_rate,
             "difficulty_rating": difficulty_rating,

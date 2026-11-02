@@ -9,12 +9,15 @@ import datetime
 import math
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.pose import (
     MAX_FRAMES_PER_BATCH,
     UPLOAD_INTERVAL_MS,
+    PoseAction,
     PoseCycle,
     PoseFinishResponse,
     PoseFramesRequest,
@@ -26,6 +29,7 @@ from app.schemas.pose import (
     PoseSessionResponse,
 )
 from app.services.ai.pose_graph import PoseGraph
+from app.services.pose.llm_coach import PoseLLMCoach
 from app.services.pose.session_store import (
     EvaluatedCycle,
     PoseSessionError,
@@ -70,15 +74,20 @@ def _session_http_error(exc: PoseSessionError) -> HTTPException:
     return _http_error(exc.code, exc.status_code, exc.detail)
 
 
-def get_pose_graph() -> PoseGraph:
-    """姿态图依赖：测试覆盖成计数替身，用来断言接帧与切分的调用次数。"""
-    return PoseGraph()
+def get_pose_graph(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PoseGraph:
+    """姿态图依赖：注入当前用户的 BYOK 教练；测试覆盖成计数/脚本化替身。"""
+    return PoseGraph(coach=PoseLLMCoach(user_id=current_user.id, db=db))
 
 
 def _cycle_response(entry: EvaluatedCycle) -> PoseCycle:
-    """周期只暴露时间、质量统计与规则评估：没有关键点、没有编造的评分。"""
+    """周期只暴露时间、质量统计、评估与增强结果：没有关键点、没有编造的评分。"""
     cycle = entry.cycle
     evaluation = entry.evaluation
+    enhancement = entry.enhancement
+    action = enhancement.action if enhancement is not None else None
     return PoseCycle(
         cycle_id=cycle.cycle_id,
         start_ms=cycle.start_ms,
@@ -90,7 +99,7 @@ def _cycle_response(entry: EvaluatedCycle) -> PoseCycle:
         person_count=cycle.quality.person_count,
         reasons=list(cycle.quality.reasons),
         camera_hint=cycle.camera_hint,
-        score=evaluation.score if evaluation is not None else None,
+        score=entry.final_score,
         issues=[
             PoseIssue(
                 type=issue.type,
@@ -99,6 +108,17 @@ def _cycle_response(entry: EvaluatedCycle) -> PoseCycle:
                 hint=issue.hint,
             )
             for issue in (evaluation.issues if evaluation is not None else ())
+        ]
+        + [
+            PoseIssue(
+                type="model_observation",
+                severity="info",
+                joints=[],
+                hint=observation,
+            )
+            for observation in (
+                enhancement.info_issues if enhancement is not None else ()
+            )
         ],
         highlights=[
             PoseHighlight(
@@ -109,7 +129,24 @@ def _cycle_response(entry: EvaluatedCycle) -> PoseCycle:
             )
             for highlight in (evaluation.highlights if evaluation is not None else ())
         ],
-        hint=evaluation.hint if evaluation is not None else None,
+        hint=enhancement.hint if enhancement is not None else (
+            evaluation.hint if evaluation is not None else None
+        ),
+        action=(
+            PoseAction(
+                name=action.name,
+                confidence=action.confidence,
+                source=action.source,
+            )
+            if action is not None
+            else None
+        ),
+        model_score=enhancement.model_score if enhancement is not None else None,
+        feedback_source=enhancement.feedback_source if enhancement is not None else None,
+        degraded=enhancement.degraded if enhancement is not None else False,
+        degrade_reason=enhancement.degrade_reason if enhancement is not None else None,
+        spoken=enhancement.spoken if enhancement is not None else True,
+        notice=enhancement.notice if enhancement is not None else None,
     )
 
 
@@ -220,4 +257,10 @@ async def finish_pose_session(
         avg_quality=summary.avg_quality,
         issues_histogram=summary.issues_histogram,
         quality_available=summary.quality_available,
+        model_calls=summary.model_calls,
+        degraded_cycles=summary.degraded_cycles,
+        model_degraded=summary.model_degraded,
+        circuit_open=summary.circuit_open,
+        model_paused=summary.model_paused,
+        paused_notice_sent=summary.paused_notice_sent,
     )

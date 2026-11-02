@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 COACH_PROTOCOL_VERSION = 1
 
 CoachStateName = Literal["guide", "count", "rest", "complete"]
+COACH_STATE_NAMES: frozenset[str] = frozenset(
+    {"guide", "count", "rest", "complete"}
+)
 CoachErrorCode = Literal["provider_unavailable", "rate_limited", "upstream_timeout", "internal"]
 CoachFinishReason = Literal["complete", "error", "truncated"]
 
@@ -99,11 +102,20 @@ class ChatMessage(BaseModel):
 
 
 class CoachResponse(BaseModel):
-    """AI 教练响应（非流式）"""
+    """AI 教练响应（非流式）。
+
+    ``quick_actions`` 与流式 ``actions`` 帧来自同一个规划环节，是新的权威形状；
+    ``suggested_actions`` 为兼容旧调用方保留，值等于每个动作的 ``prompt``，
+    不另算一套建议，避免两条接口给出不同答案。
+    """
     reply: str = Field(..., description="AI 教练回复内容")
-    coach_state: str = Field(default="guide", description="教练当前状态节点")
+    coach_state: str = Field(default="guide", description="服务端确定性推导的教练状态")
+    quick_actions: list[CoachAction] = Field(
+        default_factory=list, description="快捷动作：按钮文案 + 点击后发送的文本"
+    )
     suggested_actions: list[str] = Field(
-        default_factory=list, description="快捷操作建议，如 ['完成一组', '换个动作']"
+        default_factory=list,
+        description="兼容旧形状：每条动作的发送文本，与 quick_actions 不分化",
     )
 
 
@@ -117,11 +129,21 @@ class WorkoutContextUpdate(BaseModel):
 
 
 class ChatMessageResponse(BaseModel):
-    """单条对话记录"""
+    """单条对话记录。
+
+    助手消息会带回当时的快捷动作快照与教练状态；旧记录没有快照时，
+    ``actions`` 为空列表、``coach_state`` 为 None，前端照常渲染正文即可。
+    """
     id: int
     role: str
     content: str
     created_at: Optional[datetime.datetime] = None
+    actions: list[CoachAction] = Field(
+        default_factory=list, description="助手消息当时的快捷动作快照；旧记录为空"
+    )
+    coach_state: Optional[CoachStateName] = Field(
+        default=None, description="助手消息当时的教练状态；旧记录为空"
+    )
 
     class Config:
         from_attributes = True

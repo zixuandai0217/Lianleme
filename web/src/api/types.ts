@@ -290,6 +290,12 @@ export interface MarkAllNotificationsReadResponse {
 }
 
 // ── Coach ──
+/** 服务端下发的快捷动作：label 是按钮文案，prompt 是点击后发送的文本。 */
+export interface CoachQuickAction {
+  label: string
+  prompt: string
+}
+
 export interface ChatMessage {
   user_id: number
   message: string
@@ -303,6 +309,8 @@ export interface CoachResponse {
   reply: string
   coach_state: string
   suggested_actions: string[]
+  /** 与流式 actions 帧同一规划环节；旧服务端可能不返回该字段。 */
+  quick_actions?: CoachQuickAction[]
 }
 
 export interface ChatMessageItem {
@@ -310,6 +318,10 @@ export interface ChatMessageItem {
   role: "user" | "assistant"
   content: string
   created_at?: string
+  /** 助手消息当时的动作快照；旧记录没有该字段。 */
+  actions?: CoachQuickAction[] | null
+  /** 助手消息当时的教练状态；旧记录没有该字段。 */
+  coach_state?: string | null
 }
 
 export interface ChatHistoryResponse {

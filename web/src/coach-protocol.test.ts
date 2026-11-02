@@ -9,6 +9,8 @@ import {
   createCoachFrameDecoder,
   createCoachTurnState,
   EMPTY_COACH_REPLY,
+  isCoachStateName,
+  normalizeCoachActions,
   settleCoachTurn,
   startCoachTurn,
   streamCoachTurn,
@@ -127,6 +129,41 @@ describe("coach frame decoder", () => {
   it("flushes a final frame that arrived without its trailing blank line", () => {
     const events = decodeAll([`data: {"type":"done","finish_reason":"complete"}`])
     expect(events).toEqual([{ type: "done", finishReason: "complete" }])
+  })
+
+  it("defaults a server action prompt to its label when prompt is absent", () => {
+    const events = decodeAll([
+      frame({ type: "actions", actions: [{ label: "完成这组" }] }),
+    ])
+
+    expect(events).toEqual([
+      { type: "actions", actions: [{ label: "完成这组", prompt: "完成这组" }] },
+    ])
+  })
+})
+
+describe("persisted coach snapshots", () => {
+  it("validates the four coach states and degrades unknown values", () => {
+    expect(isCoachStateName("count")).toBe(true)
+    expect(isCoachStateName("rest")).toBe(true)
+    expect(isCoachStateName("thinking")).toBe(false)
+    expect(isCoachStateName(null)).toBe(false)
+  })
+
+  it("normalizes history actions and treats a missing snapshot as empty", () => {
+    expect(normalizeCoachActions(undefined)).toEqual([])
+    expect(normalizeCoachActions("not-actions")).toEqual([])
+    expect(
+      normalizeCoachActions([
+        { label: "完成这组" },
+        { label: "", prompt: "空标签应被丢弃" },
+        "bad",
+        { label: "动作要领", prompt: "深蹲的动作要领是什么？" },
+      ]),
+    ).toEqual([
+      { label: "完成这组", prompt: "完成这组" },
+      { label: "动作要领", prompt: "深蹲的动作要领是什么？" },
+    ])
   })
 })
 

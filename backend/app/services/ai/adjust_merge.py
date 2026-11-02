@@ -22,9 +22,12 @@ from app.services.ai.adjust_analyzers import (
     COMPLETENESS_DEFAULT,
     COMPLETENESS_FULL,
     COMPLETENESS_PARTIAL,
+    DEGRADATION_INSUFFICIENT_DATA,
+    DEGRADATION_NOTE,
     DIMENSION_COMPLETION,
     DIMENSION_FATIGUE,
     DIMENSION_INJURY_RISK,
+    LLM_DIMENSIONS,
     AnalyzerResult,
     order_dimensions,
 )
@@ -75,6 +78,9 @@ class MergedResult:
     degraded_dimensions: list[str] = field(default_factory=list)
     excluded_dimensions: list[str] = field(default_factory=list)
     completeness: str = COMPLETENESS_FULL
+    # 工单 25：降级维度 → 稳定原因分类；模型两维都成功时 note 为 None。
+    degraded_reasons: dict[str, str] = field(default_factory=dict)
+    degradation_note: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,6 +91,8 @@ class MergedResult:
             "degraded_dimensions": list(self.degraded_dimensions),
             "excluded_dimensions": list(self.excluded_dimensions),
             "completeness": self.completeness,
+            "degraded_reasons": dict(self.degraded_reasons),
+            "degradation_note": self.degradation_note,
         }
 
 
@@ -192,6 +200,7 @@ def merge_results(
     dimensions: Iterable[AnalyzerResult],
     *,
     completion_rate: float | None = None,
+    degradation_reasons: Mapping[str, str] | None = None,
 ) -> MergedResult:
     """把五份分析器输出压成单一决策依据。"""
     ordered = order_dimensions(dimensions)
@@ -206,6 +215,10 @@ def merge_results(
         else 0.0
     )
     red_flags = _red_flags(ordered, completion_rate)
+    reasons = _degraded_reasons(ordered, degradation_reasons)
+    llm_degraded = any(
+        result.name in LLM_DIMENSIONS and result.degraded for result in ordered
+    )
     return MergedResult(
         overall_score=overall,
         dimension_scores={result.name: float(result.score) for result in ordered},
@@ -220,7 +233,26 @@ def merge_results(
             if result.data_completeness == COMPLETENESS_DEFAULT
         ],
         completeness=_completeness(ordered),
+        degraded_reasons=reasons,
+        degradation_note=DEGRADATION_NOTE if llm_degraded else None,
     )
+
+
+def _degraded_reasons(
+    ordered: Sequence[AnalyzerResult],
+    provided: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """降级原因取 Graph 收集的分类，缺失时按结果自身分类或「数据不足」兜底。"""
+    reasons: dict[str, str] = {}
+    for result in ordered:
+        if not result.degraded:
+            continue
+        reasons[result.name] = (
+            (provided or {}).get(result.name)
+            or result.degradation_reason
+            or DEGRADATION_INSUFFICIENT_DATA
+        )
+    return reasons
 
 
 def decide_direction(

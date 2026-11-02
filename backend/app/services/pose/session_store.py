@@ -7,7 +7,9 @@
 - 会话标识不透明（``pose_`` + token_urlsafe），只能由创建者使用；
 - 空闲 30 分钟自动过期（每次成功请求都续期），过期后按 404 处理；
 - 每用户最多 3 个进行中的会话，避免一个客户端无限开窗吃内存；
-- 单会话 3600 帧硬上限，超出直接拒绝，绝不静默截断。
+- 单会话 3600 帧硬上限，超出直接拒绝，绝不静默截断；
+- 模型节流状态（调用计数、预算、熔断、20 秒去重窗口）也挂在会话上，
+  随会话一起销毁，不落盘、不进日志。
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from typing import Any, Protocol
 
 from app.schemas.pose import CAMERA_VIEWS, DEFAULT_CAMERA_VIEW
 from app.services.pose.evaluation import SCORE_DECIMALS, CycleEvaluation
+from app.services.pose.llm_coach import CycleEnhancement, ThrottleState
 from app.services.pose.segmentation import (
     CYCLE_STATE_COMPLETED,
     CYCLE_STATE_WAITING,
@@ -37,7 +40,7 @@ MAX_FRAMES_PER_SESSION = 3600
 
 
 class PoseGraphProtocol(Protocol):
-    """会话依赖姿态图的三个节点：接帧、切分与规则评估（识别/改写再往后扩展）。"""
+    """会话依赖姿态图的四个节点：接帧、切分、规则评估与模型增强。"""
 
     def ingest_frames(self, window: Sequence[Frame], new_frames: Sequence[Frame]) -> list[Frame]:
         ...
@@ -56,6 +59,18 @@ class PoseGraphProtocol(Protocol):
         *,
         camera_view: str = DEFAULT_CAMERA_VIEW,
     ) -> CycleEvaluation:
+        ...
+
+    async def enhance_cycle(
+        self,
+        frames: Sequence[Frame],
+        rule_evaluation: CycleEvaluation,
+        *,
+        camera_view: str = DEFAULT_CAMERA_VIEW,
+        exercise_hint: str | None = None,
+        state: ThrottleState | None = None,
+        now_ms: int = 0,
+    ) -> CycleEnhancement:
         ...
 
 
@@ -121,6 +136,8 @@ class PoseSession:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     pending_frames: list[Frame] = field(default_factory=list, repr=False)
     cycles: list[EvaluatedCycle] = field(default_factory=list, repr=False)
+    # 模型节流状态：计数、上限、熔断与 20 秒去重窗口；随会话一起丢弃。
+    throttle: ThrottleState = field(default_factory=ThrottleState)
     frames_count: int = 0
     last_t_ms: int | None = None
     finished: bool = False
@@ -136,14 +153,22 @@ class PoseSession:
 
 @dataclass(frozen=True)
 class EvaluatedCycle:
-    """会话里保存的一个周期：切分统计 + 规则评估结果。
+    """会话里保存的一个周期：切分统计 + 规则评估 + 模型增强。
 
     不可评估周期（机位/可见度问题）没有评估结果：``evaluation=None``，
-    对外仍是 ``score=null``、``issues=[]``，绝不编造评分。
+    对外仍是 ``score=null``、``issues=[]``，绝不编造评分，也不调用模型。
     """
 
     cycle: DetectedCycle
     evaluation: CycleEvaluation | None = None
+    enhancement: CycleEnhancement | None = None
+
+    @property
+    def final_score(self) -> float | None:
+        """对外评分：模型增强后的最终分；没有增强时就是规则分。"""
+        if self.enhancement is not None:
+            return self.enhancement.score
+        return None if self.evaluation is None else self.evaluation.score
 
 
 @dataclass(frozen=True)
@@ -183,6 +208,13 @@ class SessionSummary:
     avg_quality: float = 0.0
     issues_histogram: dict[str, int] = field(default_factory=dict)
     quality_available: bool = False
+    # 模型增强的会话级计数：调用次数、降级周期数、熔断/暂停状态。
+    model_calls: int = 0
+    degraded_cycles: int = 0
+    model_degraded: bool = False
+    circuit_open: bool = False
+    model_paused: bool = False
+    paused_notice_sent: bool = False
 
 
 class PoseSessionStore:
@@ -279,21 +311,8 @@ class PoseSessionStore:
             window = graph.ingest_frames(session.pending_frames, frames)
             outcome = graph.segment_cycle(window, camera_view=session.camera_view)
 
-            # 周期帧窗口只在这里短暂存在：规则评估后立即丢弃，不进入会话状态。
-            completed = tuple(
-                EvaluatedCycle(
-                    cycle=completed_window.cycle,
-                    evaluation=(
-                        graph.evaluate_cycle(
-                            completed_window.frames,
-                            camera_view=session.camera_view,
-                        )
-                        if completed_window.cycle.evaluable
-                        else None
-                    ),
-                )
-                for completed_window in outcome.completed
-            )
+            # 周期帧窗口只在这里短暂存在：规则评估与模型增强后立即丢弃。
+            completed = await self._evaluate_completed(outcome, graph, session, now)
             session.pending_frames = list(outcome.pending_frames)
             session.cycles.extend(completed)
             session.frames_count += len(frames)
@@ -324,9 +343,7 @@ class PoseSessionStore:
             self._touch(session, self._clock())
             evaluable = sum(1 for item in session.cycles if item.cycle.evaluable)
             scores = [
-                item.evaluation.score
-                for item in session.cycles
-                if item.evaluation is not None
+                item.final_score for item in session.cycles if item.final_score is not None
             ]
             histogram: dict[str, int] = {}
             for item in session.cycles:
@@ -334,6 +351,7 @@ class PoseSessionStore:
                     continue
                 for issue in item.evaluation.issues:
                     histogram[issue.type] = histogram.get(issue.type, 0) + 1
+            throttle = session.throttle
             return SessionSummary(
                 session_id=session.session_id,
                 cycles_count=len(session.cycles),
@@ -345,7 +363,52 @@ class PoseSessionStore:
                 ),
                 issues_histogram=histogram,
                 quality_available=bool(scores),
+                model_calls=throttle.calls,
+                degraded_cycles=throttle.degraded_cycles,
+                model_degraded=throttle.degraded_cycles > 0,
+                circuit_open=throttle.circuit_open,
+                model_paused=throttle.budget_exhausted,
+                paused_notice_sent=throttle.paused_notice_sent,
             )
+
+    async def _evaluate_completed(
+        self,
+        outcome: SegmentationOutcome,
+        graph: PoseGraphProtocol,
+        session: PoseSession,
+        now: float,
+    ) -> tuple[EvaluatedCycle, ...]:
+        """按完成顺序逐个周期评估：先规则、再模型增强，帧窗口用完即弃。
+
+        不可评估周期（机位/可见度/多人）不产生分数，也不消耗任何模型调用。
+        """
+        now_ms = int(round(now * 1000))
+        completed: list[EvaluatedCycle] = []
+        for completed_window in outcome.completed:
+            cycle = completed_window.cycle
+            if not cycle.evaluable:
+                completed.append(EvaluatedCycle(cycle=cycle))
+                continue
+            evaluation = graph.evaluate_cycle(
+                completed_window.frames,
+                camera_view=session.camera_view,
+            )
+            enhancement = await graph.enhance_cycle(
+                completed_window.frames,
+                evaluation,
+                camera_view=session.camera_view,
+                exercise_hint=session.exercise_hint,
+                state=session.throttle,
+                now_ms=now_ms,
+            )
+            completed.append(
+                EvaluatedCycle(
+                    cycle=cycle,
+                    evaluation=evaluation,
+                    enhancement=enhancement,
+                )
+            )
+        return tuple(completed)
 
     # --- 内部 -------------------------------------------------------------
 

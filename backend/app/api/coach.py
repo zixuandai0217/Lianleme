@@ -30,9 +30,12 @@ from app.core.security import (
 from app.models.chat_message import ChatMessageRecord
 from app.models.user import User
 from app.schemas.chat import (
+    COACH_STATE_NAMES,
     ChatHistoryResponse,
     ChatMessage,
     ChatMessageResponse,
+    CoachAction,
+    CoachActionsEvent,
     CoachAnimatedTTSResponse,
     CoachDoneEvent,
     CoachErrorCode,
@@ -41,6 +44,8 @@ from app.schemas.chat import (
     CoachMessageChunkEvent,
     CoachMouthCue,
     CoachResponse,
+    CoachStateEvent,
+    CoachStateName,
     CoachTTSRequest,
     CoachTTSStatusResponse,
     CoachTurnStartedEvent,
@@ -54,6 +59,11 @@ from app.services.ai.coach_graph import (
     CoachTextCleaner,
 )
 from app.services.ai.tts_service import QwenTTSAPIError
+from app.services.coach.planner import (
+    CoachContext,
+    plan_coach_turn,
+    resolve_coach_context,
+)
 from app.services.user.api_key_service import ApiKeyService
 
 logger = logging.getLogger(__name__)
@@ -134,15 +144,17 @@ async def chat(
 ):
     """AI 教练普通对话接口（JSON 模式）"""
     ensure_current_user_matches(current_user, msg.user_id)
+    request_context = {
+        "current_exercise": msg.current_exercise,
+        "completed_sets": msg.completed_sets,
+        "total_sets": msg.total_sets,
+        "plan_id": msg.plan_id,
+    }
+    coach_context = await resolve_coach_context(db, msg.user_id, request_context)
     graph = CoachGraph(user_id=msg.user_id, db=db)
     result = await graph.chat(
         message=msg.message,
-        context={
-            "current_exercise": msg.current_exercise,
-            "completed_sets": msg.completed_sets,
-            "total_sets": msg.total_sets,
-            "plan_id": msg.plan_id,
-        },
+        context={**request_context, "coach_context": coach_context},
     )
     return result
 
@@ -175,13 +187,18 @@ async def stream_coach_events(
     user_id: int,
     message: str,
     context: dict,
+    coach_context: CoachContext,
 ) -> AsyncIterator[str]:
     """Emit the typed coach event stream for exactly one turn (spec §1/§5).
 
     A client disconnect is an abort, not a failure: it emits no error frame, no
     done frame and persists nothing. Upstream failures emit ``error`` then
     ``done(error)``; the error copy never travels as a ``message_chunk``.
+
+    The ``state`` and ``actions`` frames are derived before the model runs, so a
+    failed or degraded turn still ends with exactly one of each before ``done``.
     """
+    plan = plan_coach_turn(coach_context, message)
     yield sse_frame(
         CoachTurnStartedEvent(turn_id=uuid4().hex, message_id=uuid4().hex)
     )
@@ -219,7 +236,12 @@ async def stream_coach_events(
             reply = COACH_FALLBACK_REPLY
             yield frame_for(reply)
 
-        await graph.save_turn(message, reply)
+        await graph.save_turn(
+            message,
+            reply,
+            actions=plan.actions,
+            coach_state=plan.coach_state,
+        )
     except asyncio.CancelledError:
         # Starlette cancels the generator when the transport disappears mid-turn;
         # the observability middleware records that path, so log nothing here.
@@ -235,6 +257,10 @@ async def stream_coach_events(
             error_class=type(exc).__name__,
         )
         yield sse_frame(error_event)
+    # 收尾前恰好一次状态帧与一次动作帧；动作与状态都来自确定性规划器，
+    # 不依赖模型这一轮是否说对了话。
+    yield sse_frame(CoachStateEvent(coach_state=plan.coach_state))
+    yield sse_frame(CoachActionsEvent(actions=plan.actions))
     yield sse_frame(CoachDoneEvent(finish_reason=finish_reason))
 
 
@@ -262,6 +288,7 @@ async def chat_stream(
         "total_sets": msg.total_sets,
         "plan_id": msg.plan_id,
     }
+    coach_context = await resolve_coach_context(db, msg.user_id, context)
 
     return StreamingResponse(
         stream_coach_events(
@@ -270,6 +297,7 @@ async def chat_stream(
             user_id=msg.user_id,
             message=msg.message,
             context=context,
+            coach_context=coach_context,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -382,6 +410,30 @@ def _cleaned_history_content(role: str, content: str) -> str:
     return cleaned or COACH_FALLBACK_REPLY
 
 
+
+
+def _history_actions(value: object) -> list[CoachAction]:
+    """Project a stored actions snapshot defensively; malformed rows degrade empty."""
+    if not isinstance(value, list):
+        return []
+    actions: list[CoachAction] = []
+    for item in value[:4]:
+        if not isinstance(item, dict):
+            continue
+        label = item.get("label")
+        prompt = item.get("prompt")
+        if not isinstance(label, str) or not label.strip():
+            continue
+        text = prompt.strip() if isinstance(prompt, str) and prompt.strip() else label.strip()
+        actions.append(CoachAction(label=label.strip()[:40], prompt=text[:200]))
+    return actions
+
+
+def _history_coach_state(value: object) -> CoachStateName | None:
+    """Return a known coach state from a snapshot, else None for old/invalid rows."""
+    return value if isinstance(value, str) and value in COACH_STATE_NAMES else None
+
+
 @router.get("/{user_id}/history", response_model=ChatHistoryResponse)
 async def get_chat_history(
     user_id: int,
@@ -400,7 +452,7 @@ async def get_chat_history(
     result = await db.execute(
         select(ChatMessageRecord)
         .where(ChatMessageRecord.user_id == user_id)
-        .order_by(desc(ChatMessageRecord.created_at))
+        .order_by(desc(ChatMessageRecord.created_at), desc(ChatMessageRecord.id))
         .limit(limit)
     )
     records = list(reversed(result.scalars().all()))
@@ -411,6 +463,10 @@ async def get_chat_history(
             role=r.role,
             content=_cleaned_history_content(r.role, r.content),
             created_at=r.created_at,
+            actions=_history_actions(r.actions) if r.role == "assistant" else [],
+            coach_state=_history_coach_state(r.coach_state)
+            if r.role == "assistant"
+            else None,
         )
         for r in records
     ]

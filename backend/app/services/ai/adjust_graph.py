@@ -3,9 +3,10 @@
 拓扑来自 ADR-0001：``analyze_input → [completion | fatigue | injury_risk | sleep |
 body_composition] → merge_results → decision → apply_*``。
 
-本票的三路规则与两路「未评估」占位都不调用模型：整趟评估在零模型调用的前提下
-产出五维小结与方向。``self.factory`` 是留给工单 25 的模型接入点（构造但不使用），
-测试用计数替身证明它一次都没被调用。
+三路规则与两路模型在两个层面运行：规则维度即时出分，模型维度（伤病风险 /
+体重体脂趋势）在模型可用时返回结构化评分，不可用或失败时由该路自己降级为
+规则近似。模型客户端与聚合摘要由调用方通过 ``LlmAnalyzerContext`` 注入，
+Graph 本身不拼 Prompt、也不决定隐私边界。
 """
 
 from __future__ import annotations
@@ -18,10 +19,13 @@ from langgraph.graph import END, StateGraph
 from app.services.ai.adjust_analyzers import (
     COMPLETENESS_DEFAULT,
     DIMENSION_ORDER,
+    LLM_DIMENSIONS,
+    RULE_DIMENSIONS,
     AnalyzerResult,
     build_evaluation_input,
     order_dimensions,
     run_analyzer,
+    run_llm_analyzer,
 )
 from app.services.ai.adjust_merge import (
     DIRECTION_DECREASE,
@@ -33,9 +37,22 @@ from app.services.ai.adjust_merge import (
     delta_percent_for,
     merge_results,
 )
+from app.services.ai.llm_adjust_analyzers import (
+    LlmAnalyzerContext,
+    resolve_llm_context,
+)
 from app.services.ai.llm_factory import LLMClientFactory
 
 _DIRECTIONS = (DIRECTION_INCREASE, DIRECTION_DECREASE, DIRECTION_KEEP)
+
+
+def _merge_degradation_reasons(
+    left: dict[str, str] | None, right: dict[str, str] | None
+) -> dict[str, str]:
+    """并行节点各写各的降级分类：按维度名合并，避免后到者覆盖先到者。"""
+    merged = dict(left or {})
+    merged.update(right or {})
+    return merged
 
 
 class AdjustState(TypedDict, total=False):
@@ -49,8 +66,10 @@ class AdjustState(TypedDict, total=False):
     sleep_hours: Optional[float]
     sleep_quality: Optional[int]
     evaluation_input: dict
+    llm_context: Any
     # 五路并行写入：reducer 负责拼接，顺序由 DIMENSION_ORDER 在出口归一。
     dimensions: Annotated[list[dict], operator.add]
+    degradation_reasons: Annotated[dict[str, str], _merge_degradation_reasons]
     merged: dict
     adjustment_type: str
     delta_percent: float
@@ -85,10 +104,17 @@ def _apply_node_name(direction: str) -> str:
 class AdjustGraph:
     """训练计划动态调整 Graph（五路并行分析 + 合并决策）。"""
 
-    def __init__(self, user_id: int, db=None):
+    def __init__(
+        self,
+        user_id: int,
+        db=None,
+        *,
+        llm_context: LlmAnalyzerContext | None = None,
+    ):
         self.user_id = user_id
         self.db = db
-        # 工单 25 的接入点：本票构造但不使用（零模型调用由测试用计数替身断言）。
+        # 调用方（PlanService）注入客户端与聚合摘要；直接使用 Graph 时按需解析。
+        self.llm_context = llm_context
         self.factory = LLMClientFactory(db)
         self._graph = self._build_graph()
 
@@ -146,7 +172,9 @@ class AdjustGraph:
             "fatigue_scores": list(fatigue_scores or []),
             "sleep_hours": sleep_hours,
             "sleep_quality": sleep_quality,
+            "llm_context": self.llm_context,
             "dimensions": [],
+            "degradation_reasons": {},
             "adjustment_type": "",
             "reason": "",
             "adjusted_plan": None,
@@ -163,22 +191,45 @@ class AdjustGraph:
 
     async def _analyze_input_node(self, state: AdjustState) -> dict:
         """取材与缺省填充：不做判断，只把输入裁剪成各分析器的切片。"""
-        return {
-            "evaluation_input": build_evaluation_input(
-                completion_rate=state.get("completion_rate"),
-                difficulty_rating=state.get("difficulty_rating"),
-                fatigue_scores=state.get("fatigue_scores"),
-                sleep_hours=state.get("sleep_hours"),
-                sleep_quality=state.get("sleep_quality"),
-            )
+        payload = build_evaluation_input(
+            completion_rate=state.get("completion_rate"),
+            difficulty_rating=state.get("difficulty_rating"),
+            fatigue_scores=state.get("fatigue_scores"),
+            sleep_hours=state.get("sleep_hours"),
+            sleep_quality=state.get("sleep_quality"),
+        )
+        context = state.get("llm_context")
+        if context is None:
+            context = await resolve_llm_context(self.factory, self.user_id)
+        # 规则维度是确定性的，先把分数并入聚合摘要，模型两维据此做深度判断。
+        summary = dict(context.summary or {})
+        summary["rule_scores"] = {
+            name: run_analyzer(name, payload).score for name in RULE_DIMENSIONS
         }
+        context = LlmAnalyzerContext(
+            client=context.client,
+            summary=summary,
+            unavailable_reason=context.unavailable_reason,
+        )
+        return {"evaluation_input": payload, "llm_context": context}
 
     def _analyzer_node(self, dimension: str):
         """单个分析器节点：单路异常在这里被吞掉并转成降级输出。"""
 
         async def node(state: AdjustState) -> dict:
-            result = run_analyzer(dimension, state.get("evaluation_input") or {})
-            return {"dimensions": [result.to_dict()]}
+            payload = state.get("evaluation_input") or {}
+            if dimension in LLM_DIMENSIONS:
+                result = await run_llm_analyzer(
+                    dimension, payload, state.get("llm_context")
+                )
+            else:
+                result = run_analyzer(dimension, payload)
+            updates: dict[str, Any] = {"dimensions": [result.to_dict()]}
+            if result.degradation_reason:
+                updates["degradation_reasons"] = {
+                    dimension: result.degradation_reason
+                }
+            return updates
 
         return node
 
@@ -186,6 +237,7 @@ class AdjustGraph:
         merged = merge_results(
             [AnalyzerResult.from_dict(item) for item in state.get("dimensions") or []],
             completion_rate=state.get("completion_rate"),
+            degradation_reasons=state.get("degradation_reasons") or {},
         )
         return {"merged": merged.to_dict()}
 

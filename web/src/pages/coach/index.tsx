@@ -31,8 +31,11 @@ import { useCoachVoice } from "@/hooks/use-coach-voice"
 import {
   coachTurnPresentation,
   isCoachAbortError,
+  isCoachStateName,
+  normalizeCoachActions,
   streamCoachTurn,
   type CoachAction,
+  type CoachStateName,
   type CoachTurnState,
 } from "@/lib/coach-protocol"
 
@@ -42,6 +45,8 @@ interface DisplayMessage {
   content: string
   createdAt?: string
   pending?: boolean
+  actions?: CoachAction[]
+  coachState?: CoachStateName
 }
 
 interface TurnNotice {
@@ -94,6 +99,14 @@ const STATUS_COPY: Record<DigitalCoachState, string> = {
   error: "连接失败",
 }
 
+// 服务端四种教练状态各自的呈现文案：计组与休息必须一眼能区分。
+const COACH_STATE_COPY: Record<CoachStateName, string> = {
+  guide: "随时可以开始",
+  count: "正在计组",
+  rest: "组间休息",
+  complete: "今日完成",
+}
+
 // Convert persisted API messages into stable local presentation records.
 function toDisplayMessage(message: ChatMessageItem): DisplayMessage {
   return {
@@ -101,7 +114,26 @@ function toDisplayMessage(message: ChatMessageItem): DisplayMessage {
     role: message.role,
     content: message.content,
     createdAt: message.created_at,
+    actions: message.role === "assistant" ? normalizeCoachActions(message.actions) : [],
+    coachState: isCoachStateName(message.coach_state) ? message.coach_state : undefined,
   }
+}
+
+// The latest persisted assistant snapshot drives the page-level fallback row and state.
+function latestAssistantActions(messages: DisplayMessage[]): CoachAction[] {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.role === "assistant" && message.actions?.length) return message.actions
+  }
+  return []
+}
+
+function latestAssistantState(messages: DisplayMessage[]): CoachStateName | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.role === "assistant" && message.coachState) return message.coachState
+  }
+  return null
 }
 
 // Format compact transcript timestamps without exposing invalid dates.
@@ -195,7 +227,7 @@ export default function CoachPage() {
   const [workout, setWorkout] = useState<TodayWorkout | null>(null)
   const [input, setInput] = useState("")
   const [conversationStatus, setConversationStatus] = useState<CoachConversationStatus>("idle")
-  const [quickActions, setQuickActions] = useState<CoachAction[]>(DEFAULT_QUICK_ACTIONS)
+  const [coachPhase, setCoachPhase] = useState<CoachStateName>("guide")
   const [historyLoading, setHistoryLoading] = useState(true)
   const [ttsAvailable, setTtsAvailable] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
@@ -210,9 +242,13 @@ export default function CoachPage() {
   const firstExercise = workout?.exercises?.[0]
   const isBusy = historyLoading || conversationStatus === "thinking" || voice.status === "loading"
   const coachState = resolveCoachPresentationState(conversationStatus, speech.listening, voice.status)
+  const serverActions = useMemo(() => latestAssistantActions(messages), [messages])
+  const quickActions = serverActions.length ? serverActions : DEFAULT_QUICK_ACTIONS
   const statusCopy = voice.status === "loading"
     ? "正在准备语音与口型"
-    : STATUS_COPY[coachState]
+    : coachState === "idle"
+      ? COACH_STATE_COPY[coachPhase]
+      : STATUS_COPY[coachState]
 
   const displayName = user?.nickname?.trim() || "训练伙伴"
   const workoutSummary = useMemo(() => {
@@ -229,7 +265,10 @@ export default function CoachPage() {
     ttsResult,
   ]: Awaited<ReturnType<typeof fetchCoachContext>>) => {
     if (historyResult.status === "fulfilled") {
-      setMessages(historyResult.value.messages.map(toDisplayMessage))
+      const restored = historyResult.value.messages.map(toDisplayMessage)
+      setMessages(restored)
+      const restoredState = latestAssistantState(restored)
+      if (restoredState) setCoachPhase(restoredState)
     } else {
       setPageError("对话记录暂时未能加载")
     }
@@ -303,16 +342,18 @@ export default function CoachPage() {
     // Render only what the protocol layer reduced; never raw response text.
     const renderTurn = (turn: CoachTurnState) => {
       if (streamController.signal.aborted) return
+      if (turn.started) setCoachPhase(turn.coachState)
       setMessages((current) => current.map((item) => (
         item.id === assistantId
           ? {
             ...item,
             content: turn.body,
             pending: turn.status === "thinking" || turn.status === "streaming",
+            actions: turn.actions.length ? turn.actions : item.actions,
+            coachState: turn.started ? turn.coachState : item.coachState,
           }
           : item
       )))
-      if (turn.actions.length) setQuickActions(turn.actions)
       setConversationStatus(
         turn.status === "error" ? "error" : turn.status === "idle" ? "idle" : "thinking",
       )
@@ -334,6 +375,7 @@ export default function CoachPage() {
       if (streamController.signal.aborted) return
 
       const presentation = coachTurnPresentation(turn)
+      if (turn.started) setCoachPhase(turn.coachState)
       setConversationStatus(turn.status === "error" ? "error" : "idle")
       if (presentation.notice && presentation.noticeKind) {
         setTurnNotice({ kind: presentation.noticeKind, message: presentation.notice })
@@ -342,7 +384,13 @@ export default function CoachPage() {
       setMessages((current) => current.flatMap((item) => {
         if (item.id !== assistantId) return [item]
         return presentation.body.trim()
-          ? [{ ...item, content: presentation.body, pending: false }]
+          ? [{
+            ...item,
+            content: presentation.body,
+            pending: false,
+            actions: turn.actions.length ? turn.actions : item.actions,
+            coachState: turn.started ? turn.coachState : item.coachState,
+          }]
           : []
       }))
       const reply = presentation.body.trim()
@@ -388,7 +436,10 @@ export default function CoachPage() {
   }
 
   return (
-    <div className="-mx-4 -mt-5 overflow-hidden bg-[#fffdf9] sm:-mx-6 md:-mx-8 md:-mt-8 xl:-mx-10">
+    <div
+      data-coach-phase={coachPhase}
+      className="-mx-4 -mt-5 overflow-hidden bg-[#fffdf9] sm:-mx-6 md:-mx-8 md:-mt-8 xl:-mx-10"
+    >
       <p className="sr-only" aria-live="polite">{announcement}</p>
       <header className="flex min-h-20 items-center justify-between gap-4 border-b border-[#e5e3de] px-4 py-4 sm:px-6 md:px-8 xl:px-10">
         <div className="min-w-0">
@@ -529,6 +580,22 @@ export default function CoachPage() {
                           />
                         </div>
                       )}
+                      {assistant && message.actions?.length && !message.pending && (
+                        <div className="mt-2 flex flex-wrap gap-2" data-coach-actions={message.id}>
+                          {message.actions.map((action) => (
+                            <button
+                              key={`${action.label}-${action.prompt}`}
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => void sendMessage(action.prompt)}
+                              className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-md border border-[#dddcd7] bg-white px-2.5 text-xs font-medium text-[#454c48] transition-colors hover:border-[#ff6a00]/50 hover:bg-[#fff2e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6a00]/40 disabled:pointer-events-none disabled:opacity-50"
+                            >
+                              {action.label}
+                              <ChevronRight className="size-3" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </article>
                 )
@@ -553,20 +620,22 @@ export default function CoachPage() {
           <div className="shrink-0 border-t border-[#eceae5] bg-[#fffdf9] p-4 sm:p-5">
             {pageError && <p className="mb-3 text-xs font-medium text-[#b83227]" role="alert">{pageError}</p>}
             {speech.error && <p className="mb-3 text-xs font-medium text-[#b83227]" role="alert">{speech.error}</p>}
-            <div className="mb-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {quickActions.map((action) => (
-                <button
-                  key={`${action.label}-${action.prompt}`}
-                  type="button"
-                  disabled={isBusy}
-                  onClick={() => void sendMessage(action.prompt)}
-                  className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-[#dddcd7] bg-white px-2.5 text-xs font-medium text-[#454c48] transition-colors hover:border-[#ff6a00]/50 hover:bg-[#fff2e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6a00]/40 disabled:pointer-events-none disabled:opacity-50"
-                >
-                  {action.label}
-                  <ChevronRight className="size-3" />
-                </button>
-              ))}
-            </div>
+            {!serverActions.length && (
+              <div className="mb-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {quickActions.map((action) => (
+                  <button
+                    key={`${action.label}-${action.prompt}`}
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => void sendMessage(action.prompt)}
+                    className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-[#dddcd7] bg-white px-2.5 text-xs font-medium text-[#454c48] transition-colors hover:border-[#ff6a00]/50 hover:bg-[#fff2e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6a00]/40 disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    {action.label}
+                    <ChevronRight className="size-3" />
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="flex items-end gap-2 rounded-md border border-[#d9d8d3] bg-white p-2 shadow-[0_8px_30px_rgba(29,33,31,0.06)] focus-within:border-[#ff6a00] focus-within:ring-2 focus-within:ring-[#ff6a00]/12">
               <label htmlFor="coach-message" className="sr-only">发消息给数字教练</label>
