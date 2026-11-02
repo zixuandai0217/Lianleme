@@ -15,6 +15,7 @@ from app.models.adjustment import (
     PlanAdjustment,
     new_adjustment_id,
 )
+from app.models.adjustment_job import PlanAdjustmentJob
 from app.models.plan import TrainingPlan
 from app.schemas.plan import (
     DailyWorkout,
@@ -127,12 +128,23 @@ class PlanService:
         if record.direction not in ADJUSTMENT_DIRECTIONS:
             # 方向是唯一由本系统写入的枚举；越界说明数据已损坏，宁可不解释也不谎报方向。
             return None
+        # 前后摘要只在作业的计划差异快照里：打卡反馈读同一行，两处逐字一致。
+        job_result = await self.db.execute(
+            select(PlanAdjustmentJob)
+            .where(PlanAdjustmentJob.adjustment_id == record.id)
+            .order_by(desc(PlanAdjustmentJob.created_at))
+            .limit(1)
+        )
+        job = job_result.scalar_one_or_none()
+        diff = job.plan_diff if job is not None and isinstance(job.plan_diff, dict) else {}
         return PlanAdjustmentExplanation(
             direction=record.direction,
             trigger="completion_rate",
             completion_rate=record.completion_rate,
             occurred_at=record.created_at,
             reason=record.reason,
+            before_summary=_text(diff.get("before_summary")),
+            after_summary=_text(diff.get("after_summary")),
         )
 
     @staticmethod

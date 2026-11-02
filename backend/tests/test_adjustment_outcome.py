@@ -209,13 +209,15 @@ def _payloads(caplog) -> list[dict]:
     ]
 
 
-async def check_in(client, user_id: int, *, completed: int, total: int):
+async def check_in(
+    client, user_id: int, *, completed: int, total: int, when: datetime.date = TODAY
+):
     """提交一次打卡；返回响应，由调用方断言状态码。"""
     return await client.post(
         "/api/workout/complete",
         json={
             "user_id": user_id,
-            "workout_date": TODAY.isoformat(),
+            "workout_date": when.isoformat(),
             "total_sets": total,
             "completed_sets": completed,
             "duration_minutes": 30,
@@ -298,7 +300,14 @@ async def test_multiple_adjustments_on_one_plan_stay_addressable(
     await background_tasks[0]
     first = (await latest_outcome(client, users["owner"].id))["outcome"]
 
-    await check_in(client, users["owner"].id, completed=2, total=10)
+    # 同一天重复打卡只保留一条事实（工单 28）：第二次调整用前一天模拟下一次训练。
+    await check_in(
+        client,
+        users["owner"].id,
+        completed=2,
+        total=10,
+        when=TODAY - datetime.timedelta(days=1),
+    )
     await background_tasks[1]
     second = (await latest_outcome(client, users["owner"].id))["outcome"]
 

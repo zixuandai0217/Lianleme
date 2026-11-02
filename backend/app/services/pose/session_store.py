@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.schemas.pose import CAMERA_VIEWS, DEFAULT_CAMERA_VIEW
+from app.services.pose.evaluation import SCORE_DECIMALS, CycleEvaluation
 from app.services.pose.segmentation import (
     CYCLE_STATE_COMPLETED,
     CYCLE_STATE_WAITING,
@@ -36,7 +37,7 @@ MAX_FRAMES_PER_SESSION = 3600
 
 
 class PoseGraphProtocol(Protocol):
-    """会话只依赖姿态图的两个节点：接帧与切分（工单 41/42 再扩展）。"""
+    """会话依赖姿态图的三个节点：接帧、切分与规则评估（识别/改写再往后扩展）。"""
 
     def ingest_frames(self, window: Sequence[Frame], new_frames: Sequence[Frame]) -> list[Frame]:
         ...
@@ -47,6 +48,14 @@ class PoseGraphProtocol(Protocol):
         *,
         camera_view: str = DEFAULT_CAMERA_VIEW,
     ) -> SegmentationOutcome:
+        ...
+
+    def evaluate_cycle(
+        self,
+        frames: Sequence[Frame],
+        *,
+        camera_view: str = DEFAULT_CAMERA_VIEW,
+    ) -> CycleEvaluation:
         ...
 
 
@@ -111,7 +120,7 @@ class PoseSession:
     expires_at: float
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     pending_frames: list[Frame] = field(default_factory=list, repr=False)
-    cycles: list[DetectedCycle] = field(default_factory=list, repr=False)
+    cycles: list[EvaluatedCycle] = field(default_factory=list, repr=False)
     frames_count: int = 0
     last_t_ms: int | None = None
     finished: bool = False
@@ -126,10 +135,22 @@ class PoseSession:
 
 
 @dataclass(frozen=True)
+class EvaluatedCycle:
+    """会话里保存的一个周期：切分统计 + 规则评估结果。
+
+    不可评估周期（机位/可见度问题）没有评估结果：``evaluation=None``，
+    对外仍是 ``score=null``、``issues=[]``，绝不编造评分。
+    """
+
+    cycle: DetectedCycle
+    evaluation: CycleEvaluation | None = None
+
+
+@dataclass(frozen=True)
 class FramePushOutcome:
     """一次追加帧的结果：本批新完成的周期 + 会话累计计数。"""
 
-    new_cycles: tuple[DetectedCycle, ...]
+    new_cycles: tuple[EvaluatedCycle, ...]
     cycles_count: int
     frames_count: int
 
@@ -141,7 +162,7 @@ class SessionSnapshot:
     session_id: str
     status: str
     cycle_state: str
-    cycles: tuple[DetectedCycle, ...]
+    cycles: tuple[EvaluatedCycle, ...]
     frames_count: int
 
     @property
@@ -158,7 +179,7 @@ class SessionSummary:
     evaluable_cycles: int
     not_evaluable_cycles: int
     frames_count: int
-    # 工单 43 接入评估前恒为 0；quality_available=False 表示这不是真实评分。
+    # 只对已评估周期求平均；quality_available=False 表示这次会话没有真实评分。
     avg_quality: float = 0.0
     issues_histogram: dict[str, int] = field(default_factory=dict)
     quality_available: bool = False
@@ -258,13 +279,28 @@ class PoseSessionStore:
             window = graph.ingest_frames(session.pending_frames, frames)
             outcome = graph.segment_cycle(window, camera_view=session.camera_view)
 
+            # 周期帧窗口只在这里短暂存在：规则评估后立即丢弃，不进入会话状态。
+            completed = tuple(
+                EvaluatedCycle(
+                    cycle=completed_window.cycle,
+                    evaluation=(
+                        graph.evaluate_cycle(
+                            completed_window.frames,
+                            camera_view=session.camera_view,
+                        )
+                        if completed_window.cycle.evaluable
+                        else None
+                    ),
+                )
+                for completed_window in outcome.completed
+            )
             session.pending_frames = list(outcome.pending_frames)
-            session.cycles.extend(outcome.cycles)
+            session.cycles.extend(completed)
             session.frames_count += len(frames)
             session.last_t_ms = int(frames[-1]["t_ms"])
             self._touch(session, now)
             return FramePushOutcome(
-                new_cycles=tuple(outcome.cycles),
+                new_cycles=completed,
                 cycles_count=len(session.cycles),
                 frames_count=session.frames_count,
             )
@@ -286,13 +322,29 @@ class PoseSessionStore:
             session.finished = True
             session.pending_frames = []
             self._touch(session, self._clock())
-            evaluable = sum(1 for cycle in session.cycles if cycle.evaluable)
+            evaluable = sum(1 for item in session.cycles if item.cycle.evaluable)
+            scores = [
+                item.evaluation.score
+                for item in session.cycles
+                if item.evaluation is not None
+            ]
+            histogram: dict[str, int] = {}
+            for item in session.cycles:
+                if item.evaluation is None:
+                    continue
+                for issue in item.evaluation.issues:
+                    histogram[issue.type] = histogram.get(issue.type, 0) + 1
             return SessionSummary(
                 session_id=session.session_id,
                 cycles_count=len(session.cycles),
                 evaluable_cycles=evaluable,
                 not_evaluable_cycles=len(session.cycles) - evaluable,
                 frames_count=session.frames_count,
+                avg_quality=(
+                    round(sum(scores) / len(scores), SCORE_DECIMALS) if scores else 0.0
+                ),
+                issues_histogram=histogram,
+                quality_available=bool(scores),
             )
 
     # --- 内部 -------------------------------------------------------------

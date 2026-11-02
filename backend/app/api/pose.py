@@ -19,15 +19,15 @@ from app.schemas.pose import (
     PoseFinishResponse,
     PoseFramesRequest,
     PoseFramesResponse,
+    PoseHighlight,
+    PoseIssue,
     PoseResultResponse,
     PoseSessionCreate,
     PoseSessionResponse,
 )
 from app.services.ai.pose_graph import PoseGraph
-from app.services.pose.segmentation import (
-    DetectedCycle,
-)
 from app.services.pose.session_store import (
+    EvaluatedCycle,
     PoseSessionError,
     PoseSessionStore,
     get_pose_session_store,
@@ -75,8 +75,10 @@ def get_pose_graph() -> PoseGraph:
     return PoseGraph()
 
 
-def _cycle_response(cycle: DetectedCycle) -> PoseCycle:
-    """周期只暴露时间与质量统计：没有关键点、没有编造的评分。"""
+def _cycle_response(entry: EvaluatedCycle) -> PoseCycle:
+    """周期只暴露时间、质量统计与规则评估：没有关键点、没有编造的评分。"""
+    cycle = entry.cycle
+    evaluation = entry.evaluation
     return PoseCycle(
         cycle_id=cycle.cycle_id,
         start_ms=cycle.start_ms,
@@ -88,8 +90,26 @@ def _cycle_response(cycle: DetectedCycle) -> PoseCycle:
         person_count=cycle.quality.person_count,
         reasons=list(cycle.quality.reasons),
         camera_hint=cycle.camera_hint,
-        score=None,
-        issues=[],
+        score=evaluation.score if evaluation is not None else None,
+        issues=[
+            PoseIssue(
+                type=issue.type,
+                severity=issue.severity,
+                joints=list(issue.joints),
+                hint=issue.hint,
+            )
+            for issue in (evaluation.issues if evaluation is not None else ())
+        ],
+        highlights=[
+            PoseHighlight(
+                joints=list(highlight.joints),
+                segments=[list(segment) for segment in highlight.segments],
+                severity=highlight.severity,
+                issue_type=highlight.issue_type,
+            )
+            for highlight in (evaluation.highlights if evaluation is not None else ())
+        ],
+        hint=evaluation.hint if evaluation is not None else None,
     )
 
 

@@ -235,3 +235,23 @@ pending / processing ──timeout──▶ expired
 - [web/src/pages/analysis/index.tsx](web/src/pages/analysis/index.tsx) — 前端轮询实现（120 秒上限的现状）
 - [web/src/pages/analysis/flow.ts](web/src/pages/analysis/flow.ts) — 纯函数化状态的既有范例
 - [web/src/api/index.ts](web/src/api/index.ts) — 前端调用封装
+
+
+## 落地修订（工单 12）
+
+任务列表与历史对齐的落地取舍：
+
+1. **任务列表**：`GET /api/vision/tasks` 只认 token 身份（没有 user_id 参数），返回
+   `{items, next_cursor}`；列表项只有任务标识、状态、错误码、创建/更新时间与对应历史记录
+   标识，不含结果明细、图片内容或档案。状态五态与创建接口同一套词表；DB 仍为 pending/
+   processing 但已过 `expires_at` 的行对外投影为 `expired`（不写库），`status=expired`
+   过滤同时命中这些行与历史已落库的 expired 行。
+2. **游标分页**：游标是不透明 URL-safe base64（`created_at` + `task_id` 的键集），严格校验；
+   非法游标 422 `invalid_cursor`，limit 越界由 FastAPI 422。按 (created_at desc, task_id desc)
+   稳定排序，连续翻页不重不漏。
+3. **历史与任务分层**：历史列表通过 `AnalysisTask.history_record_id` 反查任务标识，只返回
+   已完成分析对应的记录（失败/过期任务不产生历史行）；旧记录没有关联任务时保留可读、
+   `task_id=null`（向后兼容，不删用户数据）。单条详情接口采用同一口径，避免绕过列表读取
+   脏数据。
+4. **错误码**：`invalid_cursor` 作为稳定错误码定义在服务模块，路由只引用常量。
+5. **前端**：补充任务摘要与列表的类型、`getAnalysisTasks` 客户端（本票不做页面）。

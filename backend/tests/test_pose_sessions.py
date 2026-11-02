@@ -32,6 +32,8 @@ from app.services.pose.session_store import (
 SESSIONS_URL = "/api/pose/sessions"
 START_ANGLE = 175.0
 BOTTOM_ANGLE = 90.0
+# 合成膝内扣：双膝各向身体中线偏移，正面视角下明显越过髋-踝连线。
+VALGUS_INWARD = 0.05
 
 
 # --- 合成关键点序列 ---------------------------------------------------------
@@ -113,6 +115,16 @@ def _rep_segments(
 
 def _batches(frames: list[dict], size: int) -> list[list[dict]]:
     return [frames[index:index + size] for index in range(0, len(frames), size)]
+
+
+def _valgus_sequence() -> list[dict]:
+    """标准往返序列 + 明显膝内扣，用于正面视角的规则评估断言。"""
+    frames = _sequence(_rep_segments())
+    for frame in frames:
+        keypoints = frame["keypoints"]
+        keypoints[KNEE_CHAIN.left[1]]["x"] += VALGUS_INWARD
+        keypoints[KNEE_CHAIN.right[1]]["x"] -= VALGUS_INWARD
+    return frames
 
 
 # --- 替身与夹具 -------------------------------------------------------------
@@ -314,7 +326,7 @@ async def test_incomplete_cycle_keeps_waiting_without_model_calls(
 
 
 @pytest.mark.asyncio
-async def test_complete_cycle_reports_identifier_and_bounds(client, seeded_users):
+async def test_complete_cycle_reports_identifier_and_bounds(client, seeded_users, graph):
     user = seeded_users["normal"]
     session = await _create_session(client, user.id)
     frames = _sequence(_rep_segments())
@@ -330,8 +342,44 @@ async def test_complete_cycle_reports_identifier_and_bounds(client, seeded_users
     assert cycle["end_ms"] > cycle["start_ms"]
     assert 1500 <= cycle["duration_ms"] <= 6000
     assert cycle["evaluable"] is True
-    assert cycle["score"] is None
-    assert cycle["issues"] == []
+    # 工单 41 起可评估周期一定带规则评分、问题项、高亮与提示字段。
+    assert cycle["score"] is not None
+    assert 0.0 <= cycle["score"] <= 10.0
+    assert isinstance(cycle["issues"], list)
+    assert isinstance(cycle["highlights"], list)
+    assert "hint" in cycle
+    assert graph.model_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_knee_valgus_cycle_reports_issue_and_highlight(client, seeded_users, graph):
+    """AC1/AC4/AC5：膝内扣经 HTTP 可观测，评分低、高亮与问题一致、零模型调用。"""
+    user = seeded_users["normal"]
+    session = await _create_session(client, user.id)
+
+    response = await _push(
+        client, user.id, session["session_id"], _valgus_sequence()
+    )
+
+    assert response.status_code == 200, response.text
+    cycle = response.json()["cycles"][0]
+    assert cycle["evaluable"] is True
+    assert 0.0 <= cycle["score"] <= 6.0
+    issue = next(issue for issue in cycle["issues"] if issue["type"] == "knee_valgus")
+    assert issue["severity"] in {"warn", "critical"}
+    assert {"left_hip", "left_knee", "right_knee"} <= set(issue["joints"])
+    highlight = next(
+        item for item in cycle["highlights"] if item["issue_type"] == "knee_valgus"
+    )
+    assert highlight["severity"] == issue["severity"]
+    assert ["left_hip", "left_knee"] in highlight["segments"]
+    assert cycle["hint"]
+    assert cycle["hint"].count("。") <= 2
+    assert graph.model_calls == 0
+    # 规则路径不需要任何模型凭据：响应里不出现凭据错误。
+    text = response.text.lower()
+    assert "api_key" not in text
+    assert "credential" not in text
 
 
 @pytest.mark.asyncio
@@ -417,6 +465,8 @@ async def test_low_visibility_cycle_is_not_evaluable_without_model_calls(
     assert cycle["camera_hint"]
     assert cycle["score"] is None
     assert cycle["issues"] == []
+    assert cycle["highlights"] == []
+    assert cycle["hint"] is None
     assert graph.model_calls == 0
 
 
@@ -622,11 +672,34 @@ async def test_third_concurrent_session_limit_is_rejected(client, seeded_users):
 
 
 @pytest.mark.asyncio
+async def test_camera_view_changes_issue_set_over_http(client, seeded_users):
+    """AC3：同一段序列在 front 与 side 会话下返回不同的问题集合。"""
+    user = seeded_users["normal"]
+    front_session = await _create_session(client, user.id)
+    side_session = await _create_session(client, user.id, camera_view="side")
+    frames = _sequence(_rep_segments())
+
+    front = await _push(client, user.id, front_session["session_id"], frames)
+    side = await _push(client, user.id, side_session["session_id"], frames)
+
+    assert front.status_code == 200, front.text
+    assert side.status_code == 200, side.text
+    front_cycle = front.json()["cycles"][0]
+    side_cycle = side.json()["cycles"][0]
+    front_types = {issue["type"] for issue in front_cycle["issues"]}
+    side_types = {issue["type"] for issue in side_cycle["issues"]}
+    assert "knee_valgus" in front_types
+    assert "knee_valgus" not in side_types
+    assert front_types != side_types
+
+
+@pytest.mark.asyncio
 async def test_finish_returns_summary_and_blocks_later_access(client, seeded_users):
     user = seeded_users["normal"]
     session = await _create_session(client, user.id)
     session_id = session["session_id"]
-    await _push(client, user.id, session_id, _sequence(_rep_segments()))
+    pushed = await _push(client, user.id, session_id, _sequence(_rep_segments()))
+    cycle = pushed.json()["cycles"][0]
 
     finish = await client.post(
         f"{SESSIONS_URL}/{session_id}/finish", headers=_auth_headers(user.id)
@@ -636,9 +709,13 @@ async def test_finish_returns_summary_and_blocks_later_access(client, seeded_use
     assert summary["cycles_count"] == 1
     assert summary["evaluable_cycles"] == 1
     assert summary["not_evaluable_cycles"] == 0
-    assert summary["avg_quality"] == 0.0
-    assert summary["issues_histogram"] == {}
-    assert summary["quality_available"] is False
+    # 汇总只聚合已评估周期：平均分就是该周期的规则分，直方图与问题项一致。
+    assert summary["avg_quality"] == cycle["score"]
+    expected_histogram: dict[str, int] = {}
+    for issue in cycle["issues"]:
+        expected_histogram[issue["type"]] = expected_histogram.get(issue["type"], 0) + 1
+    assert summary["issues_histogram"] == expected_histogram
+    assert summary["quality_available"] is True
     _assert_no_keypoints(summary)
 
     frames_after = await _push(client, user.id, session_id, [_frame(9000, START_ANGLE)])

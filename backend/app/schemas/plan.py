@@ -84,6 +84,12 @@ class PlanAdjustmentExplanation(BaseModel):
     completion_rate: float = Field(..., ge=0, le=1, description="触发时的完成率 0-1")
     occurred_at: datetime.datetime = Field(..., description="调整发生时间（UTC）")
     reason: str = Field(..., description="调整链路产出的一句人话理由（含触发数值）")
+    before_summary: Optional[str] = Field(
+        default=None, description="调整前计划摘要（与打卡反馈同源：作业的计划差异快照）"
+    )
+    after_summary: Optional[str] = Field(
+        default=None, description="调整后计划摘要（与打卡反馈同源：作业的计划差异快照）"
+    )
 
 
 class PlanExplanation(BaseModel):

@@ -42,6 +42,8 @@ from app.models.media_asset import ASSET_STATUS_AVAILABLE, MediaAsset
 from app.models.user import User
 from app.schemas.media import CleanupCountsResponse
 from app.schemas.vision import (
+    AnalysisTaskListResponse,
+    AnalysisTaskSummary,
     AnalyzeErrorResponse,
     AnalyzeRequest,
     AnalyzeResponse,
@@ -52,6 +54,15 @@ from app.schemas.vision import (
 )
 from app.services.ai.vision_graph import VisionGraph
 from app.services.analysis_task_executor import AnalysisTaskExecutor
+from app.services.analysis_task_list import (
+    DEFAULT_TASK_LIST_LIMIT,
+    ERROR_CODE_INVALID_CURSOR,
+    MAX_TASK_LIST_LIMIT,
+    InvalidCursor,
+    TaskStatus,
+    effective_status,
+    list_user_tasks,
+)
 from app.services.media.cleanup_service import CleanupService
 from app.services.media.media_asset_service import (
     ERROR_CODE_IMAGE_INVALID,
@@ -68,9 +79,6 @@ from app.services.user.user_service import UserService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# 终态一经写入不再改写；pending / processing 在过期时间之后对外视为 expired。
-_ACTIVE_STATUSES = frozenset({"pending", "processing"})
 
 _ERROR_MESSAGES = {
     "provider_auth_failed": "AI 服务鉴权失败，请检查 API Key 配置后重试",
@@ -206,6 +214,7 @@ async def _record_response(
     service: MediaAssetService,
     assets: dict[str, MediaAsset],
     cache: dict[str, str],
+    task_id: str | None = None,
 ) -> BodyAnalysisRecordResponse:
     """把历史/详情记录映射成响应；旧内联缩略图字段固定为空。
 
@@ -229,21 +238,31 @@ async def _record_response(
         degraded=image_degraded or thumbnail_degraded,
         result=BodyAnalysisResult(**record.result),
         created_at=_as_utc(record.created_at),
+        task_id=task_id,
     )
 
 
-def _task_status(task: AnalysisTask, now: datetime.datetime) -> str:
-    """任务对外状态：进行中的任务超过过期时间即视为 expired（不写库）。"""
-    if task.status in _ACTIVE_STATUSES:
-        expires_at = _as_utc(task.expires_at)
-        if expires_at is not None and expires_at <= now:
-            return "expired"
-    return task.status
+async def _history_task_ids(db: AsyncSession, record_ids: list[int]) -> dict[int, str]:
+    """历史 → 任务标识：只认已完成任务；同一记录有多条时取最新一条。"""
+    if not record_ids:
+        return {}
+    rows = await db.execute(
+        select(AnalysisTask.history_record_id, AnalysisTask.task_id)
+        .where(
+            AnalysisTask.history_record_id.in_(record_ids),
+            AnalysisTask.status == "completed",
+        )
+        .order_by(desc(AnalysisTask.created_at), desc(AnalysisTask.task_id))
+    )
+    mapping: dict[int, str] = {}
+    for history_record_id, task_id in rows.all():
+        mapping.setdefault(history_record_id, task_id)
+    return mapping
 
 
 def _task_response(task: AnalysisTask) -> AnalyzeResultResponse:
     now = _utc_now()
-    status = _task_status(task, now)
+    status = effective_status(task, now)
     result = None
     error = None
 
@@ -390,6 +409,51 @@ async def get_analyze_result(
     return _task_response(task)
 
 
+@router.get("/tasks", response_model=AnalysisTaskListResponse)
+async def list_analysis_tasks(
+    status: TaskStatus | None = Query(None, description="按对外状态过滤"),
+    limit: int = Query(DEFAULT_TASK_LIST_LIMIT, ge=1, le=MAX_TASK_LIST_LIMIT),
+    cursor: str | None = Query(None, description="上一页返回的 next_cursor"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """当前用户的任务摘要列表；只读投影，不返回结果明细或图片内容。
+
+    归属只来自令牌身份：没有用户或任务标识参数，因此无法探测他人任务。
+    """
+    try:
+        rows, next_cursor = await list_user_tasks(
+            db,
+            user_id=current_user.id,
+            status=status,
+            limit=limit,
+            cursor=cursor,
+        )
+    except InvalidCursor:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": ERROR_CODE_INVALID_CURSOR,
+                "message": "分页游标无效",
+            },
+        ) from None
+
+    return AnalysisTaskListResponse(
+        items=[
+            AnalysisTaskSummary(
+                task_id=task.task_id,
+                status=task_status,
+                error_code=task.error_code,
+                created_at=_as_utc(task.created_at),
+                updated_at=_as_utc(task.updated_at),
+                history_record_id=task.history_record_id,
+            )
+            for task, task_status in rows
+        ],
+        next_cursor=next_cursor,
+    )
+
+
 @router.get("/{user_id}/history", response_model=BodyAnalysisHistoryResponse)
 async def get_analysis_history(
     user_id: int,
@@ -398,11 +462,24 @@ async def get_analysis_history(
     current_user: User = Depends(get_current_user),
     storage: Storage = Depends(get_storage),
 ):
-    """获取用户体型分析历史（倒序）；图片链接按需签发，失败只降级该条。"""
+    """获取用户体型分析历史（倒序）；图片链接按需签发，失败只降级该条。
+
+    历史是「已完成分析」的长期资产：只返回成功分析对应的记录，并回传任务标识。
+    没有关联任务的旧记录保持可读（``task_id`` 为 null），既有字段形状不变。
+    """
     ensure_current_user_matches(current_user, user_id)
+
+    # 排除被非 completed 任务引用的记录（正常链路不会出现，防御脏数据）。
+    referenced_by_incomplete = select(AnalysisTask.history_record_id).where(
+        AnalysisTask.history_record_id.is_not(None),
+        AnalysisTask.status != "completed",
+    )
     result = await db.execute(
         select(BodyAnalysisRecord)
-        .where(BodyAnalysisRecord.user_id == user_id)
+        .where(
+            BodyAnalysisRecord.user_id == user_id,
+            BodyAnalysisRecord.id.not_in(referenced_by_incomplete),
+        )
         .order_by(desc(BodyAnalysisRecord.created_at))
         .limit(limit)
     )
@@ -415,9 +492,13 @@ async def get_analysis_history(
         if asset_id
     }
     assets = await service.get_available_assets(asset_ids, current_user.id)
+    task_ids = await _history_task_ids(db, [record.id for record in records])
     cache: dict[str, str] = {}
     items = [
-        await _record_response(record, service, assets, cache) for record in records
+        await _record_response(
+            record, service, assets, cache, task_id=task_ids.get(record.id)
+        )
+        for record in records
     ]
     return BodyAnalysisHistoryResponse(records=items, total=len(items))
 
@@ -437,6 +518,14 @@ async def get_analysis_record(
     if not record:
         raise HTTPException(status_code=404, detail="记录不存在")
     ensure_current_user_matches(current_user, record.user_id)
+    # 与历史列表同一口径：只允许读取「已完成分析」产生的记录；历史脏数据里若记录
+    # 关联的是失败/过期任务，详情同样按不存在处理，避免绕过列表拿到不该有的内容。
+    linked = await db.execute(
+        select(AnalysisTask).where(AnalysisTask.history_record_id == record.id)
+    )
+    linked_task = linked.scalars().first()
+    if linked_task is not None and linked_task.status != "completed":
+        raise HTTPException(status_code=404, detail="记录不存在")
     service = MediaAssetService(db, storage)
     asset_ids = {
         asset_id
@@ -444,7 +533,10 @@ async def get_analysis_record(
         if asset_id
     }
     assets = await service.get_available_assets(asset_ids, current_user.id)
-    return await _record_response(record, service, assets, {})
+    task_ids = await _history_task_ids(db, [record.id])
+    return await _record_response(
+        record, service, assets, {}, task_id=task_ids.get(record.id)
+    )
 
 
 @router.delete("/record/{record_id}", response_model=CleanupCountsResponse)
@@ -571,7 +663,8 @@ async def _run_analysis(
         if task is None:
             logger.warning("分析任务不存在，跳过执行", extra={"task_id": task_id})
             return
-        if task.status in {"completed", "failed"} or _task_status(task, _utc_now()) == "expired":
+        expired = effective_status(task, _utc_now()) == "expired"
+        if task.status in {"completed", "failed"} or expired:
             logger.info("分析任务已是终态或已过期，跳过执行", extra={"task_id": task_id})
             return
 

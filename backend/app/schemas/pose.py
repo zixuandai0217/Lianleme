@@ -47,6 +47,25 @@ _MEDIA_PAYLOAD_FIELDS = frozenset(
 
 CameraView = Literal["front", "side"]
 CycleState = Literal["waiting", "completed"]
+IssueSeverity = Literal["info", "warn", "critical"]
+
+
+class PoseIssue(BaseModel):
+    """一条规则问题项：类型、严重度、涉及关节与模板提示。"""
+
+    type: str
+    severity: IssueSeverity
+    joints: List[str] = Field(default_factory=list)
+    hint: str = ""
+
+
+class PoseHighlight(BaseModel):
+    """骨架高亮：severity 交给 UI 决定红色（critical）或橙色（warn / info）。"""
+
+    joints: List[str] = Field(default_factory=list)
+    segments: List[List[str]] = Field(default_factory=list, description="需要标色的关节连线")
+    severity: IssueSeverity
+    issue_type: str
 
 
 class _StrictPosePayload(BaseModel):
@@ -114,7 +133,7 @@ class PoseSessionCreate(BaseModel):
 
 
 class PoseCycle(BaseModel):
-    """一个已完成周期的对外结果：工单 40 只产出时间与质量统计。"""
+    """一个已完成周期的对外结果：时间、质量统计与规则评估（无关键点坐标）。"""
 
     cycle_id: str
     start_ms: int
@@ -126,8 +145,19 @@ class PoseCycle(BaseModel):
     person_count: int
     reasons: List[str] = Field(default_factory=list, description="不可评估原因（稳定错误码）")
     camera_hint: Optional[str] = Field(default=None, description="不可评估时的机位提示")
-    score: Optional[float] = Field(default=None, description="工单 43 前恒为空，绝不编造评分")
-    issues: List[dict] = Field(default_factory=list, description="工单 43 前恒为空")
+    score: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=10.0,
+        description="规则质量分；不可评估周期恒为空，绝不编造评分",
+    )
+    issues: List[PoseIssue] = Field(default_factory=list, description="规则问题项，按严重度排序")
+    highlights: List[PoseHighlight] = Field(
+        default_factory=list, description="与问题项一一对应的骨架高亮"
+    )
+    hint: Optional[str] = Field(
+        default=None, description="一句主提示（至多一句补充）；无问题为空"
+    )
 
 
 class PoseFramesResponse(BaseModel):
@@ -171,7 +201,8 @@ class PoseFinishResponse(BaseModel):
     not_evaluable_cycles: int
     frames_total: int
     avg_quality: float = Field(
-        default=0.0, description="工单 43 前恒为 0；quality_available=False 表示不是真实评分"
+        default=0.0,
+        description="已评估周期的平均质量分；quality_available=False 时不是真实评分",
     )
     issues_histogram: dict[str, int] = Field(default_factory=dict)
     quality_available: bool = False

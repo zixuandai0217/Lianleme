@@ -212,3 +212,18 @@ def test_pending_window_is_bounded_for_out_of_bounds_signal():
     assert pending
     span = pending[-1]["t_ms"] - pending[0]["t_ms"]
     assert span <= config.window_limit_ms
+
+
+def test_completed_cycle_exposes_window_for_evaluation():
+    """已完成的周期带出原始帧窗口，评估节点用完即弃，不进入会话状态。"""
+    frames = _sequence(_rep_segments())
+    outcome = segment_window(frames)
+
+    assert len(outcome.completed) == 1
+    window = outcome.completed[0]
+    assert window.cycle is outcome.cycles[0]
+    assert window.frames
+    assert window.frames[0]["t_ms"] == window.cycle.start_ms
+    assert window.frames[-1]["t_ms"] == window.cycle.end_ms
+    # 隐私：帧窗口的 repr 不包含关键点坐标。
+    assert "keypoints" not in repr(window)

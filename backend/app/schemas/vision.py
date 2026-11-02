@@ -67,6 +67,26 @@ class AnalyzeResultResponse(BaseModel):
     expires_at: Optional[datetime.datetime] = None
 
 
+class AnalysisTaskSummary(BaseModel):
+    """任务列表项：只含执行事实摘要，不含结果明细或图片内容。"""
+    task_id: str = Field(..., description="异步任务 ID")
+    status: str = Field(
+        ..., description="pending / processing / completed / failed / expired"
+    )
+    error_code: Optional[str] = Field(None, description="稳定错误码，仅失败任务有值")
+    created_at: Optional[datetime.datetime] = None
+    updated_at: Optional[datetime.datetime] = None
+    history_record_id: Optional[int] = Field(
+        None, description="成功分析对应的历史记录标识"
+    )
+
+
+class AnalysisTaskListResponse(BaseModel):
+    """当前用户的任务列表：按创建时间倒序，游标分页。"""
+    items: List[AnalysisTaskSummary]
+    next_cursor: Optional[str] = Field(None, description="下一页游标；为空表示没有更多")
+
+
 class BodyAnalysisRecordResponse(BaseModel):
     """单条体型分析历史记录：新链路返回签名图片字段，旧内联字段固定为空。"""
     id: int
@@ -78,6 +98,8 @@ class BodyAnalysisRecordResponse(BaseModel):
     degraded: bool = False
     result: BodyAnalysisResult
     created_at: Optional[datetime.datetime] = None
+    # 对应任务标识：无关联任务的旧记录为 null，旧前端可忽略该新增字段。
+    task_id: Optional[str] = None
 
     class Config:
         from_attributes = True

@@ -4,6 +4,8 @@ import { buildAdminExportSearch, buildAdminUsersSearch, type AdminUsersRequest }
 import type {
   AnalyzeResponse,
   AnalyzeResultResponse,
+  AnalyzeTaskStatus,
+  AnalysisTaskListResponse,
   ApiKeyStatus,
   BodyAnalysisHistoryResponse,
   BodyAnalysisRecordItem,
@@ -76,6 +78,20 @@ export const getAnalyzeResult = (taskId: string) =>
 
 export const getAnalysisHistory = (userId: number, limit = 20) =>
   client.get<unknown, BodyAnalysisHistoryResponse>(`/api/vision/${userId}/history?limit=${limit}`)
+
+/** 任务列表：执行记录级摘要，支持状态过滤与游标分页。 */
+export const getAnalysisTasks = (params: {
+  status?: AnalyzeTaskStatus
+  limit?: number
+  cursor?: string | null
+} = {}) =>
+  client.get<unknown, AnalysisTaskListResponse>("/api/vision/tasks", {
+    params: {
+      status: params.status,
+      limit: params.limit,
+      cursor: params.cursor ?? undefined,
+    },
+  })
 
 export const getAnalysisRecord = (recordId: number) =>
   client.get<unknown, BodyAnalysisRecordItem>(`/api/vision/record/${recordId}`)

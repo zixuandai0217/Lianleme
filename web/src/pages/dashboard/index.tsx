@@ -26,7 +26,7 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DigitalCoach, type DigitalCoachState } from "@/components/digital-coach"
 import { completeWorkout, getCheckinStats, getTodayWorkout, lookupCurrentPlan } from "@/api"
-import type { CheckInStats, PlanLookup, TodayWorkout } from "@/api/types"
+import type { CheckInStats, PlanLookup, TodayWorkout, WorkoutFeedback } from "@/api/types"
 import { useAuth } from "@/hooks/use-auth"
 import { NEXT_STEP_ROUTES, buildNextStepGuide, type NextStepTarget } from "@/lib/next-step"
 import { resolveTodayState, type TodayState } from "@/lib/today-workout"
@@ -54,6 +54,100 @@ interface CoachState {
   message: string
   primaryTo: string
   characterState: DigitalCoachState
+}
+
+const PLAN_IMPACT_COPY = {
+  not_dispatched: "这次没有投递调整作业，计划保持原样。",
+  evaluating: "本次评估还在进行，稍后可在计划页看到结论。",
+  pending_choice: "计划调整在等你确认风险处理方式后才会生效。",
+  expired_no_choice: "5 分钟未确认，已按推荐（保守）方案自动应用。",
+  applied: "这次打卡已经影响下周计划。",
+  failed: "本次评估失败，计划没有改变。",
+} as const
+
+const DIRECTION_LABELS = {
+  increase: "加量",
+  decrease: "减量",
+  keep: "保持",
+} as const
+
+const RECOVERY_SOURCE_LABELS = {
+  model: "模型生成",
+  fallback: "规则兜底",
+} as const
+
+/** 打卡成功后的四段式反馈：本次完成 / 对比 / 恢复建议 / 计划影响。 */
+function CheckinFeedbackSections({ feedback }: { feedback: WorkoutFeedback }) {
+  const { completion, comparison, recovery, plan_impact: planImpact } = feedback
+  const direction = planImpact.direction
+    ? DIRECTION_LABELS[planImpact.direction]
+    : null
+
+  return (
+    <div className="space-y-4">
+      <section className="border-t border-border pt-4">
+        <p className="font-sans text-sm font-semibold">本次完成</p>
+        <p className="mt-1 font-sans text-2xl font-semibold">
+          {Math.round(completion.completion_rate * 100)}%
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {completion.completed_sets}/{completion.total_sets} 组 · {completion.duration_minutes} 分钟
+        </p>
+      </section>
+
+      <section className="border-t border-border pt-4">
+        <p className="font-sans text-sm font-semibold">与上次对比</p>
+        {comparison.has_previous ? (
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            上次完成率 {Math.round((comparison.previous_completion_rate ?? 0) * 100)}%，
+            {comparison.direction === "up" && `这次提升了 ${Math.abs(comparison.delta_percent ?? 0)} 个百分点。`}
+            {comparison.direction === "down" && `这次下降了 ${Math.abs(comparison.delta_percent ?? 0)} 个百分点。`}
+            {comparison.direction === "flat" && "这次和上次持平，稳定也是一种进步。"}
+          </p>
+        ) : (
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            这是你的第一次训练打卡，先按今天的节奏建立基线。
+          </p>
+        )}
+      </section>
+
+      <section className="border-t border-border pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="font-sans text-sm font-semibold">恢复建议</p>
+          <Badge variant="outline">{RECOVERY_SOURCE_LABELS[recovery.source]}</Badge>
+        </div>
+        <ul className="mt-2 space-y-1.5">
+          {(recovery.tips.length > 0 ? recovery.tips : ["补够水，睡够 7 小时，让身体在恢复里变强。"]).map(
+            (tip) => (
+              <li key={tip} className="flex gap-2 text-sm leading-6 text-muted-foreground">
+                <span className="mt-2 size-1.5 shrink-0 rounded-full bg-brand-green" />
+                <span>{tip}</span>
+              </li>
+            ),
+          )}
+        </ul>
+      </section>
+
+      <section className="border-t border-border pt-4">
+        <p className="font-sans text-sm font-semibold">对下周计划的影响</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          {PLAN_IMPACT_COPY[planImpact.status]}
+        </p>
+        {planImpact.status === "applied" && (
+          <div className="mt-2 space-y-1.5">
+            {direction && <Badge>{direction}</Badge>}
+            <p className="text-sm leading-6 text-muted-foreground">{planImpact.reason}</p>
+            {planImpact.before_summary && (
+              <p className="text-xs leading-5 text-muted-foreground">调整前：{planImpact.before_summary}</p>
+            )}
+            {planImpact.after_summary && (
+              <p className="text-xs leading-5 text-muted-foreground">调整后：{planImpact.after_summary}</p>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  )
 }
 
 // Turn the user's current training data into one clear recommendation.
@@ -134,6 +228,7 @@ export default function DashboardPage() {
   const [checkinLoading, setCheckinLoading] = useState(false)
   const [checkinDone, setCheckinDone] = useState(false)
   const [aiFeedback, setAiFeedback] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<WorkoutFeedback | null>(null)
   const [planId, setPlanId] = useState<number | undefined>()
   const [planLookup, setPlanLookup] = useState<PlanLookup>("unknown")
   const [completedSets, setCompletedSets] = useState("")
@@ -192,6 +287,7 @@ export default function DashboardPage() {
         difficulty_rating: difficulty,
       })
       setAiFeedback(response.ai_feedback || null)
+      setFeedback(response.feedback ?? null)
       setCheckinDone(true)
       loadData()
     } catch {
@@ -207,6 +303,7 @@ export default function DashboardPage() {
     setDifficulty(3)
     setCheckinDone(false)
     setAiFeedback(null)
+    setFeedback(null)
     setCheckinOpen(true)
   }
 
@@ -547,23 +644,27 @@ export default function DashboardPage() {
       </section>
 
       <Dialog open={checkinOpen} onOpenChange={setCheckinOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{checkinDone ? "打卡成功" : "训练打卡"}</DialogTitle>
           </DialogHeader>
 
           {checkinDone ? (
             <div className="space-y-4 py-2">
-              <div className="flex flex-col items-center gap-3 py-4">
+              <div className="flex flex-col items-center gap-3 py-2">
                 <span className="flex size-14 items-center justify-center rounded-sm bg-brand-green/15 text-brand-green">
                   <CheckCircle2 className="size-7" />
                 </span>
                 <p className="font-sans text-lg font-semibold">今日训练已完成</p>
               </div>
-              {aiFeedback && (
-                <div className="border-l-2 border-brand-green bg-brand-green/8 p-4">
-                  <p className="text-sm leading-6 text-muted-foreground whitespace-pre-wrap">{aiFeedback}</p>
-                </div>
+              {feedback ? (
+                <CheckinFeedbackSections feedback={feedback} />
+              ) : (
+                aiFeedback && (
+                  <div className="border-l-2 border-brand-green bg-brand-green/8 p-4">
+                    <p className="text-sm leading-6 text-muted-foreground whitespace-pre-wrap">{aiFeedback}</p>
+                  </div>
+                )
               )}
               <Button className="w-full" onClick={() => setCheckinOpen(false)}>关闭</Button>
             </div>

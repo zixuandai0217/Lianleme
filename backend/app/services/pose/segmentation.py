@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 Frame = Mapping[str, Any]
@@ -133,12 +133,29 @@ class DetectedCycle:
 
 
 @dataclass(frozen=True)
+class CycleWindow:
+    """一个已完成周期的原始帧窗口，仅供评估节点消费。
+
+    帧窗口**不进入会话存储**：调用方评估完立即丢弃；``repr=False`` 避免调试
+    或日志把关键点坐标带出去（隐私硬约束）。
+    """
+
+    cycle: DetectedCycle
+    frames: tuple[Frame, ...] = field(repr=False)
+
+
+@dataclass(frozen=True)
 class SegmentationOutcome:
     """一次切分的结果：新完成的周期 + 仍需继续的帧窗口。"""
 
-    cycles: tuple[DetectedCycle, ...] = ()
+    completed: tuple[CycleWindow, ...] = ()
     pending_frames: tuple[Frame, ...] = ()
     cycle_state: str = CYCLE_STATE_WAITING
+
+    @property
+    def cycles(self) -> tuple[DetectedCycle, ...]:
+        """只关心时间与质量统计时的视图，不含关键点。"""
+        return tuple(window.cycle for window in self.completed)
 
 
 @dataclass(frozen=True)
@@ -464,19 +481,24 @@ def segment_window(
         return SegmentationOutcome()
     samples = _interpolate_gaps(window, _signal_samples(window, config), config)
 
-    cycles: list[DetectedCycle] = []
+    cycles: list[CycleWindow] = []
     cursor = 0
     while cursor < len(window) - 1:
         found = _find_cycle(samples, config, cursor)
         if found is None:
             break
         start_index, end_index = found
-        cycles.append(_build_cycle(window, start_index, end_index, config))
+        cycles.append(
+            CycleWindow(
+                cycle=_build_cycle(window, start_index, end_index, config),
+                frames=tuple(window[start_index:end_index + 1]),
+            )
+        )
         cursor = end_index + 1
 
     pending = _trim_window(window[cursor:], config)
     return SegmentationOutcome(
-        cycles=tuple(cycles),
+        completed=tuple(cycles),
         pending_frames=tuple(pending),
         cycle_state=CYCLE_STATE_COMPLETED if cycles else CYCLE_STATE_WAITING,
     )

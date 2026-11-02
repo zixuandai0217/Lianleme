@@ -92,6 +92,8 @@ export interface AnalyzeResultResponse {
 
 export interface BodyAnalysisRecordItem {
   id: number
+  /** 该历史记录对应的分析任务标识；旧记录没有任务时为 null。 */
+  task_id?: string | null
   /** @deprecated 旧内联缩略图；新接口固定返回 null，前端优先读 image_url / thumbnail_url。 */
   image_thumbnail?: string | null
   /** 原图短时签名 URL；签发失败时为 null。 */
@@ -109,6 +111,21 @@ export interface BodyAnalysisRecordItem {
 export interface BodyAnalysisHistoryResponse {
   records: BodyAnalysisRecordItem[]
   total: number
+}
+
+/** 任务列表摘要：只有执行记录级字段，不含结果明细或图片内容。 */
+export interface AnalysisTaskSummary {
+  task_id: string
+  status: AnalyzeTaskStatus
+  error_code?: string | null
+  created_at?: string
+  updated_at?: string
+  history_record_id?: number | null
+}
+
+export interface AnalysisTaskListResponse {
+  items: AnalysisTaskSummary[]
+  next_cursor?: string | null
 }
 
 // ── Plan ──
@@ -333,12 +350,65 @@ export interface WorkoutCompleteRequest {
   detail?: Record<string, unknown>
 }
 
+export type PlanImpactStatus =
+  | "not_dispatched"
+  | "evaluating"
+  | "pending_choice"
+  | "expired_no_choice"
+  | "applied"
+  | "failed"
+
+export type RecoverySource = "model" | "fallback"
+
+export type ComparisonDirection = "up" | "down" | "flat" | "first_time"
+
+export interface FeedbackCompletion {
+  completed_sets: number
+  total_sets: number
+  completion_rate: number
+  duration_minutes: number
+}
+
+export interface FeedbackComparison {
+  has_previous: boolean
+  previous_completion_rate: number | null
+  delta_percent: number | null
+  delta_points?: number | null
+  direction: ComparisonDirection
+}
+
+export interface FeedbackRecovery {
+  source: RecoverySource
+  tips: string[]
+}
+
+export interface FeedbackPlanImpact {
+  status: PlanImpactStatus
+  job_id?: string | null
+  direction?: "increase" | "decrease" | "keep" | null
+  reason: string
+  before_summary?: string | null
+  after_summary?: string | null
+}
+
+export interface WorkoutFeedback {
+  completion: FeedbackCompletion
+  comparison: FeedbackComparison
+  recovery: FeedbackRecovery
+  plan_impact: FeedbackPlanImpact
+}
+
 export interface WorkoutRecord {
   id: number
   workout_date: string
   completion_rate: number
   duration_minutes: number
   ai_feedback?: string
+  /** 打卡投递的调整作业；未建成时为 null。 */
+  job_id?: string | null
+  job_error?: string | null
+  /** 四段式反馈；历史记录没有该字段。 */
+  feedback?: WorkoutFeedback
 }
 
 export interface CheckInStats {

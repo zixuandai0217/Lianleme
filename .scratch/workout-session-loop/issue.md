@@ -186,3 +186,33 @@ plan_impact: { job_id: string | null,
 - 纯函数 + 单测 prior art：`web/src/pages/analysis/flow.ts`、`web/src/pages/analysis/flow.test.ts`
 - 页面级 jsdom 测试 prior art：`web/src/api-key-gate.test.tsx`、`web/src/coach-page.integration.test.ts`
 - 后端路由层测试 prior art：`backend/tests/test_auth_guards.py`
+
+
+## 落地修订（工单 28）
+
+打卡四段式反馈与作业投递的落地取舍：
+
+1. **完成率以会话为准**：当天存在 `WorkoutSession` 时，完成组数/总组数从会话明细派生，
+   客户端自报的 `completed_sets` 不改变结果；没有会话的历史客户端请求回落到请求值以保持
+   兼容（这是显式的兼容分支，不是默认路径）。
+2. **四段式契约**：`feedback = {completion, comparison, recovery, plan_impact}`，扁平旧字段
+   （id / workout_date / completion_rate / duration_minutes / ai_feedback）保留。恢复建议
+   永不为空：模型文案可用时 `source=model`，否则确定性兜底列表 `source=fallback`。
+3. **对比段**：有上一条打卡时给出完成率差值（百分点，字段 `delta_percent`，并保留规格命名
+   `delta_points` 同义字段）与方向；首次训练 `has_previous=false`、差值为空，绝不伪造
+   「提升 100%」。
+4. **计划影响是投影**：按打卡记录上的 `adjustment_job_id` 读作业当前状态，再按
+   `job.adjustment_id` 读同一份调整结论；方向/理由/前后摘要与计划页解释卡同源（计划解释
+   的 `latest_adjustment` 也补上同一作业快照里的 before/after 摘要）。打卡记录只保存作业
+   标识与提交时刻状态快照，不复制理由文本。
+5. **状态词表**：`not_dispatched / evaluating / pending_choice / expired_no_choice / applied /
+   failed`。超时兜底（工单 27）确实落地了计划，但与用户选择区分：报 `expired_no_choice` 并
+   说明「5 分钟未确认，已按推荐方案自动应用」。`pending_choice` 明确指向「等你确认风险处理
+   方式后才会生效」。
+6. **不阻塞、不反噬**：作业投递或评估失败仍返回 200，只是计划影响状态不同；HTTP 不等待评估，
+   前端不为等结论轮询。
+7. **同日幂等**：同一天重复打卡返回已有记录与同一作业，不新建记录、不重复投递；迁移 0013
+   追加记录侧引用列，并建立 `(user_id, workout_date)` 唯一索引兜底并发（迁移前先清理历史
+   重复，保留最新一条）。
+8. **作业与打卡原子化**：作业创建放在 savepoint 里，成功则与打卡记录同一次提交，失败只回滚
+   作业；不会出现「作业已提交但打卡记录没有指向它」的半截事实。

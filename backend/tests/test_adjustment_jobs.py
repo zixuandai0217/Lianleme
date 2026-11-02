@@ -147,12 +147,19 @@ def _auth(user_id: int) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def check_in(client, user_id: int, *, completed: int = 9, total: int = 10):
+async def check_in(
+    client,
+    user_id: int,
+    *,
+    completed: int = 9,
+    total: int = 10,
+    when: datetime.date = TODAY,
+):
     return await client.post(
         "/api/workout/complete",
         json={
             "user_id": user_id,
-            "workout_date": TODAY.isoformat(),
+            "workout_date": when.isoformat(),
             "total_sets": total,
             "completed_sets": completed,
             "duration_minutes": 30,
@@ -373,7 +380,15 @@ async def test_recent_jobs_are_newest_first_and_limit_is_bounded(
     """作业列表按时间倒序，limit 默认 20、上限 100。"""
     first = (await check_in(client, users["owner"].id, completed=9)).json()["job_id"]
     await background_tasks[0]
-    second = (await check_in(client, users["owner"].id, completed=2)).json()["job_id"]
+    # 同一天重复打卡只保留一条事实（工单 28）：第二条作业用前一天模拟下一次训练。
+    second = (
+        await check_in(
+            client,
+            users["owner"].id,
+            completed=2,
+            when=TODAY - datetime.timedelta(days=1),
+        )
+    ).json()["job_id"]
     await background_tasks[1]
 
     response = await client.get(
@@ -484,7 +499,10 @@ async def test_invalid_input_and_persist_errors_have_distinct_classifications(
         raise SQLAlchemyError("database unavailable")
 
     monkeypatch.setattr(plan_service_module.PlanService, "adjust_plan_after_workout", _persist)
-    persist_checkin = await check_in(client, users["owner"].id)
+    # 同一天重复打卡只保留一条事实（工单 28）：第二次失败用前一天模拟下一次训练。
+    persist_checkin = await check_in(
+        client, users["owner"].id, when=TODAY - datetime.timedelta(days=1)
+    )
     persist_job = persist_checkin.json()["job_id"]
     await background_tasks[1]
     persist = (await get_detail(client, users["owner"].id, persist_job)).json()
@@ -555,7 +573,13 @@ async def test_plan_diff_snapshot_survives_later_plan_changes(
     first = (await get_detail(client, users["owner"].id, first_job)).json()
     assert first["plan_diff"]["after_difficulty_factor"] == pytest.approx(1.12)
 
-    second_job = (await check_in(client, users["owner"].id)).json()["job_id"]
+    second_job = (
+        await check_in(
+            client,
+            users["owner"].id,
+            when=TODAY - datetime.timedelta(days=1),
+        )
+    ).json()["job_id"]
     await background_tasks[1]
     second = (await get_detail(client, users["owner"].id, second_job)).json()
     assert second["plan_diff"]["before_difficulty_factor"] == pytest.approx(1.12)
