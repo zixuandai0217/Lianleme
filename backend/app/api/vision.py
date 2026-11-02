@@ -40,6 +40,7 @@ from app.models.analysis_task import AnalysisTask
 from app.models.body_analysis import BodyAnalysisRecord
 from app.models.media_asset import ASSET_STATUS_AVAILABLE, MediaAsset
 from app.models.user import User
+from app.schemas.media import CleanupCountsResponse
 from app.schemas.vision import (
     AnalyzeErrorResponse,
     AnalyzeRequest,
@@ -51,6 +52,7 @@ from app.schemas.vision import (
 )
 from app.services.ai.vision_graph import VisionGraph
 from app.services.analysis_task_executor import AnalysisTaskExecutor
+from app.services.media.cleanup_service import CleanupService
 from app.services.media.media_asset_service import (
     ERROR_CODE_IMAGE_INVALID,
     ERROR_CODE_STORAGE_UNAVAILABLE,
@@ -443,6 +445,40 @@ async def get_analysis_record(
     }
     assets = await service.get_available_assets(asset_ids, current_user.id)
     return await _record_response(record, service, assets, {})
+
+
+@router.delete("/record/{record_id}", response_model=CleanupCountsResponse)
+async def delete_analysis_record(
+    record_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    storage: Storage = Depends(get_storage),
+):
+    """删除一条分析记录，并让它引用的原图与缩略图真正从对象存储消失。
+
+    记录先删除并提交，再清理资产：这样「是否仍被其他记录/任务引用」不会看到自己，
+    共享资产因此不会被误删。资产先标记待清理、删对象、再标记已删除；对象一旦删除，
+    之前签发的链接和重新换取的链接都不可用。没有资产的旧记录只删行。
+    """
+    record = await db.get(BodyAnalysisRecord, record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    ensure_current_user_matches(current_user, record.user_id)
+
+    asset_ids = {
+        asset_id
+        for asset_id in (record.image_asset_id, record.thumbnail_asset_id)
+        if asset_id
+    }
+    await db.delete(record)
+    await db.commit()
+
+    result = await CleanupService(db, storage).delete_record_assets(asset_ids)
+    return CleanupCountsResponse(
+        deleted_objects=result.deleted_objects,
+        deleted_assets=result.deleted_assets,
+        batches=result.batches,
+    )
 
 
 async def _attach_thumbnail(

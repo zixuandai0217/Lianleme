@@ -26,3 +26,23 @@ class MediaAssetUrlResponse(BaseModel):
     width: Optional[int] = None
     height: Optional[int] = None
     size_bytes: int
+
+
+class CleanupCountsResponse(BaseModel):
+    """清理结果计数：删掉多少对象、多少资产行、用了几个批次。
+
+    ``batches`` 是本次调用提交的批次数，用来证明清理是分批而不是一个长事务；
+    重复执行同一清理返回全零（幂等）。
+    """
+    deleted_objects: int = Field(..., description="本次从对象存储删除的对象数")
+    deleted_assets: int = Field(..., description="本次标记为已删除的资产行数")
+    batches: int = Field(..., description="本次提交的批次数")
+
+
+class OrphanSweepResponse(BaseModel):
+    """一次孤儿巡检的结果计数（单批、可重入）。"""
+    scanned: int = Field(..., description="本批检查的未被引用对象数")
+    deleted_orphans: int = Field(..., description="超过宽限期被删除的孤儿对象数")
+    degraded_assets: int = Field(..., description="对象缺失、被标记降级的资产数")
+    batches: int = Field(..., description="本次提交的批次数")
+    skipped_young: int = Field(..., description="仍在宽限期内、保持不动的孤儿对象数")

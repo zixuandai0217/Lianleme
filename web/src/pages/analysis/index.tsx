@@ -20,6 +20,7 @@ import {
   Target,
   RefreshCw,
   KeyRound,
+  Boxes,
 } from "lucide-react"
 import { generatePlan, getAnalysisHistory, getAnalyzeResult, getCurrentPlan, startAnalyze } from "@/api"
 import type {
@@ -29,6 +30,7 @@ import type {
   BodyAnalysisRecordItem,
 } from "@/api/types"
 import { useAuth } from "@/hooks/use-auth"
+import { MuscleHeatmap3D } from "@/components/muscle-heatmap-3d"
 import { buildAnalysisJourney } from "./flow"
 import {
   mapAnalysisTaskStatus,
@@ -57,6 +59,8 @@ export default function AnalysisPage() {
   const [expandedHistoryScores, setExpandedHistoryScores] = useState<number | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [showScores, setShowScores] = useState(false)
+  const [showHeatmap, setShowHeatmap] = useState(false)
+  const [compareRecordId, setCompareRecordId] = useState<number | null>(null)
   const [taskStatus, setTaskStatus] = useState<AnalyzeTaskStatus | null>(null)
   const [taskError, setTaskError] = useState<AnalyzeTaskError | null>(null)
 
@@ -106,6 +110,8 @@ export default function AnalysisPage() {
       setActionError(null)
       setTaskStatus(null)
       setTaskError(null)
+      setShowHeatmap(false)
+      setCompareRecordId(null)
     }
     reader.readAsDataURL(file)
   }, [])
@@ -272,6 +278,12 @@ export default function AnalysisPage() {
     traps: "斜方肌", lats: "背阔肌", deltoids: "三角肌",
   }
   const t = (key: string) => muscleLabels[key] || key
+
+  const compareRecord =
+    compareRecordId === null
+      ? null
+      : history.find((record) => record.id === compareRecordId) ?? null
+  const compareScores = compareRecord?.result.muscle_scores ?? null
 
   return (
     <div className="page-shell">
@@ -564,6 +576,55 @@ export default function AnalysisPage() {
                             <span className="w-10 text-right text-sm text-muted-foreground tabular-nums">{score}/10</span>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 3D muscle heatmap (opt-in; the score list above stays visible) */}
+                {result.muscle_scores && Object.keys(result.muscle_scores).length > 0 && (
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <button
+                      type="button"
+                      aria-expanded={showHeatmap}
+                      className="flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left transition-colors hover:bg-accent/30"
+                      onClick={() => setShowHeatmap((current) => !current)}
+                    >
+                      <span className="flex items-center gap-2 text-sm font-medium">
+                        <Boxes className="size-4 text-muted-foreground" />
+                        3D 热力图
+                        <Badge variant="secondary" className="text-[0.6rem] font-normal">可旋转</Badge>
+                      </span>
+                      {showHeatmap ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
+                    </button>
+                    {showHeatmap && (
+                      <div className="space-y-3 border-t border-border px-4 pb-4 pt-3">
+                        {history.length > 0 && (
+                          <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            对比分析记录
+                            <select
+                              value={compareRecordId ?? ""}
+                              onChange={(event) =>
+                                setCompareRecordId(event.target.value ? Number(event.target.value) : null)
+                              }
+                              className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                            >
+                              <option value="">不对比</option>
+                              {history.map((record) => (
+                                <option key={record.id} value={record.id}>
+                                  {formatDate(record.created_at)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        <MuscleHeatmap3D
+                          scores={result.muscle_scores}
+                          compareScores={compareScores}
+                          compareLabel={compareRecord ? formatDate(compareRecord.created_at) : undefined}
+                          currentLabel="本次分析"
+                          weakMuscles={result.weak_muscles}
+                        />
                       </div>
                     )}
                   </div>

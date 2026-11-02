@@ -42,6 +42,18 @@ FAILURE_CLASS_INTERRUPTED = "interrupted"
 ERROR_CODE_EVALUATION_INTERRUPTED = "evaluation_interrupted"
 ERROR_CODE_JOB_NOT_FOUND = "adjustment_job_not_found"
 ERROR_CODE_JOB_FORBIDDEN = "adjustment_job_forbidden"
+ERROR_CODE_LANDING_FAILED = "adjustment_landing_failed"
+ERROR_CODE_TIMEOUT_FALLBACK_FAILED = "adjustment_timeout_fallback_failed"
+
+# interrupt / resume 的稳定错误码（工单 27）。
+ERROR_CODE_ALREADY_DECIDED = "adjustment_already_decided"
+ERROR_CODE_EXPIRED_NO_CHOICE = "adjustment_expired_no_choice"
+ERROR_CODE_NOT_PENDING = "adjustment_not_pending_choice"
+ERROR_CODE_OPTION_INVALID = "adjustment_option_invalid"
+
+# 谁做的决定：用户亲自选 vs 超时按推荐方案代为选择。
+CHOSEN_BY_USER = "user"
+CHOSEN_BY_TIMEOUT_DEFAULT = "timeout_default"
 
 
 def _as_utc(value: datetime.datetime | None) -> datetime.datetime | None:
@@ -131,6 +143,13 @@ class PlanAdjustmentJob(Base):
     plan_diff: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     decision: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     interrupt: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # 工单 27：谁做的决定（user / timeout_default）与所选项的稳定 id。
+    chosen_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    chosen_option: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # 待选择窗口的截止时刻：读取路径据此做惰性收敛（进程重启后同样有效）。
+    interrupt_expires_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         Index(

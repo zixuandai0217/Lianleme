@@ -202,6 +202,16 @@ class AdjustmentJobDetail(AdjustmentJobSummary):
     interrupt: Optional[dict] = Field(
         default=None, description="待用户选择时的 interrupt 载荷；工单 27 写入"
     )
+    # 工单 27：决定者与所选项；非 interrupt 作业这两项为 null。
+    chosen_by: Optional[str] = Field(
+        default=None, description="user / timeout_default；尚未落地时为 null"
+    )
+    chosen_option: Optional[str] = Field(
+        default=None, description="落地方案的稳定 id；尚未落地时为 null"
+    )
+    interrupt_expires_at: Optional[datetime.datetime] = Field(
+        default=None, description="待选择窗口截止时间（UTC）；非 interrupt 作业为 null"
+    )
 
     @classmethod
     def from_job(
@@ -223,8 +233,23 @@ class AdjustmentJobDetail(AdjustmentJobSummary):
             ),
             decision=_project_decision(job.decision),
             plan_diff=_project_plan_diff(job.plan_diff),
-            interrupt=job.interrupt if isinstance(job.interrupt, dict) else None,
+            interrupt=_project_interrupt(job.interrupt),
+            chosen_by=job.chosen_by,
+            chosen_option=job.chosen_option,
+            interrupt_expires_at=job.interrupt_expires_at,
         )
+
+
+class AdjustmentResumeRequest(BaseModel):
+    """用户拍板：只提交选项 id，选项集合来自 interrupt 载荷。"""
+
+    option_id: str = Field(
+        ..., min_length=1, max_length=64, description="interrupt 载荷里的 option id"
+    )
+
+
+class AdjustmentResumeResponse(AdjustmentJobDetail):
+    """恢复结果：与详情同形，前端不需要第二套解析。"""
 
 
 class AdjustmentJobPending(BaseModel):
@@ -243,8 +268,15 @@ class AdjustmentJobPending(BaseModel):
             status=effective_status(job),  # type: ignore[arg-type]
             created_at=job.created_at,
             updated_at=job.updated_at,
-            interrupt=job.interrupt if isinstance(job.interrupt, dict) else None,
+            interrupt=_project_interrupt(job.interrupt),
         )
+
+
+def _project_interrupt(raw: object) -> Optional[dict]:
+    """对外 interrupt 载荷：去掉落地时用的内部评估快照，其余原样。"""
+    if not isinstance(raw, dict) or not raw:
+        return None
+    return {key: value for key, value in raw.items() if key != "evaluation"}
 
 
 def _decision_direction(raw: object) -> Optional[AdjustmentDirection]:

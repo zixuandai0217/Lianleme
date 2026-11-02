@@ -403,3 +403,29 @@ goal: "bulk" | "cut" | "maintain"
 7. **失败分类**：`provider_error` / `invalid_input` / `persist_error` / `internal_error`
    各自带稳定错误码；供应商原文只进日志，不出现在响应里。
 8. **权限**：与既有计划接口一致，走 JWT + 路径用户校验；他人作业 403 不泄漏内容。
+
+
+## 落地修订（工单 27）
+
+HITL 中断、恢复与超时兜底的落地取舍：
+
+1. **三个触发条件**（纯函数，单元测试逐个覆盖）：伤病维度健康评分 ≤3（`default` 缺省占位
+   不算命中）；最近 3 条已落地作业的 |声明幅度| 都 >20%；合并红标志出现目标冲突。
+   工单 24 的修订要求目标冲突由本票以同一 `{code, severity, evidence}` 形状追加，落点是在
+   作业执行时比对**档案目标与本次方向**（减脂目标却要加量、增肌目标却要降量），把
+   `goal_conflict` 追加进该次评估的 `red_flags` 后再判定；计划与结论记录在挂起时整笔回滚，
+   观察到的事实只有「计划没变 + 作业待选择」。
+2. **载荷**：`reason_code`（首条）+ `reason_codes`（全部命中）、`risk_level`、`summary`、
+   `evidence`、`proposed_adjustment`（推荐项）、`options`（恰好 3 个，首个 `recommended=true`）、
+   `expires_at`。`options` 固定为 `reduce_intensity`（推荐，难度 ×0.85）、`keep_current`（不动）、
+   `increase_gradually`（×1.05）；工单 24 不产出动作替换，因此不提供 `swap_exercise` 选项。
+3. **内部评估快照**：载荷内部保存 `evaluation` 供 resume / 超时复用（避免重新评估与展示不一致），
+   它**不下发**给客户端——详情/待确认/恢复响应在投影时剔除该键。
+4. **恢复语义**：用户提交选项 → 按所选方向落地、写审计记录、`chosen_by=user`、记录所选项；
+   重复提交同一选项幂等，改选项返回 409 `adjustment_already_decided` 且不覆盖已落地结果。
+5. **超时兜底**：5 分钟未选择 → `expired_no_choice` + `chosen_by=timeout_default`，按推荐项
+   落地一次。实现同时保留延迟任务（强引用、可取消、独立会话）与读取时惰性收敛（重启后
+   仍能收敛）；此后再 resume 返回 200 终态（`expired_no_choice`），不再改动计划，而不是
+   抛冲突——对用户而言「已按保守方案应用」是一个结果，不是错误。
+6. **状态与字段**：迁移 0012 给作业表追加 `chosen_by` / `chosen_option` / `interrupt_expires_at`；
+   其余字段沿用 0011。详情映射补充这三个字段，旧响应保持兼容。

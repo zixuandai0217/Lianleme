@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     MEDIA_MIN_EDGE_PX: int = 480
     MEDIA_THUMBNAIL_MAX_EDGE_PX: int = 800
     MEDIA_THUMBNAIL_JPEG_QUALITY: int = 80
+    # 清理与巡检：单批对象/资产数量上限（清理分批提交，不允许长事务）；
+    # 孤儿对象需超过宽限期才会被删除，给「上传成功但落库失败」留出重试窗口。
+    MEDIA_CLEANUP_BATCH_SIZE: int = 50
+    MEDIA_ORPHAN_GRACE_SECONDS: int = 86_400
 
     # LLM 系统默认 Key
     # 允许未配置个人 Key 的登录用户回退到系统 Key（仅限中央付费部署按需开启，默认关闭）

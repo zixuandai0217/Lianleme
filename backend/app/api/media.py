@@ -1,4 +1,4 @@
-"""媒体资产路由：原图上传（校验 + 服务端中转）、元数据返回与短时签名读图。"""
+"""媒体资产路由：原图上传（校验 + 服务端中转）、签名读图、用户级清空与孤儿巡检。"""
 import asyncio
 import datetime
 import logging
@@ -22,11 +22,17 @@ from app.core.logging import (
     FIELD_USER_ID,
     log_event,
 )
-from app.core.security import get_current_user
+from app.core.security import ensure_current_user_matches, get_current_admin, get_current_user
 from app.core.storage import Storage, StorageError, get_storage
 from app.models.media_asset import MediaAsset
 from app.models.user import User
-from app.schemas.media import MediaAssetResponse, MediaAssetUrlResponse
+from app.schemas.media import (
+    CleanupCountsResponse,
+    MediaAssetResponse,
+    MediaAssetUrlResponse,
+    OrphanSweepResponse,
+)
+from app.services.media.cleanup_service import CleanupResult, CleanupService
 from app.services.media.media_asset_service import (
     MediaAssetService,
     MediaValidationError,
@@ -178,4 +184,61 @@ async def get_asset_url(
         width=asset.width,
         height=asset.height,
         size_bytes=asset.size_bytes,
+    )
+
+
+def _cleanup_counts(result: CleanupResult) -> CleanupCountsResponse:
+    """清理结果 → 响应；计数是清理唯一的对外可见证据。"""
+    return CleanupCountsResponse(
+        deleted_objects=result.deleted_objects,
+        deleted_assets=result.deleted_assets,
+        batches=result.batches,
+    )
+
+
+@router.delete("/users/{user_id}/assets", response_model=CleanupCountsResponse)
+async def purge_user_assets(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    storage: Storage = Depends(get_storage),
+):
+    """按用户前缀清空其全部媒体资产（仅本人，其他人一律 403）。
+
+    对象与资产行都按批删除、按批提交；重复执行返回全零，且只触碰该用户自己的
+    前缀 ``{APP_ENV}/{user_id}/``，绝不会删除其他用户的任何对象。
+    """
+    ensure_current_user_matches(current_user, user_id)
+    service = CleanupService(db, storage)
+    try:
+        result = await service.purge_user_assets(user_id)
+    except StorageError:
+        logger.exception("用户级媒体资产清理失败", extra={FIELD_USER_ID: user_id})
+        raise storage_unavailable() from None
+    return _cleanup_counts(result)
+
+
+@router.post("/maintenance/sweep", response_model=OrphanSweepResponse)
+async def sweep_orphan_assets(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+    storage: Storage = Depends(get_storage),
+):
+    """管理员手动触发一次孤儿巡检（单批，可重入）。
+
+    正向删除超过宽限期的未被引用对象，反向把「资产在但对象丢」的行标记降级；
+    单批数量受 ``MEDIA_CLEANUP_BATCH_SIZE`` 约束，返回计数供运维核对。
+    """
+    service = CleanupService(db, storage)
+    try:
+        result = await service.sweep_orphans()
+    except StorageError:
+        logger.exception("媒体资产孤儿巡检失败")
+        raise storage_unavailable() from None
+    return OrphanSweepResponse(
+        scanned=result.scanned,
+        deleted_orphans=result.deleted_objects,
+        degraded_assets=result.degraded_assets,
+        batches=result.batches,
+        skipped_young=result.skipped_young,
     )

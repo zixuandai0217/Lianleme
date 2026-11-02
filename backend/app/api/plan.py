@@ -21,9 +21,14 @@ from app.schemas.adjustment import (
     AdjustmentJobSummary,
     AdjustmentLatestResponse,
     AdjustmentOutcomeResponse,
+    AdjustmentResumeRequest,
+    AdjustmentResumeResponse,
 )
 from app.schemas.plan import GeneratePlanRequest, PlanResponse, TodayWorkoutResponse
-from app.services.plan.adjustment_job_service import AdjustmentJobService
+from app.services.plan.adjustment_job_service import (
+    AdjustmentJobService,
+    AdjustmentResumeRejected,
+)
 from app.services.plan.plan_service import PlanService
 from app.services.user.user_service import UserService
 
@@ -104,6 +109,35 @@ async def get_adjustment_job(
         )
     adjustment = await service.get_adjustment(job.adjustment_id)
     return AdjustmentJobDetail.from_job(job, adjustment)
+
+
+@router.post(
+    "/{user_id}/adjustments/jobs/{job_id}/resume",
+    response_model=AdjustmentResumeResponse,
+)
+async def resume_adjustment_job(
+    user_id: int,
+    job_id: str,
+    req: AdjustmentResumeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """用户三选一后恢复：按所选项落地并回看结果；重复同一选项幂等、改选项冲突。"""
+    ensure_current_user_matches(current_user, user_id)
+    service = AdjustmentJobService(db)
+    try:
+        job, adjustment = await service.resume(
+            job_id=job_id,
+            user_id=current_user.id,
+            option_id=req.option_id,
+        )
+    except AdjustmentResumeRejected as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    detail = AdjustmentJobDetail.from_job(job, adjustment)
+    return AdjustmentResumeResponse(**detail.model_dump())
 
 
 @router.get("/{user_id}/adjustments/{adjustment_id}", response_model=AdjustmentOutcomeResponse)

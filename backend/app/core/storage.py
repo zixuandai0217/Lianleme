@@ -2,6 +2,10 @@
 
 真实实现（MinIO）把每个阻塞调用隔离到线程池；测试与本地开发使用内存实现。
 访问地址只能通过 ``sign`` 获得短时有效的签名链接，bucket 始终保持私有。
+
+维护路径额外需要一次「枚举」：孤儿巡检要拿对象清单与资产表比对。它是本模块的
+第六个操作（``list_objects``），**不属于 §7 的五个业务操作契约**：请求路径上的
+上传 / 读取 / 签名 / 删除 / 存在性检查仍然只依赖前五个，枚举仅供清理与巡检调用。
 """
 import asyncio
 import datetime
@@ -11,6 +15,7 @@ import secrets
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Protocol
 
 from minio import Minio
@@ -27,6 +32,18 @@ IN_MEMORY_URL_PREFIX = "memory://media/"
 # 签名过期后再次使用统一抛这个异常（端口级语义，不暴露底层细节）。
 class StorageError(RuntimeError):
     """对象存储不可用，或签名链接已失效。"""
+
+
+@dataclass(frozen=True)
+class StoredObject:
+    """枚举结果：对象 key 与其年龄（秒）。
+
+    年龄由存储层给出（MinIO 用 ``last_modified``，内存实现用可推进时钟），
+    清理侧只比较它与宽限期，不自己猜对象寿命。
+    """
+
+    key: str
+    age_seconds: float
 
 
 class Storage(Protocol):
@@ -46,6 +63,9 @@ class Storage(Protocol):
 
     async def exists(self, key: str) -> bool:
         """对象是否存在。"""
+
+    async def list_objects(self, prefix: str) -> list[StoredObject]:
+        """列举前缀下的对象及其年龄（仅维护巡检使用，不属于业务五操作）。"""
 
 
 class MinioStorage:
@@ -116,6 +136,28 @@ class MinioStorage:
         except Exception as exc:
             raise StorageError("对象状态查询失败") from exc
 
+    async def list_objects(self, prefix: str) -> list[StoredObject]:
+        """列举前缀下的对象；年龄取自对象存储的 ``last_modified``。"""
+
+        def _list() -> list[StoredObject]:
+            now = _utc_now()
+            found: list[StoredObject] = []
+            # list_objects 是惰性生成器：迭代过程必须整体留在工作线程里。
+            for item in self._client.list_objects(
+                self._bucket, prefix=prefix, recursive=True
+            ):
+                modified = item.last_modified
+                if modified is not None and modified.tzinfo is None:
+                    modified = modified.replace(tzinfo=datetime.timezone.utc)
+                age = 0.0 if modified is None else max(0.0, (now - modified).total_seconds())
+                found.append(StoredObject(key=item.object_name, age_seconds=age))
+            return found
+
+        try:
+            return await asyncio.to_thread(_list)
+        except Exception as exc:
+            raise StorageError("对象列举失败") from exc
+
 
 class InMemoryStorage:
     """内存实现：测试与本地开发使用，签名链接会随时间失效。
@@ -128,6 +170,8 @@ class InMemoryStorage:
         self._clock = clock or time.monotonic
         self._offset = 0.0
         self._objects: dict[str, tuple[bytes, str]] = {}
+        # 对象写入时刻（同一时钟）：枚举年龄与「宽限期内不清理」断言都靠它。
+        self._written_at: dict[str, float] = {}
         # token -> (object key, 失效时刻)；URL 本身不暴露 key。
         self._signed: dict[str, tuple[str, float]] = {}
 
@@ -145,6 +189,7 @@ class InMemoryStorage:
 
     async def write(self, key: str, data: bytes, content_type: str) -> None:
         self._objects[key] = (data, content_type)
+        self._written_at[key] = self._now()
 
     async def read(self, key: str) -> bytes:
         try:
@@ -165,12 +210,25 @@ class InMemoryStorage:
 
     async def delete(self, key: str) -> None:
         self._objects.pop(key, None)
+        self._written_at.pop(key, None)
         expired = [token for token, (stored, _) in self._signed.items() if stored == key]
         for token in expired:
             self._signed.pop(token, None)
 
     async def exists(self, key: str) -> bool:
         return key in self._objects
+
+    async def list_objects(self, prefix: str) -> list[StoredObject]:
+        """按内存时钟返回对象年龄；``advance`` 推进后年龄随之增长。"""
+        now = self._now()
+        return [
+            StoredObject(
+                key=key,
+                age_seconds=max(0.0, now - self._written_at.get(key, now)),
+            )
+            for key in self._objects
+            if key.startswith(prefix)
+        ]
 
     async def fetch(self, url: str) -> bytes:
         """解析签名 URL（仅内存实现提供，用于验证链接真实可用与过期语义）。"""
