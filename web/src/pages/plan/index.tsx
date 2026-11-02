@@ -1,8 +1,10 @@
 /* Refined weekly training plan workspace with polished day selector, exercise cards, and empty state. */
 import { useEffect, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import {
   ArrowRight,
   CalendarDays,
+  CheckCircle2,
   ChevronDown,
   Clock,
   Dumbbell,
@@ -11,15 +13,20 @@ import {
   Loader2,
   Sparkles,
   Timer,
-  Trophy,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { generatePlan, getCurrentPlan } from "@/api"
-import type { DailyWorkout, Exercise, PlanExplanation, TrainingPlan } from "@/api/types"
+import { generatePlan, getCheckinStats, getCurrentPlan, lookupCurrentPlan } from "@/api"
+import type { DailyWorkout, Exercise, PlanExplanation, PlanLookup, TrainingPlan } from "@/api/types"
 import { useAuth } from "@/hooks/use-auth"
+import {
+  NEXT_STEP_ROUTES,
+  buildNextStepGuide,
+  type NextStepGuide,
+  type NextStepStatus,
+} from "@/lib/next-step"
 import {
   buildExplanationCopy,
   DAY_NAMES,
@@ -189,19 +196,29 @@ function DayTab({
 
 // ── Empty state ──────────────────────────────────────────────────
 
+const STEP_STATUS_LABELS: Record<NextStepStatus, string> = {
+  completed: "已完成",
+  active: "当前步骤",
+  pending: "待完成",
+}
+
 function EmptyState({
-  hasBodyAnalysis,
+  guide,
   generating,
-  onGenerate,
-  onAnalysis,
+  onPrimary,
 }: {
-  hasBodyAnalysis: boolean
+  guide: NextStepGuide
   generating: boolean
-  onGenerate: () => void
-  onAnalysis: () => void
+  onPrimary: () => void
 }) {
+  const isPlanStep = guide.currentStep === "plan"
+  const actionBusy = isPlanStep && generating
+
   return (
-    <section className="grid overflow-hidden rounded-lg border border-border bg-card shadow-[0_8px_24px_rgba(23,26,23,0.04)] lg:grid-cols-[1fr_1fr]">
+    <section
+      data-next-step={guide.currentStep ?? "none"}
+      className="grid overflow-hidden rounded-lg border border-border bg-card shadow-[0_8px_24px_rgba(23,26,23,0.04)] lg:grid-cols-[1fr_1fr]"
+    >
       {/* Hero side */}
       <div className="relative flex min-h-72 flex-col justify-between bg-gradient-to-br from-brand-dark to-[#1f2e25] p-7 text-brand-light sm:p-9">
         <span className="flex size-12 items-center justify-center rounded-lg bg-primary/20 text-primary">
@@ -209,15 +226,13 @@ function EmptyState({
         </span>
         <div>
           <span className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-brand-light/45">
-            No active plan
+            {guide.state === "unknown" ? "计划状态待确认" : "尚未生成计划"}
           </span>
           <h2 className="mt-3 max-w-sm text-2xl font-semibold leading-tight">
-            建立第一份可执行的训练计划
+            {guide.title}
           </h2>
           <p className="mt-3 max-w-sm text-sm leading-6 text-brand-light/60">
-            {hasBodyAnalysis
-              ? "体型分析已完成，现在可以根据你的目标生成本周训练。"
-              : "先完成体型分析，AI 会结合你的目标、经验和身体状态安排动作。"}
+            {guide.description}
           </p>
         </div>
         {/* Decorative grid */}
@@ -228,54 +243,58 @@ function EmptyState({
         </div>
       </div>
 
-      {/* Steps side */}
+      {/* Steps side: shared guide projection, never a second judgement */}
       <div className="flex flex-col justify-center p-7 sm:p-9">
-        <span className="page-kicker">Getting started</span>
-        <ol className="mt-4 space-y-0">
-          {[
-            { step: "01", title: "建立体型画像", status: hasBodyAnalysis ? "已完成" : "待完成", done: hasBodyAnalysis },
-            { step: "02", title: "生成一周训练", status: "当前步骤", done: false },
-            { step: "03", title: "按日训练与打卡", status: "生成后开启", done: false },
-          ].map((item) => (
-            <li
-              key={item.step}
-              className={cn(
-                "flex items-center gap-4 border-b border-border py-4 last:border-b-0",
-                item.done && "opacity-50",
-              )}
-            >
-              <span
-                className={cn(
-                  "flex size-8 shrink-0 items-center justify-center rounded-md font-heading text-xs font-semibold",
-                  item.done
-                    ? "bg-brand-green/10 text-brand-green"
-                    : item.status === "当前步骤"
-                      ? "bg-primary/10 text-primary"
-                      : "bg-muted text-muted-foreground",
-                )}
-              >
-                {item.done ? "✓" : item.step}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="font-sans text-sm font-semibold text-foreground">{item.title}</p>
-                <p className="mt-0.5 font-sans text-xs text-muted-foreground">{item.status}</p>
-              </div>
-              {item.done && (
-                <Trophy className="size-4 shrink-0 text-brand-green" />
-              )}
-            </li>
-          ))}
-        </ol>
-        <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-          {!hasBodyAnalysis && (
-            <Button variant="outline" onClick={onAnalysis}>
-              完成体型分析
-              <ArrowRight />
-            </Button>
-          )}
-          <Button onClick={onGenerate} disabled={generating}>
-            {generating ? <Loader2 className="animate-spin" /> : <Sparkles />}
-            {generating ? "生成中..." : "生成训练计划"}
+        <span className="page-kicker">首次使用进度</span>
+        {guide.stages.length > 0 ? (
+          <ol className="mt-4 space-y-0">
+            {guide.stages.map((stage, index) => {
+              const isDone = stage.status === "completed"
+              const isActive = stage.status === "active"
+              return (
+                <li
+                  key={stage.key}
+                  aria-current={isActive ? "step" : undefined}
+                  className={cn(
+                    "flex items-center gap-4 border-b border-border py-4 last:border-b-0",
+                    isDone && "opacity-50",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex size-8 shrink-0 items-center justify-center rounded-md font-heading text-xs font-semibold",
+                      isDone
+                        ? "bg-brand-green/10 text-brand-green"
+                        : isActive
+                          ? "bg-primary/10 text-primary"
+                          : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {isDone ? <CheckCircle2 className="size-4" /> : index + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-sans text-sm font-semibold text-foreground">{stage.title}</p>
+                    <p className="mt-0.5 font-sans text-xs text-muted-foreground">
+                      {stage.description}
+                    </p>
+                  </div>
+                  <span className="shrink-0 font-sans text-[0.68rem] text-muted-foreground">
+                    {STEP_STATUS_LABELS[stage.status]}
+                  </span>
+                </li>
+              )
+            })}
+          </ol>
+        ) : (
+          <p className="mt-4 max-w-sm font-sans text-sm leading-6 text-muted-foreground">
+            暂时无法确认训练计划状态，先按今日安排继续，稍后刷新再试。
+          </p>
+        )}
+        <div className="mt-7">
+          <Button onClick={onPrimary} disabled={actionBusy}>
+            {actionBusy ? <Loader2 className="animate-spin" /> : <Sparkles />}
+            {actionBusy ? "生成中..." : guide.primaryAction.label}
+            {!actionBusy && <ArrowRight />}
           </Button>
         </div>
       </div>
@@ -339,11 +358,14 @@ function ExplanationCard({
 
 export default function PlanPage() {
   const { userId, user } = useAuth()
+  const navigate = useNavigate()
   const [plan, setPlan] = useState<TrainingPlan | null>(null)
   const [explanation, setExplanation] = useState<PlanExplanation | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [planLookup, setPlanLookup] = useState<PlanLookup>("unknown")
+  const [hasCheckedIn, setHasCheckedIn] = useState(false)
   const [activeDay, setActiveDay] = useState<number>(new Date().getDay() || 7)
 
   useEffect(() => {
@@ -356,15 +378,44 @@ export default function PlanPage() {
         if (!cancelled) {
           setPlan(response.plan)
           setExplanation(response.explanation ?? null)
+          // 成功响应即代表计划存在；无 plan 字段属于无法判别，不引导重建。
+          setPlanLookup(response.plan ? "exists" : "unknown")
         }
-      } catch (loadError) {
-        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "加载失败")
+      } catch {
+        // getCurrentPlan 的封装会丢掉状态码：用保留状态码的查询区分 404 与其它失败。
+        let lookup: PlanLookup
+        try {
+          const result = await lookupCurrentPlan(userId)
+          lookup = result.lookup
+        } catch {
+          lookup = "unknown"
+        }
+        if (!cancelled) {
+          setPlanLookup(lookup === "missing" ? "missing" : "unknown")
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
 
     void loadPlan()
+    return () => {
+      cancelled = true
+    }
+  }, [userId])
+
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+
+    getCheckinStats(userId)
+      .then((stats) => {
+        if (!cancelled) setHasCheckedIn(Boolean(stats.total_checkins))
+      })
+      .catch(() => {
+        // 打卡统计失败只影响最后一步，不改动已验证的前置结论。
+      })
+
     return () => {
       cancelled = true
     }
@@ -377,6 +428,7 @@ export default function PlanPage() {
     try {
       const response = await generatePlan(userId, user?.body_analysis || undefined, user?.profile || undefined)
       setPlan(response.plan)
+      setPlanLookup(response.plan ? "exists" : "unknown")
       // 生成接口只返回计划本身；解释字段随读取接口回来，这里重新读一次以免卡片退化为「无依据」。
       try {
         const refreshed = await getCurrentPlan(userId)
@@ -389,6 +441,22 @@ export default function PlanPage() {
     } finally {
       setGenerating(false)
     }
+  }
+
+  const guide = buildNextStepGuide({
+    hasApiKey: Boolean(user?.api_key_status?.has_key),
+    hasProfileBasics: Boolean(user?.profile?.goal && user?.profile?.experience),
+    hasBodyAnalysis: Boolean(user?.body_analysis),
+    planLookup,
+    hasCheckedIn,
+  })
+
+  const handleEmptyPrimary = () => {
+    if (guide.currentStep === "plan") {
+      void handleGenerate()
+      return
+    }
+    navigate(NEXT_STEP_ROUTES[guide.primaryAction.target])
   }
 
   const todayIndex = new Date().getDay() || 7
@@ -436,13 +504,22 @@ export default function PlanPage() {
         </div>
       )}
 
+      {/* ── Existing plan: surface the shared next step as a quiet status line ── */}
+      {plan && guide.state !== "daily" && (
+        <p
+          data-next-step={guide.currentStep ?? "none"}
+          className="rounded-lg border border-border bg-card px-4 py-3 font-sans text-sm text-muted-foreground"
+        >
+          下一步 · <span className="font-semibold text-foreground">{guide.title}</span>
+        </p>
+      )}
+
       {/* ── Empty state ── */}
       {!plan && (
         <EmptyState
-          hasBodyAnalysis={Boolean(user?.body_analysis)}
+          guide={guide}
           generating={generating}
-          onGenerate={handleGenerate}
-          onAnalysis={() => window.location.href = "/analysis"}
+          onPrimary={handleEmptyPrimary}
         />
       )}
 

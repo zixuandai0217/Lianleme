@@ -9,7 +9,8 @@ const api = vi.hoisted(() => ({
   startAnalyze: vi.fn(),
   getAnalyzeResult: vi.fn(),
   getAnalysisHistory: vi.fn(),
-  getCurrentPlan: vi.fn(),
+  lookupCurrentPlan: vi.fn(),
+  getCheckinStats: vi.fn(),
   generatePlan: vi.fn(),
 }))
 
@@ -105,7 +106,14 @@ beforeEach(() => {
   api.startAnalyze.mockResolvedValue(pendingTask)
   api.getAnalyzeResult.mockResolvedValue(expiredTask)
   api.getAnalysisHistory.mockResolvedValue({ records: [], total: 0 })
-  api.getCurrentPlan.mockResolvedValue({ plan: undefined })
+  api.lookupCurrentPlan.mockResolvedValue({ lookup: "missing" })
+  api.getCheckinStats.mockResolvedValue({
+    total_checkins: 0,
+    streak_days: 0,
+    monthly_checkins: 0,
+    monthly_completion_rate: 0,
+    recent_records: [],
+  })
 
   container = document.createElement("div")
   document.body.append(container)

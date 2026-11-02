@@ -22,21 +22,23 @@ import {
   KeyRound,
   Boxes,
 } from "lucide-react"
-import { generatePlan, getAnalysisHistory, getAnalyzeResult, getCurrentPlan, startAnalyze } from "@/api"
+import { generatePlan, getAnalysisHistory, getAnalyzeResult, getCheckinStats, lookupCurrentPlan, startAnalyze } from "@/api"
 import type {
   AnalyzeTaskError,
   AnalyzeTaskStatus,
   BodyAnalysisResult,
   BodyAnalysisRecordItem,
+  PlanLookup,
 } from "@/api/types"
 import { useAuth } from "@/hooks/use-auth"
 import { MuscleHeatmap3D } from "@/components/muscle-heatmap-3d"
-import { buildAnalysisJourney } from "./flow"
+import { buildAnalysisJourney, journeyStatusLabel, type JourneyActionTarget } from "./flow"
 import {
   mapAnalysisTaskStatus,
   pollAnalysisTask,
   type AnalysisTaskAction,
 } from "./task-status"
+import { NEXT_STEP_ROUTES, buildNextStepGuide } from "@/lib/next-step"
 import { cn } from "@/lib/utils"
 
 export default function AnalysisPage() {
@@ -46,7 +48,8 @@ export default function AnalysisPage() {
   const [imageBase64, setImageBase64] = useState<string | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [planGenerating, setPlanGenerating] = useState(false)
-  const [planReady, setPlanReady] = useState(false)
+  const [planLookup, setPlanLookup] = useState<PlanLookup>("unknown")
+  const [hasCheckedIn, setHasCheckedIn] = useState(false)
   const [result, setResult] = useState<BodyAnalysisResult | null>(
     (user?.body_analysis as BodyAnalysisResult) || null,
   )
@@ -74,22 +77,42 @@ export default function AnalysisPage() {
     }
   }, [user?.body_analysis]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Check if user already has a plan from a previous session
+  // 共享引导所需的计划存在性与打卡状态：都走保留语义的现有查询。
   useEffect(() => {
     if (!userId) return
-    getCurrentPlan(userId)
-      .then((res) => {
-        if (res.plan?.id) setPlanReady(true)
-      })
-      .catch(() => { /* no plan exists */ })
+    let cancelled = false
+
+    Promise.all([
+      lookupCurrentPlan(userId).catch(() => ({ lookup: "unknown" as PlanLookup })),
+      getCheckinStats(userId).catch(() => null),
+    ]).then(([lookup, stats]) => {
+      if (cancelled) return
+      setPlanLookup(lookup.lookup)
+      setHasCheckedIn(Boolean(stats?.total_checkins))
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [userId])
 
+  const guide = buildNextStepGuide({
+    hasApiKey: Boolean(user?.api_key_status?.has_key),
+    hasProfileBasics: Boolean(user?.profile?.goal && user?.profile?.experience),
+    hasBodyAnalysis: Boolean(result || user?.body_analysis),
+    planLookup,
+    hasCheckedIn,
+  })
+
+  const hasPlan = planLookup === "exists"
+
   const journey = buildAnalysisJourney({
+    guide,
     hasImage: Boolean(imageBase64),
     analyzing,
     hasResult: Boolean(result),
     planGenerating,
-    hasPlan: planReady,
+    hasPlan,
   })
 
   const taskView = taskStatus
@@ -105,7 +128,6 @@ export default function AnalysisPage() {
       setImagePreview(dataUrl)
       setImageBase64(dataUrl.split(",")[1])
       setResult(null)
-      setPlanReady(false)
       setError(null)
       setActionError(null)
       setTaskStatus(null)
@@ -130,7 +152,6 @@ export default function AnalysisPage() {
     setAnalyzing(true)
     setError(null)
     setActionError(null)
-    setPlanReady(false)
     setProgress(10)
     setTaskStatus("pending")
     setTaskError(null)
@@ -202,22 +223,27 @@ export default function AnalysisPage() {
     }
   }
 
-  const handleJourneyAction = async (target: "generate-plan" | "view-plan" | "go-coach") => {
+  const handleJourneyAction = async (target: JourneyActionTarget) => {
     if (target === "view-plan") {
-      navigate("/plan")
+      navigate(NEXT_STEP_ROUTES.plan)
       return
     }
     if (target === "go-coach") {
       navigate("/coach")
       return
     }
-    if (!userId || !result) return
+    if (target !== "generate-plan") {
+      navigate(NEXT_STEP_ROUTES[target])
+      return
+    }
+    const analysisForPlan = result ?? (user?.body_analysis as BodyAnalysisResult | undefined)
+    if (!userId || !analysisForPlan) return
 
     setPlanGenerating(true)
     setActionError(null)
     try {
-      await generatePlan(userId, result, user?.profile || undefined)
-      setPlanReady(true)
+      await generatePlan(userId, analysisForPlan, user?.profile || undefined)
+      setPlanLookup("exists")
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "训练计划生成失败")
     } finally {
@@ -304,6 +330,14 @@ export default function AnalysisPage() {
             <Target className="size-4 text-primary" />
             分析闭环
           </h2>
+          {guide.state !== "daily" && (
+            <p
+              data-next-step={guide.currentStep ?? "none"}
+              className="mt-2 font-sans text-xs text-muted-foreground"
+            >
+              下一步 · <span className="font-semibold text-foreground">{guide.title}</span>
+            </p>
+          )}
         </div>
         <div className="grid gap-4 px-6 py-6 sm:grid-cols-2 md:grid-cols-4">
           {journey.stages.map((stage, index) => {
@@ -319,6 +353,9 @@ export default function AnalysisPage() {
             return (
               <div
                 key={stage.key}
+                data-stage-key={stage.key}
+                data-status={stage.status}
+                aria-current={isActive ? "step" : undefined}
                 className={cn(
                   "flex items-start gap-3 rounded-lg border p-4 transition-colors",
                   isCompleted && "border-primary/20 bg-primary/[0.02]",
@@ -350,6 +387,7 @@ export default function AnalysisPage() {
                     </p>
                   </div>
                   <p className="text-xs leading-5 text-muted-foreground">{stage.description}</p>
+                  <span className="sr-only">{journeyStatusLabel(stage.status)}</span>
                 </div>
               </div>
             )
@@ -674,7 +712,7 @@ export default function AnalysisPage() {
                     </div>
                   )}
 
-                  {planReady && (
+                  {hasPlan && (
                     <div className="mt-3 rounded-lg border border-primary/20 bg-background/80 px-3 py-2 text-xs text-muted-foreground">
                       本次分析结果已经接入训练计划，现在可以直接继续进入计划执行。
                     </div>

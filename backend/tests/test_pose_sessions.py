@@ -248,6 +248,22 @@ async def _push(
     )
 
 
+
+def _assert_no_coordinate_arrays(value: object) -> None:
+    """AC1：>=3 个连续数值的数组或 {{x,y,z}} 对象都视为坐标泄漏。"""
+    if isinstance(value, dict):
+        assert not {"x", "y", "z"} <= set(value), f"coordinate object leaked: {value}"
+        for item in value.values():
+            _assert_no_coordinate_arrays(item)
+    elif isinstance(value, list):
+        if len(value) >= 3 and all(
+            isinstance(item, (int, float)) and not isinstance(item, bool)
+            for item in value
+        ):
+            raise AssertionError(f"numeric coordinate-like array leaked: {value}")
+        for item in value:
+            _assert_no_coordinate_arrays(item)
+
 def _assert_no_keypoints(value) -> None:
     """隐私断言：任何响应体里都不允许出现关键点或媒体字段。"""
     if isinstance(value, dict):
@@ -753,6 +769,7 @@ async def test_responses_never_contain_keypoints(client, seeded_users):
     for response in (create, pushed, result, finish):
         assert response.status_code == 200
         _assert_no_keypoints(response.json())
+        _assert_no_coordinate_arrays(response.json())
 
 
 # --- 载荷校验 ---------------------------------------------------------------

@@ -1,6 +1,6 @@
 /* 首用「下一步」判定的行为约束：判定表、未知态、状态自洽与纯度。 */
 import { describe, expect, it } from "vitest"
-import { NEXT_STEP_ROUTES, buildNextStepGuide, type NextStepSnapshot } from "@/lib/next-step"
+import { NEXT_STEP_ROUTES, buildNextStepGuide, stageStatusFor, type NextStepSnapshot } from "@/lib/next-step"
 
 const readyState: NextStepSnapshot = {
   hasApiKey: true,
@@ -210,5 +210,23 @@ describe("buildNextStepGuide 契约", () => {
       plan: "/plan",
       today: "/",
     })
+  })
+})
+
+describe("stageStatusFor 页面投影", () => {
+  it("按共享 guide 返回指定阶段状态", () => {
+    const guide = buildNextStepGuide(snapshot({ planLookup: "missing" }))
+
+    expect(stageStatusFor(guide, "api-key")).toBe("completed")
+    expect(stageStatusFor(guide, "plan")).toBe("active")
+    expect(stageStatusFor(guide, "first-checkin")).toBe("pending")
+  })
+
+  it("日常循环态视为全部完成；未知态不显示进度", () => {
+    const daily = buildNextStepGuide(snapshot())
+    const unknown = buildNextStepGuide(snapshot({ planLookup: "unknown" }))
+
+    expect(stageStatusFor(daily, "first-checkin")).toBe("completed")
+    expect(stageStatusFor(unknown, "plan")).toBe("pending")
   })
 })

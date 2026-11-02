@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import secrets
 import time
 from collections.abc import Callable, Sequence
@@ -133,6 +134,11 @@ class PoseSession:
     created_at: float
     last_seen_at: float
     expires_at: float
+    # 墙钟起止时间：只用于聚合行的时间戳，不参与 TTL（TTL 用单调时钟）。
+    started_at: datetime.datetime = field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    )
+    finished_at: datetime.datetime | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     pending_frames: list[Frame] = field(default_factory=list, repr=False)
     cycles: list[EvaluatedCycle] = field(default_factory=list, repr=False)
@@ -336,8 +342,14 @@ class PoseSessionStore:
             )
 
     async def finish_session(self, session: PoseSession) -> SessionSummary:
-        """结束会话并返回聚合摘要；重复结束幂等，未成周期的窗口立即丢弃。"""
+        """结束会话并返回聚合摘要；重复结束幂等，未成周期的窗口立即丢弃。
+
+        墙钟 ``finished_at`` 只在第一次结束时写入：重复结束返回同一摘要，
+        也让聚合行的时间戳保持稳定（不会因为客户端重试而漂移）。
+        """
         async with session.lock:
+            if session.finished_at is None:
+                session.finished_at = datetime.datetime.now(datetime.timezone.utc)
             session.finished = True
             session.pending_frames = []
             self._touch(session, self._clock())
@@ -370,6 +382,18 @@ class PoseSessionStore:
                 model_paused=throttle.budget_exhausted,
                 paused_notice_sent=throttle.paused_notice_sent,
             )
+
+    async def discard_finished_session(self, session_id: str, *, user_id: int) -> bool:
+        """删除聚合时同步丢弃已结束会话，防止重复结束把被删的聚合重新算出来。
+
+        只移除「已结束且属于该用户」的会话；进行中会话与过期清理逻辑不受影响。
+        """
+        async with self._registry_lock:
+            session = self._sessions.get(session_id)
+            if session is None or session.user_id != user_id or not session.finished:
+                return False
+            self._sessions.pop(session_id, None)
+            return True
 
     async def _evaluate_completed(
         self,

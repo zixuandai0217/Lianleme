@@ -6,38 +6,58 @@
 """
 
 import datetime
+import hashlib
+import logging
 import math
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.logging import (
+    EVENT_POSE_CYCLE_COMPLETED,
+    EVENT_POSE_SESSION_FINISHED,
+    FIELD_CYCLE_INDEX,
+    FIELD_DURATION_MS,
+    FIELD_ISSUE_TYPES,
+    FIELD_SESSION,
+    log_event,
+)
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.pose import (
     MAX_FRAMES_PER_BATCH,
     UPLOAD_INTERVAL_MS,
     PoseAction,
+    PoseAggregateListResponse,
+    PoseAggregateResponse,
     PoseCycle,
     PoseFinishResponse,
     PoseFramesRequest,
     PoseFramesResponse,
     PoseHighlight,
+    PoseInjurySummaryResponse,
     PoseIssue,
     PoseResultResponse,
     PoseSessionCreate,
     PoseSessionResponse,
 )
 from app.services.ai.pose_graph import PoseGraph
+from app.services.pose import aggregate_service
 from app.services.pose.llm_coach import PoseLLMCoach
 from app.services.pose.session_store import (
     EvaluatedCycle,
+    FramePushOutcome,
     PoseSessionError,
     PoseSessionStore,
     get_pose_session_store,
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# 结构化日志事件：只记录会话短标识、周期序号、耗时与规则命中类型。
+LOG_SESSION_ID_LENGTH = 8
 
 # 创建会话时给的机位引导：一句话说清怎么架手机（画面不出设备）。
 CREATE_CAMERA_HINT = "把手机架到与髋同高，确保全身入镜；正面或正侧拍摄都可以。"
@@ -72,6 +92,38 @@ def _http_error(code: str, status_code: int, message: str) -> HTTPException:
 
 def _session_http_error(exc: PoseSessionError) -> HTTPException:
     return _http_error(exc.code, exc.status_code, exc.detail)
+
+
+def _aggregate_http_error(exc: aggregate_service.PoseAggregateError) -> HTTPException:
+    return _http_error(exc.code, exc.status_code, exc.detail)
+
+
+def _short_session_id(session_id: str) -> str:
+    """日志用的会话短标识：哈希前 8 位，不可反推也不可直接当作会话 token。"""
+    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:LOG_SESSION_ID_LENGTH]
+
+
+def _log_completed_cycles(
+    session_id: str,
+    outcome: FramePushOutcome,
+) -> None:
+    """周期完成日志只带短标识、序号、耗时与问题类型，绝不含坐标/角度序列。"""
+    first_index = outcome.cycles_count - len(outcome.new_cycles) + 1
+    for offset, entry in enumerate(outcome.new_cycles):
+        evaluation = entry.evaluation
+        issue_types = sorted(
+            {issue.type for issue in (evaluation.issues if evaluation is not None else ())}
+        )
+        log_event(
+            logger,
+            EVENT_POSE_CYCLE_COMPLETED,
+            **{
+                FIELD_SESSION: _short_session_id(session_id),
+                FIELD_CYCLE_INDEX: first_index + offset,
+                FIELD_DURATION_MS: entry.cycle.duration_ms,
+                FIELD_ISSUE_TYPES: issue_types,
+            },
+        )
 
 
 def get_pose_graph(
@@ -201,6 +253,7 @@ async def append_pose_frames(
     except PoseSessionError as exc:
         raise _session_http_error(exc) from None
 
+    _log_completed_cycles(session_id, outcome)
     cycles = [_cycle_response(cycle) for cycle in outcome.new_cycles]
     return PoseFramesResponse(
         accepted=len(frames),
@@ -238,8 +291,9 @@ async def finish_pose_session(
     session_id: str,
     current_user: User = Depends(get_current_user),
     store: PoseSessionStore = Depends(get_pose_session_store),
+    db: AsyncSession = Depends(get_db),
 ):
-    """结束会话并返回聚合摘要；重复结束幂等，未成周期的窗口立即丢弃。"""
+    """结束会话、返回聚合摘要并落一行数值聚合；重复结束幂等（复用同一行）。"""
     try:
         session = await store.get_session(
             session_id, user_id=current_user.id, allow_finished=True
@@ -247,6 +301,22 @@ async def finish_pose_session(
         summary = await store.finish_session(session)
     except PoseSessionError as exc:
         raise _session_http_error(exc) from None
+
+    row = await aggregate_service.persist_session_aggregate(
+        db,
+        user_id=current_user.id,
+        summary=summary,
+        started_at=session.started_at,
+        finished_at=session.finished_at or session.started_at,
+    )
+    log_event(
+        logger,
+        EVENT_POSE_SESSION_FINISHED,
+        **{
+            FIELD_SESSION: _short_session_id(session_id),
+            FIELD_ISSUE_TYPES: sorted(summary.issues_histogram),
+        },
+    )
 
     return PoseFinishResponse(
         session_id=summary.session_id,
@@ -257,10 +327,81 @@ async def finish_pose_session(
         avg_quality=summary.avg_quality,
         issues_histogram=summary.issues_histogram,
         quality_available=summary.quality_available,
+        not_evaluable_ratio=aggregate_service.not_evaluable_ratio(
+            summary.not_evaluable_cycles, summary.cycles_count
+        ),
+        aggregate_id=row.id,
         model_calls=summary.model_calls,
         degraded_cycles=summary.degraded_cycles,
         model_degraded=summary.model_degraded,
         circuit_open=summary.circuit_open,
         model_paused=summary.model_paused,
         paused_notice_sent=summary.paused_notice_sent,
+    )
+
+
+@router.get("/aggregates", response_model=PoseAggregateListResponse)
+async def list_pose_aggregates(
+    limit: int = Query(
+        aggregate_service.DEFAULT_LIST_LIMIT,
+        ge=1,
+        le=aggregate_service.MAX_LIST_LIMIT,
+        description="返回条数上限（有界）",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """自己的最近姿态聚合；只按 token 身份查询，不接受 user 参数。"""
+    return await aggregate_service.list_aggregates(
+        db, user_id=current_user.id, limit=limit
+    )
+
+
+@router.get("/aggregates/{aggregate_id}", response_model=PoseAggregateResponse)
+async def get_pose_aggregate(
+    aggregate_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """读取自己的聚合详情；他人 403（无内容），不存在 404 稳定错误码。"""
+    try:
+        return await aggregate_service.get_aggregate(
+            db, aggregate_id, user_id=current_user.id
+        )
+    except aggregate_service.PoseAggregateError as exc:
+        raise _aggregate_http_error(exc) from None
+
+
+@router.delete("/aggregates/{aggregate_id}", status_code=204)
+async def delete_pose_aggregate(
+    aggregate_id: int,
+    current_user: User = Depends(get_current_user),
+    store: PoseSessionStore = Depends(get_pose_session_store),
+    db: AsyncSession = Depends(get_db),
+):
+    """硬删除自己的聚合，并同步丢弃会话内存：删除后不能通过重复结束重算。"""
+    try:
+        session_id = await aggregate_service.delete_aggregate(
+            db, aggregate_id, user_id=current_user.id
+        )
+    except aggregate_service.PoseAggregateError as exc:
+        raise _aggregate_http_error(exc) from None
+    await store.discard_finished_session(session_id, user_id=current_user.id)
+    return Response(status_code=204)
+
+
+@router.get("/injury-summary", response_model=PoseInjurySummaryResponse)
+async def get_pose_injury_summary(
+    days: int = Query(
+        aggregate_service.DEFAULT_INJURY_SUMMARY_DAYS,
+        ge=1,
+        le=aggregate_service.MAX_INJURY_SUMMARY_DAYS,
+        description="统计最近多少天（只读数值摘要）",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """供伤病风险评估消费的只读摘要：只有数值聚合，没有关键点或单次明细。"""
+    return await aggregate_service.build_injury_summary(
+        db, user_id=current_user.id, days=days
     )

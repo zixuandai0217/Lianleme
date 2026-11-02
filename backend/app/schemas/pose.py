@@ -251,9 +251,65 @@ class PoseFinishResponse(BaseModel):
     )
     issues_histogram: dict[str, int] = Field(default_factory=dict)
     quality_available: bool = False
+    not_evaluable_ratio: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="不可评估周期占比：cycles_count 为 0 时是 0.0，不编造分母",
+    )
+    # 本次结束写入（或复用）的聚合行标识：客户端据此删除自己的聚合记录。
+    aggregate_id: Optional[int] = Field(
+        default=None, description="持久化聚合行标识；重复结束返回同一行"
+    )
     model_calls: int = Field(default=0, description="本会话模型调用次数")
     degraded_cycles: int = Field(default=0, description="降级为纯规则的周期数")
     model_degraded: bool = Field(default=False, description="本会话是否出现过模型降级")
     circuit_open: bool = Field(default=False, description="连续失败熔断：后续周期不再调用模型")
     model_paused: bool = Field(default=False, description="模型调用已达单会话上限")
     paused_notice_sent: bool = Field(default=False, description="「深度点评已暂停」是否已提示过")
+
+
+class PoseAggregateResponse(BaseModel):
+    """一条姿态质量聚合：只有会话级数值与问题类型计数，没有任何坐标或单次明细。"""
+
+    id: int
+    session_id: str = Field(..., description="不透明会话标识，聚合幂等键")
+    started_at: datetime.datetime
+    finished_at: datetime.datetime
+    cycles_count: int
+    evaluable_cycles: int
+    not_evaluable_cycles: int
+    avg_quality: float = Field(..., ge=0.0, le=10.0)
+    issues_histogram: dict[str, int] = Field(default_factory=dict)
+    model_calls: int
+    not_evaluable_ratio: float = Field(..., ge=0.0, le=1.0)
+    created_at: datetime.datetime
+
+
+class PoseAggregateListResponse(BaseModel):
+    """自己的最近聚合列表（有界，按结束时间倒序）。"""
+
+    items: List[PoseAggregateResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class PoseInjuryIssueCount(BaseModel):
+    """伤病摘要里的一种问题类型与命中次数（只有类型名与计数）。"""
+
+    type: str
+    count: int
+
+
+class PoseInjurySummaryResponse(BaseModel):
+    """只读的伤病风险输入摘要：全部是数值聚合，不含关键点与单次动作明细。"""
+
+    window_days: int
+    sessions_covered: int
+    training_days: int
+    cycles_covered: int
+    evaluable_cycles: int
+    not_evaluable_cycles: int
+    not_evaluable_ratio: float = Field(..., ge=0.0, le=1.0)
+    avg_quality: float = Field(..., ge=0.0, le=10.0)
+    quality_available: bool
+    top_issues: List[PoseInjuryIssueCount] = Field(default_factory=list)

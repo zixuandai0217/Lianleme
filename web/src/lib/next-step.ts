@@ -199,3 +199,18 @@ export function buildNextStepGuide(snapshot: NextStepSnapshot): NextStepGuide {
     secondaryHint: null,
   }
 }
+
+/**
+ * 页面投影辅助：从共享 guide 读取指定阶段状态。
+ *
+ * daily 表示全部前置条件已满足（全部 completed）；unknown 表示无法判别
+ * （不显示进度，全部 pending）。页面不允许绕开 guide 自行重新判定。
+ */
+export function stageStatusFor(
+  guide: NextStepGuide,
+  key: NextStepKey,
+): NextStepStatus {
+  if (guide.state === "daily") return "completed"
+  if (guide.state === "unknown") return "pending"
+  return guide.stages.find((stage) => stage.key === key)?.status ?? "pending"
+}

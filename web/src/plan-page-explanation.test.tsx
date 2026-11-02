@@ -31,6 +31,15 @@ vi.mock("@/hooks/use-auth", () => ({
 
 vi.mock("@/api", () => ({
   getCurrentPlan: () => Promise.resolve(state.response),
+  lookupCurrentPlan: () => Promise.resolve({ lookup: "exists", planId: 1 }),
+  getCheckinStats: () =>
+    Promise.resolve({
+      total_checkins: 3,
+      streak_days: 1,
+      monthly_checkins: 3,
+      monthly_completion_rate: 1,
+      recent_records: [],
+    }),
   generatePlan: () => Promise.reject(new Error("not part of this test")),
 }))
 
