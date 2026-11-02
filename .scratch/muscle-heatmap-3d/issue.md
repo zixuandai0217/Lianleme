@@ -223,3 +223,28 @@ sources:
 - [web/src/components/coach-lip-sync.ts](web/src/components/coach-lip-sync.ts) — "数据 → 视觉参数"纯函数 + 非法输入防御的范例
 - [web/src/coach-lip-sync.test.ts](web/src/coach-lip-sync.test.ts) — 纯函数断言 + `node:fs` 资源体积检查（资产预算测试的模板）
 - [web/src/coach-2d-runtime.test.ts](web/src/coach-2d-runtime.test.ts) — 重渲染组件只做冒烟的写法
+
+
+## 落地修订（工单 44）
+
+评分到视觉参数的映射与 2D 降级，落成 `web/src/muscle-heatmap.ts`（纯函数，无 DOM、
+无 Three.js、无时钟、无随机），供工单 45 消费：
+
+1. **ADR-0005 线性映射**：强度 = 分数 / 10，色相 = 分数 × 6（0 分 → 0 强度 / 0 色相暗红，
+   10 分 → 1 强度 / 60 色相亮黄），单调且无跳变，整数与中间值都表驱动断言。
+2. **脏数据**：有限数值钳制到 0–10；数字字符串按数值解析；NaN、±Infinity、null、
+   布尔、对象、数组一律按「未评估」忽略，函数不抛异常，也不产生负强度或越界色相。
+3. **区域归一**：别名（核心 / 腹 / 侧腹 / 腹部 / core / abs …）归并到 `abs`；左右侧键
+   （英文 left_/right_ 前后缀与中文 左/右）先按侧求均值并保留左右分；区域分是「落到该
+   区域的全部源键」的算术平均（不是先按侧求均值再平均，否则左右侧各算一票）；
+   两侧差值 ≥3 产出「单侧偏差」标注；无法归一的键不进入 3D 参数但保留在列表数据里。
+4. **未评估语义**：缺失区域产出中性低强度（0.04）+ 灰色 + 「未评估」图例项，不参与任何
+   平均、不参与差异，也绝不被当作 0 分（用反向断言锁死）。
+5. **对比差异**：同一区域 |Δ| ≥ 2 才产徽标且方向正确；任一侧未评估不产徽标；top-N
+   默认 3，按 |Δ| 降序、区域键稳定排序。
+6. **降级状态**：能力探测失败、模型加载失败、整条记录无评分三种输入分别得到「列表视图 +
+   对应提示」的状态（`renderModel=false`、`scene=null`），都不产生「看起来像 0 分」的
+   渲染输入；能力探测与无评分优先于模型加载失败。
+7. **导出面**：`MUSCLE_REGIONS`（12 区域渲染顺序）、`MUSCLE_REGION_LABELS`、
+   `buildHeatmapScene`、`compareHeatmaps`、`resolveHeatmapFallback` 及其类型是工单 45 与
+   页面之间唯一契约。

@@ -16,6 +16,7 @@ from app.api import vision as vision_api
 from app.core.database import Base
 from app.core.logging import StructuredJsonFormatter
 from app.core.request_context import bind_request_context
+from app.core.storage import InMemoryStorage
 from app.models.analysis_task import AnalysisTask
 from app.models.body_analysis import BodyAnalysisRecord
 from app.models.user import User
@@ -119,6 +120,7 @@ async def test_task_creation_logs_identity_and_captures_request_id(
                 request,
                 db=session,
                 current_user=SimpleNamespace(id=seeded_user.id),
+                storage=InMemoryStorage(),
             )
 
     assert created_coroutines, "the background task should be scheduled"

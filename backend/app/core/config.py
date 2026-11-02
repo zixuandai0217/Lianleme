@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     MINIO_ROOT_USER: str = "minioadmin"
     MINIO_ROOT_PASSWORD: str = "minio123"
     MINIO_BUCKET: str = "lianleme-photos"
+    # 媒体资产签名链接有效期（秒）；只存在于签名结果中，绝不落库。
+    MEDIA_SIGNED_URL_TTL_SECONDS: int = 300
 
     # LLM 系统默认 Key
     # 允许未配置个人 Key 的登录用户回退到系统 Key（仅限中央付费部署按需开启，默认关闭）

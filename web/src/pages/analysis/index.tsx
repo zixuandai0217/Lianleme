@@ -672,13 +672,19 @@ export default function AnalysisPage() {
                       className="flex w-full items-center gap-4 p-4 text-left"
                       onClick={() => setExpandedRecord(isExpanded ? null : record.id)}
                     >
-                      {record.image_thumbnail && (
+                      {record.image_url ? (
+                        <img
+                          src={record.image_url}
+                          alt="分析照片"
+                          className="h-14 w-14 shrink-0 rounded-lg object-cover"
+                        />
+                      ) : record.image_thumbnail ? (
                         <img
                           src={`data:image/jpeg;base64,${record.image_thumbnail}`}
                           alt="缩略图"
                           className="h-14 w-14 shrink-0 rounded-lg object-cover"
                         />
-                      )}
+                      ) : null}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <Badge variant="secondary" className="bg-brand-green/8 text-xs text-brand-green">

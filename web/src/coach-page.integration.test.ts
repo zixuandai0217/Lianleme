@@ -34,7 +34,17 @@ describe("AI coach page", () => {
     // The old line-by-line data: splice and its DONE marker are gone.
     expect(coachPage).not.toContain("streamFetch")
     expect(coachPage).not.toContain("replyText")
-    expect(coachPage).toContain("EMPTY_COACH_REPLY")
+    expect(coachPage).toContain("coachTurnPresentation")
+  })
+
+  it("shows turn outcomes as notices outside the bubble and keeps them out of speech", () => {
+    expect(coachPage).toContain("turnNotice")
+    expect(coachPage).toContain("data-coach-notice")
+    expect(coachPage).toContain("presentation.notice")
+    expect(coachPage).toContain("presentation.speakable")
+    expect(coachPage).toContain("isCoachAbortError")
+    expect(coachPage).not.toContain("setPageError(turn.error.message)")
+    expect(coachPage).not.toContain('setPageError("连接中断')
   })
 
   it("takes quick actions from the reducer and sends the action prompt", () => {

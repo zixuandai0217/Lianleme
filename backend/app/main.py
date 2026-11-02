@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app.api import admin, coach, notification, plan, user, vision, weight, workout
+from app.api import admin, coach, media, notification, plan, user, vision, weight, workout
 from app.core.config import settings
 from app.core.database import engine
 from app.core.health import APP_VERSION, build_readiness, liveness_report
@@ -141,6 +141,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # 注册路由
 app.include_router(user.router, prefix="/api/user", tags=["用户"])
 app.include_router(vision.router, prefix="/api/vision", tags=["体型分析"])
+app.include_router(media.router, prefix="/api/media", tags=["媒体资产"])
 app.include_router(plan.router, prefix="/api/plan", tags=["训练计划"])
 app.include_router(coach.router, prefix="/api/coach", tags=["AI 陪练"])
 app.include_router(workout.router, prefix="/api/workout", tags=["训练记录"])

@@ -29,7 +29,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useAuth } from "@/hooks/use-auth"
 import { useCoachVoice } from "@/hooks/use-coach-voice"
 import {
-  EMPTY_COACH_REPLY,
+  coachTurnPresentation,
+  isCoachAbortError,
   streamCoachTurn,
   type CoachAction,
   type CoachTurnState,
@@ -41,6 +42,11 @@ interface DisplayMessage {
   content: string
   createdAt?: string
   pending?: boolean
+}
+
+interface TurnNotice {
+  kind: "error" | "truncated"
+  message: string
 }
 
 interface SpeechRecognitionEventLike {
@@ -193,6 +199,7 @@ export default function CoachPage() {
   const [historyLoading, setHistoryLoading] = useState(true)
   const [ttsAvailable, setTtsAvailable] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
+  const [turnNotice, setTurnNotice] = useState<TurnNotice | null>(null)
   const [announcement, setAnnouncement] = useState("")
   const transcriptRef = useRef<HTMLDivElement>(null)
   const messageSequenceRef = useRef(0)
@@ -271,6 +278,7 @@ export default function CoachPage() {
     speech.stop()
     setInput("")
     setPageError(null)
+    setTurnNotice(null)
     setConversationStatus("thinking")
 
     const sequence = ++messageSequenceRef.current
@@ -299,7 +307,7 @@ export default function CoachPage() {
         item.id === assistantId
           ? {
             ...item,
-            content: turn.body || (turn.status === "error" ? EMPTY_COACH_REPLY : ""),
+            content: turn.body,
             pending: turn.status === "thinking" || turn.status === "streaming",
           }
           : item
@@ -325,19 +333,31 @@ export default function CoachPage() {
       })
       if (streamController.signal.aborted) return
 
-      const reply = turn.body.trim()
-      if (turn.error) {
-        setConversationStatus("error")
-        setPageError(turn.error.message)
-        setAnnouncement("数字教练暂时没法回复，请稍后再试。")
-        return
+      const presentation = coachTurnPresentation(turn)
+      setConversationStatus(turn.status === "error" ? "error" : "idle")
+      if (presentation.notice && presentation.noticeKind) {
+        setTurnNotice({ kind: presentation.noticeKind, message: presentation.notice })
       }
-      setConversationStatus("idle")
-      if (turn.finishReason === "truncated") setPageError("连接中断，回复可能不完整。")
-      setAnnouncement(reply ? `教练回复：${reply}` : "")
-      if (reply && ttsAvailable) await voice.play(assistantId, reply)
+      // Empty bodies never leave a bubble; the notice above carries the outcome.
+      setMessages((current) => current.flatMap((item) => {
+        if (item.id !== assistantId) return [item]
+        return presentation.body.trim()
+          ? [{ ...item, content: presentation.body, pending: false }]
+          : []
+      }))
+      const reply = presentation.body.trim()
+      setAnnouncement(
+        presentation.noticeKind === "error"
+          ? "数字教练暂时没法回复，请稍后再试。"
+          : reply
+            ? `教练回复：${reply}`
+            : "",
+      )
+      if (presentation.speakable && ttsAvailable) {
+        await voice.play(assistantId, presentation.speakable)
+      }
     } catch (error) {
-      if (streamController.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
+      if (streamController.signal.aborted || isCoachAbortError(error)) {
         setConversationStatus("idle")
         // A user interrupt keeps any partial reply but never leaves an empty bubble.
         setMessages((current) => current.flatMap((item) => {
@@ -350,11 +370,10 @@ export default function CoachPage() {
       setConversationStatus("error")
       setPageError(errorMessage)
       setAnnouncement("数字教练连接中断，请重新发送。")
-      setMessages((current) => current.map((item) => (
-        item.id === assistantId
-          ? { ...item, content: item.content || EMPTY_COACH_REPLY, pending: false }
-          : item
-      )))
+      setMessages((current) => current.flatMap((item) => {
+        if (item.id !== assistantId) return [item]
+        return item.content ? [{ ...item, pending: false }] : []
+      }))
     } finally {
       if (streamAbortRef.current === streamController) streamAbortRef.current = null
     }
@@ -515,6 +534,20 @@ export default function CoachPage() {
                 )
               })}
             </div>
+
+            {turnNotice && (
+              <p
+                role={turnNotice.kind === "error" ? "alert" : "status"}
+                data-coach-notice={turnNotice.kind}
+                className={`mt-4 rounded-md border px-3 py-2 text-xs font-medium ${
+                  turnNotice.kind === "error"
+                    ? "border-[#e6c9c4] bg-[#fff4f2] text-[#b83227]"
+                    : "border-[#e5e3de] bg-[#f7f6f2] text-[#626a65]"
+                }`}
+              >
+                {turnNotice.message}
+              </p>
+            )}
           </div>
 
           <div className="shrink-0 border-t border-[#eceae5] bg-[#fffdf9] p-4 sm:p-5">

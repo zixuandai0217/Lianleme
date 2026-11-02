@@ -121,6 +121,39 @@ afterEach(async () => {
   vi.clearAllMocks()
 })
 
+describe("AnalysisPage history images", () => {
+  const result = {
+    body_type: "mesomorph",
+    body_fat_range: "15-20%",
+    weak_muscles: ["背"],
+    strengths: ["腿"],
+    muscle_scores: { back: 6 },
+    summary: "保持训练",
+  }
+
+  it("prefers the signed original, then the legacy thumbnail, then renders nothing", async () => {
+    api.getAnalysisHistory.mockResolvedValue({
+      records: [
+        { id: 1, image_url: "https://signed.example/photo", result },
+        { id: 2, image_thumbnail: "bGVnYWN5", result },
+        { id: 3, image_url: null, image_thumbnail: null, degraded: true, result },
+      ],
+      total: 3,
+    })
+
+    await mountPage()
+    await flush()
+
+    const sources = Array.from(container.querySelectorAll("img")).map((image) =>
+      image.getAttribute("src"),
+    )
+    expect(sources).toEqual([
+      "https://signed.example/photo",
+      "data:image/jpeg;base64,bGVnYWN5",
+    ])
+  })
+})
+
 describe("AnalysisPage task polling", () => {
   it("stops polling as soon as the task is expired and offers a restart", async () => {
     await mountPage()

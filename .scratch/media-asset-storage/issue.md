@@ -205,3 +205,34 @@ key 采用「环境 / 用户 / 年月 / 资产标识.扩展名」的分层结构
 - [web/src/pages/analysis/index.tsx](web/src/pages/analysis/index.tsx) — 图片选择与上传前的现状逻辑
 - [web/src/pages/analysis/flow.ts](web/src/pages/analysis/flow.ts) — 纯函数化展示决策的范例
 - [web/src/api/index.ts](web/src/api/index.ts) — 前端调用封装
+
+
+## 落地修订（工单 14）
+
+原图上传、资产实体与签名读图的落地取舍，覆盖正文中与之冲突或含糊的表述：
+
+1. **存储端口只有五个异步操作**：写入、读取、签名、删除、存在性检查。业务代码只依赖
+   `Storage` 协议，不持有客户端、不拼接访问地址；MinIO 实现的每个阻塞调用都经
+   `asyncio.to_thread`，测试用内存实现（不透明 token URL + 可推进时钟）。
+2. **端口的装配位置**：`get_storage()` 是唯一依赖入口；`APP_ENV=development` 且数据库为
+   SQLite 时装配内存实现（本地开发不依赖 MinIO），其余环境装配 MinIO。测试通过
+   `dependency_overrides` 注入自己的内存实例。代价是开发库的资产行与内存对象不同寿命，
+   重启后历史会走「降级为空链接」，这是开发态的已知取舍。
+3. **对象 key**：`{APP_ENV}/{user_id}/{YYYYMM}/{asset_id}{扩展名}`；资产标识不可猜测
+   （`as_` + token_urlsafe），扩展名只由内容类型决定，用户原始文件名只作为元数据保留。
+4. **签名读图**：TTL 默认 300 秒（`MEDIA_SIGNED_URL_TTL_SECONDS`）；URL 与过期时间只出现在
+   响应里，不落库、不进日志。缺失 / 他人持有 / 已删除一律同一 404 `asset_not_found`，
+   响应体逐字节一致；未登录仍是仓库统一的 401。
+5. **上传**：`POST /api/media/assets`，multipart 服务端中转，服务端计算 sha256 作为元数据与
+   去重依据；客户端可附摘要，不一致返回 400 `checksum_mismatch`；无法解码返回 400
+   `image_invalid`；对象存储不可用返回 503 `storage_unavailable` 且不新增任何行。
+   内容类型白名单、字节上限、最小分辨率与 EXIF 清理属于工单 15，本票不做，上传接口在
+   工单 15 之前是宽松的。
+6. **分析创建改为二选一**：`image_asset_id` 与 `image_base64` 恰好提供一个（否则 422）；
+   内联图片先落成资产再建任务，任务表与历史表永远不再写图片内容。兼容路径刻意宽松：
+   内联字节解码失败不拒绝（尺寸留空），因为完整校验只在上传接口；新客户端走资产标识。
+7. **历史与详情**：新增 `image_url`（按需签名的原图链接）、`thumbnail_url`（本票恒空）、
+   `image_asset_id`、`thumbnail_asset_id`、`degraded`；旧字段 `image_thumbnail` 恒返回
+   null 作为弃用窗口。签名失败只把该条置为「空链接 + degraded」，绝不让整个列表失败。
+8. **去重并发**：`(user_id, checksum)` 在「可用原图」上建部分唯一索引；并发撞键时删掉本次
+   多写的对象并复用既有资产。数据库提交失败仍可能留下孤儿对象，清理归工单 16。

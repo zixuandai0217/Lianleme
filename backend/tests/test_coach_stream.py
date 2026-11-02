@@ -6,16 +6,26 @@ dependencies overridden and a fake CoachGraph, so no provider call is made.
 """
 
 import json
+import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from jose import jwt
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from starlette.requests import Request
 
 from app.api import coach as coach_api
-from app.core.database import get_db
-from app.core.security import require_current_user_api_key
+from app.core.config import settings
+from app.core.database import Base, get_db
+from app.core.logging import EVENT_SSE_INTERRUPTED
+from app.core.security import get_current_user, require_current_user_api_key
 from app.main import app
+from app.models.chat_message import ChatMessageRecord
+from app.models.user import User
 from app.schemas.chat import (
     CoachAction,
     CoachActionsEvent,
@@ -29,6 +39,7 @@ from app.schemas.chat import (
 from app.services.ai import coach_graph as coach_graph_module
 from app.services.ai.coach_graph import COACH_FALLBACK_REPLY, CoachGraph
 from app.services.ai.llm_factory import LLMClientFactory
+from app.services.user.api_key_service import ApiKeyService
 
 USER_ID = 7
 STREAM_URL = "/api/coach/chat/stream"
@@ -407,3 +418,278 @@ def test_single_frame_payload_matches_the_protocol_shape(event, expected):
     assert frame.endswith("\n\n")
     assert "\n" not in frame[:-2]
     assert json.loads(frame[len("data: "):-2]) == expected
+
+
+# ── 错误 / 中断 / 回放清洗（ticket 19）──
+
+
+class PartiallyFailingCoachGraph:
+    """Emit readable text, then fail the way a provider outage does."""
+
+    def __init__(self, user_id: int, db: object):
+        self.user_id = user_id
+        self.db = db
+
+    async def stream_chat(self, message: str, context: dict):
+        yield "先来一组卧推"
+        raise RuntimeError("invalid provider key")
+
+    async def save_turn(self, message: str, reply: str):
+        raise AssertionError("a failed turn must not be persisted")
+
+
+def abortable_coach_graph(tokens: list[str], saved: list[tuple[str, str]]):
+    """Build a graph that records persistence so an abort can prove it never ran."""
+
+    class AbortableCoachGraph:
+        def __init__(self, user_id: int, db: object):
+            self.user_id = user_id
+            self.db = db
+
+        async def stream_chat(self, message: str, context: dict):
+            for token in tokens:
+                yield token
+
+        async def save_turn(self, message: str, reply: str):
+            saved.append((message, reply))
+
+    return AbortableCoachGraph
+
+
+def assert_plain_json_failure(response, status_code: int) -> dict:
+    """A pre-stream failure must be plain JSON and never open an event stream."""
+    assert response.status_code == status_code
+    content_type = response.headers.get("content-type", "")
+    assert "text/event-stream" not in content_type
+    assert "data:" not in response.text
+    assert "turn_started" not in response.text
+    assert "message_chunk" not in response.text
+    return response.json()
+
+
+@asynccontextmanager
+async def bare_client():
+    """Client whose auth dependency runs for real, so 401 is produced by the app."""
+
+    async def override_get_db():
+        yield object()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
+
+
+@asynccontextmanager
+async def keyless_client():
+    """Authenticated client that exercises the real key guard with no usable key."""
+
+    async def override_get_db():
+        yield object()
+
+    async def override_current_user():
+        return SimpleNamespace(id=USER_ID)
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_current_user
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_unauthenticated_stream_request_is_plain_json_without_frames():
+    """401 happens before the stream opens: JSON body, zero event frames."""
+    async with bare_client() as client:
+        response = await post_stream(client)
+
+    payload = assert_plain_json_failure(response, 401)
+    assert payload["detail"]
+
+
+@pytest.mark.asyncio
+async def test_identity_mismatch_is_plain_json_without_frames():
+    """403 is a pre-stream JSON error, never an SSE frame."""
+    async with coach_client() as client:
+        response = await client.post(
+            STREAM_URL,
+            json={"user_id": USER_ID + 1, "message": "hi"},
+        )
+
+    payload = assert_plain_json_failure(response, 403)
+    assert payload["detail"]
+
+
+@pytest.mark.asyncio
+async def test_keyless_user_gets_428_json_without_frames(monkeypatch):
+    """The key guard fails closed at HTTP 428 with a plain JSON body and zero frames."""
+    monkeypatch.setattr(settings, "ALLOW_SYSTEM_LLM_FALLBACK", False)
+
+    async def no_user_key(self, user_id: int):
+        return None
+
+    monkeypatch.setattr(ApiKeyService, "get_decrypted_key", no_user_key)
+
+    async with keyless_client() as client:
+        response = await post_stream(client)
+
+    payload = assert_plain_json_failure(response, 428)
+    assert payload["detail"]["code"] == "api_key_required"
+    assert payload["detail"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_failure_after_partial_body_keeps_text_and_never_sends_error_as_delta(monkeypatch):
+    """Partial body survives; the error is an event, never a delta frame."""
+    monkeypatch.setattr(coach_api, "CoachGraph", PartiallyFailingCoachGraph)
+
+    async with coach_client() as client:
+        response = await post_stream(client)
+
+    frames = decode_frames(response.text)
+    assert_stream_contract(frames)
+    assert [frame["type"] for frame in frames] == [
+        "turn_started",
+        "message_chunk",
+        "error",
+        "done",
+    ]
+    error = frames[2]
+    assert error["code"] in ERROR_CODES
+    assert error["message"].strip()
+    assert visible_text(frames) == "先来一组卧推"
+    for frame in frames:
+        if frame["type"] == "message_chunk":
+            assert error["message"] not in frame["text"]
+    assert frames[-1]["finish_reason"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_client_abort_skips_persistence_and_logs_one_warning(monkeypatch, caplog):
+    """A user interrupt sends no error frame, saves nothing, and leaves one warning."""
+    saved: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        coach_api,
+        "CoachGraph",
+        abortable_coach_graph(["第一段", "第二段"], saved),
+    )
+
+    disconnect_checks = {"count": 0}
+
+    async def disconnect_after_first_delta(self):
+        disconnect_checks["count"] += 1
+        return disconnect_checks["count"] > 1
+
+    # httpx's ASGITransport never delivers http.disconnect while the app is still
+    # producing the response, so the route seam is driven directly here.
+    monkeypatch.setattr(Request, "is_disconnected", disconnect_after_first_delta)
+    caplog.set_level(logging.WARNING, logger="app.api.coach")
+
+    async with coach_client() as client:
+        response = await post_stream(client, "别停")
+
+    frames = decode_frames(response.text)
+    assert [frame["type"] for frame in frames] == ["turn_started", "message_chunk"]
+    assert visible_text(frames) == "第一段"
+    assert saved == []
+    assert response.headers["content-type"].startswith("text/event-stream")
+
+    aborted_events = [
+        record
+        for record in caplog.records
+        if getattr(record, "fields", {}).get("event") == EVENT_SSE_INTERRUPTED
+    ]
+    assert len(aborted_events) == 1
+    assert aborted_events[0].levelno == logging.WARNING
+    assert "别停" not in caplog.text
+    assert "第一段" not in caplog.text
+
+
+@pytest_asyncio.fixture
+async def session_factory(tmp_path: Path):
+    """Create an isolated SQLite database for history replay tests."""
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'coach-stream.db'}",
+        future=True,
+    )
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    yield factory
+    await engine.dispose()
+
+
+@asynccontextmanager
+async def history_client(session_factory):
+    """Client backed by the isolated database so auth and history run for real."""
+
+    async def override_get_db():
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
+
+
+def auth_headers(user_id: int) -> dict[str, str]:
+    """Build bearer auth headers for one persisted user."""
+    token = jwt.encode({"sub": str(user_id)}, settings.SECRET_KEY, algorithm="HS256")
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.mark.asyncio
+async def test_history_cleans_legacy_assistant_rows_at_read_time(session_factory):
+    """Rows written before the cleaner existed replay as cleaned text, idempotently."""
+    async with session_factory() as session:
+        user = User(openid="coach-history-user", nickname="History", is_admin=False)
+        session.add(user)
+        await session.flush()
+        session.add(ChatMessageRecord(user_id=user.id, role="user", content="今天练什么"))
+        session.add(
+            ChatMessageRecord(
+                user_id=user.id,
+                role="assistant",
+                content=(
+                    '```json\n{"reply": "bro，今天先练腿。", '
+                    '"suggested_actions": []}\n```'
+                ),
+            )
+        )
+        session.add(
+            ChatMessageRecord(user_id=user.id, role="assistant", content="先热身。")
+        )
+        await session.commit()
+        user_id = user.id
+
+    async with history_client(session_factory) as client:
+        response = await client.get(
+            f"/api/coach/{user_id}/history",
+            headers=auth_headers(user_id),
+        )
+
+    assert response.status_code == 200
+    messages = response.json()["messages"]
+    assistant_texts = [item["content"] for item in messages if item["role"] == "assistant"]
+    assert set(assistant_texts) == {"bro，今天先练腿。", "先热身。"}
+    assert '{"reply"' not in response.text
+    assert "```" not in response.text
+    assert "suggested_actions" not in response.text

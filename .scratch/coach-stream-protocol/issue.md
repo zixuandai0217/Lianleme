@@ -219,3 +219,30 @@ sources:
 - `backend/tests/test_coach_tts.py`、`backend/tests/test_user_api_keys.py` — prior art：路由层依赖替换与前置校验断言。
 - `web/src/coach-conversation.test.ts` — prior art：纯函数 + `streamFetch` 的中止信号测试。
 - `web/src/coach-page.integration.test.ts` — prior art：页面级接线断言（当前以源码包含关系断言，可升级为 jsdom 渲染）。
+
+
+## 落地修订（工单 19）
+
+错误 / 中断 / 回放清洗的落地取舍：
+
+1. **流开始前的失败不产生任何事件帧**：未认证 401、身份不匹配 403、无可用 Key 仍是仓库
+   统一的 HTTP 428 `api_key_required`（由工单 09 与 BYOK 设计文档确立），响应体是普通
+   JSON。AC5 的「409 语义」按「前置 4xx、普通 JSON、零帧」理解；不为这张票单点改成 409，
+   以免同一个前置条件在分析、陪练、计划三条链路上出现两种状态码。
+2. **流中失败**：先发 `error(code, message)` 再发 `done(error)`；错误文案绝不以
+   `message_chunk` 发出，已显示的部分正文保留。
+3. **主动中断不算失败**：SSE 生成器在增量之间与收尾之前检查 `request.is_disconnected()`，
+   中断时不发 error/done、不落库该轮助手消息、不降级为错误提示；服务端只记一条告警事件。
+   事件复用观测中间件已有的 `stream.sse.interrupted` 契约（ADR-0008 §2 禁止同义别名），
+   字段为 route / method / chunks_sent / error_code=client_disconnect，不含任何正文。
+   被 Starlette 取消（`CancelledError`）的那条路径由中间件记录同一事件，路由不重复记。
+4. **传输截断**：收尾帧之前连接结束时，前端把该轮收敛为 truncated，保留已收到的正文，
+   显示独立的「连接中断」提示（`role=status`），不留下永远「正在思考」的空气泡；
+   正文为空时不留空气泡，只显示提示。
+5. **提示单元与朗读隔离**：错误提示是转写区之外的独立单元（`role=alert`），绝不混进教练
+   气泡；语音只朗读 `presentation.speakable`，错误与中断提示都不进入朗读队列。
+6. **回放清洗**：历史接口在读取时对 assistant 文本再次应用 `CoachTextCleaner`（幂等），
+   旧数据里的 JSON 外壳与代码围栏不会再被演一遍；清洗后为空的行回落标准兜底句。
+7. **测试 seam**：httpx 的 ASGITransport 不会在应用产出响应期间投递 `http.disconnect`，
+   因此中断用例在路由 seam 用 monkeypatch `Request.is_disconnected` 驱动，断言零
+   error/done 帧、`save_turn` 未被调用、恰好一条无正文的告警事件。

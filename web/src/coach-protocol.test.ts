@@ -4,6 +4,8 @@ import {
   abortCoachTurn,
   applyCoachEvents,
   applyCoachEvent,
+  COACH_TRUNCATED_NOTICE,
+  coachTurnPresentation,
   createCoachFrameDecoder,
   createCoachTurnState,
   EMPTY_COACH_REPLY,
@@ -248,6 +250,15 @@ describe("coach turn reducer", () => {
     expect(settled.body).toBe("半句话")
   })
 
+  it("never invents a fallback body for a truncated turn with no visible text", () => {
+    const empty = reduceBody([frame(turnStarted("turn-empty"))])
+
+    const settled = settleCoachTurn(empty)
+    expect(settled.status).toBe("idle")
+    expect(settled.finishReason).toBe("truncated")
+    expect(settled.body).toBe("")
+  })
+
   it("settles a broken stream that already reported an error as an error", () => {
     const partial = reduceBody([
       frame(turnStarted("turn-g")),
@@ -274,6 +285,73 @@ describe("coach turn reducer", () => {
     const later = applyCoachEvents(aborted, decodeAll([frame({ type: "done", finish_reason: "complete" })]))
     expect(later.status).toBe("aborted")
     expect(later.finishReason).toBeNull()
+  })
+})
+
+describe("coach turn presentation", () => {
+  it("keeps provider errors out of the bubble and out of speech", () => {
+    const turn: CoachTurnState = {
+      ...createCoachTurnState(),
+      status: "error",
+      started: true,
+      body: "先来一组",
+      finishReason: "error",
+      error: { code: "provider_unavailable", message: "检查你的 API Key 配置。" },
+    }
+
+    const presentation = coachTurnPresentation(turn)
+    expect(presentation.body).toBe("先来一组")
+    expect(presentation.body).not.toContain(presentation.notice)
+    expect(presentation.notice).toBe("检查你的 API Key 配置。")
+    expect(presentation.noticeKind).toBe("error")
+    expect(presentation.speakable).toBeNull()
+  })
+
+  it("adds a standalone truncation notice, speaking only the partial body", () => {
+    const turn: CoachTurnState = {
+      ...createCoachTurnState(),
+      status: "idle",
+      started: true,
+      body: "半句话",
+      finishReason: "truncated",
+    }
+
+    const presentation = coachTurnPresentation(turn)
+    expect(presentation.body).toBe("半句话")
+    expect(presentation.notice).toBe(COACH_TRUNCATED_NOTICE)
+    expect(presentation.noticeKind).toBe("truncated")
+    expect(presentation.speakable).toBe("半句话")
+    expect(presentation.body).not.toContain(COACH_TRUNCATED_NOTICE)
+  })
+
+  it("shows only the notice when a truncated turn has no body", () => {
+    const turn: CoachTurnState = {
+      ...createCoachTurnState(),
+      status: "idle",
+      started: true,
+      body: "",
+      finishReason: "truncated",
+    }
+
+    const presentation = coachTurnPresentation(turn)
+    expect(presentation.body).toBe("")
+    expect(presentation.notice).toBe(COACH_TRUNCATED_NOTICE)
+    expect(presentation.speakable).toBeNull()
+  })
+
+  it("produces no notice or speech for a user abort", () => {
+    const turn: CoachTurnState = {
+      ...createCoachTurnState(),
+      status: "aborted",
+      started: true,
+      body: "说到一半",
+    }
+
+    const presentation = coachTurnPresentation(turn)
+    expect(presentation.body).toBe("说到一半")
+    expect(presentation.notice).toBeNull()
+    expect(presentation.noticeKind).toBeNull()
+    expect(presentation.speakable).toBeNull()
   })
 })
 
@@ -328,5 +406,94 @@ describe("coach stream transport", () => {
     await expect(
       streamCoachTurn({ url: "/api/coach/chat/stream", body: { message: "开始" } }),
     ).rejects.toThrow("先配置你的 Key")
+  })
+
+  it("settles a connection that ends before done as truncated, keeping the body", async () => {
+    const bytes = new TextEncoder().encode(
+      [
+        frame(turnStarted("turn-early")),
+        frame({ type: "message_chunk", text: "半句话" }),
+      ].join(""),
+    )
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(bytes)
+              controller.close()
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    vi.stubGlobal("localStorage", { getItem: () => null })
+
+    const final = await streamCoachTurn({
+      url: "/api/coach/chat/stream",
+      body: { message: "开始" },
+    })
+
+    expect(final.status).toBe("idle")
+    expect(final.finishReason).toBe("truncated")
+    expect(final.body).toBe("半句话")
+  })
+
+  it("treats a broken connection as truncated instead of an unhandled failure", async () => {
+    const bytes = new TextEncoder().encode(
+      [
+        frame(turnStarted("turn-broken")),
+        frame({ type: "message_chunk", text: "半句话" }),
+      ].join(""),
+    )
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(bytes)
+            },
+            pull(controller) {
+              controller.error(new TypeError("network connection lost"))
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    vi.stubGlobal("localStorage", { getItem: () => null })
+
+    const final = await streamCoachTurn({
+      url: "/api/coach/chat/stream",
+      body: { message: "开始" },
+    })
+
+    expect(final.status).toBe("idle")
+    expect(final.finishReason).toBe("truncated")
+    expect(final.body).toBe("半句话")
+  })
+
+  it("keeps a user abort as an abort even when the read fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.error(new DOMException("Aborted", "AbortError"))
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    vi.stubGlobal("localStorage", { getItem: () => null })
+
+    await expect(
+      streamCoachTurn({ url: "/api/coach/chat/stream", body: { message: "开始" } }),
+    ).rejects.toMatchObject({ name: "AbortError" })
   })
 })

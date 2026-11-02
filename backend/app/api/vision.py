@@ -2,16 +2,20 @@
 import asyncio
 import base64
 import datetime
-import io
 import logging
 import secrets
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from PIL import Image
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.media_errors import (
+    MEDIA_ERROR_MESSAGES,
+    asset_not_found,
+    image_invalid,
+    storage_unavailable,
+)
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.logging import (
@@ -27,8 +31,10 @@ from app.core.security import (
     get_current_user,
     require_current_user_api_key,
 )
+from app.core.storage import Storage, StorageError, get_storage
 from app.models.analysis_task import AnalysisTask
 from app.models.body_analysis import BodyAnalysisRecord
+from app.models.media_asset import MediaAsset
 from app.models.user import User
 from app.schemas.vision import (
     AnalyzeErrorResponse,
@@ -41,12 +47,19 @@ from app.schemas.vision import (
 )
 from app.services.ai.vision_graph import VisionGraph
 from app.services.analysis_task_executor import AnalysisTaskExecutor
+from app.services.media.media_asset_service import (
+    ERROR_CODE_IMAGE_INVALID,
+    ERROR_CODE_STORAGE_UNAVAILABLE,
+    MediaAssetService,
+    decode_base64_image,
+    inspect_image_size,
+    sha256_hex,
+    sniff_content_type,
+)
 from app.services.user.user_service import UserService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-THUMBNAIL_WIDTH = 200
 
 # 终态一经写入不再改写；pending / processing 在过期时间之后对外视为 expired。
 _ACTIVE_STATUSES = frozenset({"pending", "processing"})
@@ -56,8 +69,8 @@ _ERROR_MESSAGES = {
     "provider_rate_limited": "AI 服务当前请求较多，请稍后重试",
     "provider_timeout": "分析超时，请稍后重试",
     "output_unparsable": "分析结果无法解析，请重新发起",
-    "image_invalid": "照片无法识别，请换一张清晰的全身照",
-    "storage_unavailable": "分析结果暂时无法保存，请稍后重试",
+    ERROR_CODE_IMAGE_INVALID: MEDIA_ERROR_MESSAGES[ERROR_CODE_IMAGE_INVALID],
+    ERROR_CODE_STORAGE_UNAVAILABLE: MEDIA_ERROR_MESSAGES[ERROR_CODE_STORAGE_UNAVAILABLE],
     "retry_exhausted": "多次重试后仍未完成分析，请重新发起",
     "task_expired": "分析任务已过期，请重新发起",
     "internal_error": "AI 服务暂时不可用，请稍后重试",
@@ -68,8 +81,8 @@ _RETRYABLE = {
     "provider_rate_limited": True,
     "provider_timeout": True,
     "output_unparsable": True,
-    "image_invalid": False,
-    "storage_unavailable": True,
+    ERROR_CODE_IMAGE_INVALID: False,
+    ERROR_CODE_STORAGE_UNAVAILABLE: True,
     "retry_exhausted": True,
     "task_expired": True,
     "internal_error": True,
@@ -111,7 +124,7 @@ def _classify_failure(exc: BaseException) -> tuple[str, str, bool]:
     elif any(hint in raw for hint in ("timeout", "timed out", "deadline exceeded")):
         code = "provider_timeout"
     elif any(hint in raw for hint in ("image", "decode", "cannot identify", "invalid image")):
-        code = "image_invalid"
+        code = ERROR_CODE_IMAGE_INVALID
     elif any(hint in raw for hint in ("parse", "json", "output parser")):
         code = "output_unparsable"
     else:
@@ -119,15 +132,87 @@ def _classify_failure(exc: BaseException) -> tuple[str, str, bool]:
     return code, _ERROR_MESSAGES[code], _RETRYABLE[code]
 
 
-def _make_thumbnail(image_base64: str) -> str:
-    """将原图 base64 压缩为缩略图 base64"""
-    raw = base64.b64decode(image_base64)
-    img = Image.open(io.BytesIO(raw))
-    ratio = THUMBNAIL_WIDTH / img.width
-    img = img.resize((THUMBNAIL_WIDTH, int(img.height * ratio)), Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=70)
-    return base64.b64encode(buf.getvalue()).decode()
+async def _persist_inline_asset(
+    service: MediaAssetService,
+    user_id: int,
+    image_base64: str,
+) -> str:
+    """兼容期内联图片先落成资产，再让任务只引用资产标识。"""
+    try:
+        data = decode_base64_image(image_base64)
+    except ValueError:
+        raise image_invalid() from None
+
+    checksum = sha256_hex(data)
+    existing = await service.find_available_original(user_id, checksum)
+    if existing is not None:
+        return existing.asset_id
+
+    content_type = sniff_content_type(data)
+    try:
+        width, height = await asyncio.to_thread(inspect_image_size, data)
+    except Exception:
+        # 兼容期内联内容不因无法解码而拒绝（完整校验属于上传接口）；元数据留空。
+        width, height = None, None
+
+    asset = await service.create_original(
+        user_id=user_id,
+        data=data,
+        content_type=content_type,
+        checksum=checksum,
+        width=width,
+        height=height,
+    )
+    return asset.asset_id
+
+
+async def _signed_image_url(
+    record: BodyAnalysisRecord,
+    service: MediaAssetService,
+    assets: dict[str, MediaAsset],
+    cache: dict[str, str],
+) -> tuple[str | None, bool]:
+    """按需签发历史记录的图片链接；失败只降级这一条，不让整个列表失败。"""
+    asset_id = record.image_asset_id
+    if not asset_id:
+        return None, False
+
+    if asset_id in cache:
+        return cache[asset_id], False
+
+    asset = assets.get(asset_id)
+    if asset is None:
+        return None, True
+
+    try:
+        url, _ = await service.sign(asset)
+    except Exception:
+        logger.warning("历史记录图片签名失败，降级为空链接", extra={"asset_id": asset_id})
+        return None, True
+
+    cache[asset_id] = url
+    return url, False
+
+
+async def _record_response(
+    record: BodyAnalysisRecord,
+    service: MediaAssetService,
+    assets: dict[str, MediaAsset],
+    cache: dict[str, str],
+) -> BodyAnalysisRecordResponse:
+    """把历史/详情记录映射成响应；旧内联缩略图字段固定为空。"""
+    image_url, degraded = await _signed_image_url(record, service, assets, cache)
+    return BodyAnalysisRecordResponse(
+        id=record.id,
+        image_thumbnail=None,
+        image_url=image_url,
+        thumbnail_url=None,
+        image_asset_id=record.image_asset_id,
+        thumbnail_asset_id=record.thumbnail_asset_id,
+        degraded=degraded,
+        result=BodyAnalysisResult(**record.result),
+        created_at=_as_utc(record.created_at),
+    )
 
 
 def _task_status(task: AnalysisTask, now: datetime.datetime) -> str:
@@ -195,9 +280,31 @@ async def start_analyze(
     req: AnalyzeRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_current_user_api_key),
+    storage: Storage = Depends(get_storage),
 ):
-    """登记持久任务后启动异步分析；Key 前置校验在创建之前完成。"""
+    """登记持久任务后启动异步分析；Key 前置校验在创建之前完成。
+
+    任务只引用媒体资产：资产标识直接校验归属，兼容期内联图片先落成资产，
+    ``analysis_tasks.input_image_base64`` 不再写入任何图片内容。
+    """
     ensure_current_user_matches(current_user, req.user_id)
+    service = MediaAssetService(db, storage)
+
+    if req.image_asset_id is not None:
+        asset = await service.get_available_owned(req.image_asset_id, req.user_id)
+        if asset is None:
+            raise asset_not_found()
+        image_asset_id = asset.asset_id
+    else:
+        try:
+            image_asset_id = await _persist_inline_asset(
+                service,
+                req.user_id,
+                req.image_base64 or "",
+            )
+        except StorageError:
+            logger.exception("内联图片写入对象存储失败", extra={"user_id": req.user_id})
+            raise storage_unavailable() from None
 
     now = _utc_now()
     task = AnalysisTask(
@@ -208,7 +315,8 @@ async def start_analyze(
         attempt=0,
         progress=0,
         request_id=get_request_id(),
-        input_image_base64=req.image_base64,
+        input_image_base64=None,
+        image_asset_id=image_asset_id,
         input_profile=req.profile,
         expires_at=now + datetime.timedelta(minutes=settings.ANALYSIS_TASK_TTL_MINUTES),
     )
@@ -222,7 +330,7 @@ async def start_analyze(
         raise HTTPException(
             status_code=500,
             detail={
-                "code": "storage_unavailable",
+                "code": ERROR_CODE_STORAGE_UNAVAILABLE,
                 "message": "分析任务暂时无法创建，请稍后重试",
             },
         )
@@ -235,7 +343,7 @@ async def start_analyze(
         user_id=task.user_id,
         attempt=0,
     )
-    asyncio.create_task(_run_analysis(task.task_id, req))
+    asyncio.create_task(_run_analysis(task.task_id, req, storage))
 
     return AnalyzeResponse(
         task_id=task.task_id,
@@ -271,8 +379,9 @@ async def get_analysis_history(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    storage: Storage = Depends(get_storage),
 ):
-    """获取用户体型分析历史（倒序）"""
+    """获取用户体型分析历史（倒序）；图片链接按需签发，失败只降级该条。"""
     ensure_current_user_matches(current_user, user_id)
     result = await db.execute(
         select(BodyAnalysisRecord)
@@ -281,14 +390,14 @@ async def get_analysis_history(
         .limit(limit)
     )
     records = list(result.scalars().all())
+    service = MediaAssetService(db, storage)
+    assets = await service.get_available_assets(
+        {record.image_asset_id for record in records if record.image_asset_id},
+        current_user.id,
+    )
+    cache: dict[str, str] = {}
     items = [
-        BodyAnalysisRecordResponse(
-            id=r.id,
-            image_thumbnail=r.image_thumbnail,
-            result=BodyAnalysisResult(**r.result),
-            created_at=r.created_at,
-        )
-        for r in records
+        await _record_response(record, service, assets, cache) for record in records
     ]
     return BodyAnalysisHistoryResponse(records=items, total=len(items))
 
@@ -298,8 +407,9 @@ async def get_analysis_record(
     record_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    storage: Storage = Depends(get_storage),
 ):
-    """查看单条分析记录完整详情"""
+    """查看单条分析记录完整详情；图片链接按需签发。"""
     result = await db.execute(
         select(BodyAnalysisRecord).where(BodyAnalysisRecord.id == record_id)
     )
@@ -307,15 +417,19 @@ async def get_analysis_record(
     if not record:
         raise HTTPException(status_code=404, detail="记录不存在")
     ensure_current_user_matches(current_user, record.user_id)
-    return BodyAnalysisRecordResponse(
-        id=record.id,
-        image_thumbnail=record.image_thumbnail,
-        result=BodyAnalysisResult(**record.result),
-        created_at=record.created_at,
+    service = MediaAssetService(db, storage)
+    assets = await service.get_available_assets(
+        {record.image_asset_id} if record.image_asset_id else set(),
+        current_user.id,
     )
+    return await _record_response(record, service, assets, {})
 
 
-async def _run_analysis(task_id: str, req: AnalyzeRequest):
+async def _run_analysis(
+    task_id: str,
+    req: AnalyzeRequest,
+    storage: Storage | None = None,
+):
     """后台任务：从数据库恢复输入，执行分析并在同一事务写入历史与任务结果。"""
     started = time.perf_counter()
     request_id = get_request_id()
@@ -340,8 +454,54 @@ async def _run_analysis(task_id: str, req: AnalyzeRequest):
         request_id = task.request_id or request_id
         user_id = task.user_id
         attempt = task.attempt or 1
-        image_base64 = task.input_image_base64 or req.image_base64
+        if task.image_asset_id:
+            storage_port = storage or get_storage()
+            asset = await db.get(MediaAsset, task.image_asset_id)
+            if asset is None:
+                await _mark_failed(
+                    db,
+                    task_id,
+                    RuntimeError("media asset missing"),
+                    request_id=request_id,
+                    user_id=user_id,
+                    attempt=attempt,
+                    started=started,
+                    code=ERROR_CODE_STORAGE_UNAVAILABLE,
+                )
+                return
+            try:
+                image_base64 = base64.b64encode(
+                    await storage_port.read(asset.object_key)
+                ).decode()
+            except Exception as exc:
+                await _mark_failed(
+                    db,
+                    task_id,
+                    exc,
+                    request_id=request_id,
+                    user_id=user_id,
+                    attempt=attempt,
+                    started=started,
+                    code=ERROR_CODE_STORAGE_UNAVAILABLE,
+                )
+                return
+        else:
+            # 旧任务仍可能只带内联内容；新任务绝不会写入这个字段。
+            image_base64 = task.input_image_base64 or req.image_base64
         profile = task.input_profile if task.input_profile is not None else req.profile
+
+        if not image_base64:
+            await _mark_failed(
+                db,
+                task_id,
+                RuntimeError("task carries no image input"),
+                request_id=request_id,
+                user_id=user_id,
+                attempt=attempt,
+                started=started,
+                code=ERROR_CODE_IMAGE_INVALID,
+            )
+            return
 
         # 后台任务运行在独立上下文：重新注入触发请求的关联信息
         with bind_request_context(
@@ -395,14 +555,11 @@ async def _run_analysis(task_id: str, req: AnalyzeRequest):
                 user_service = UserService(db)
                 await user_service.save_body_analysis(user_id, result.model_dump())
 
-                try:
-                    thumbnail = _make_thumbnail(image_base64)
-                except Exception:
-                    thumbnail = None
-
                 history_record = BodyAnalysisRecord(
                     user_id=user_id,
-                    image_thumbnail=thumbnail,
+                    image_thumbnail=None,
+                    image_asset_id=task.image_asset_id,
+                    thumbnail_asset_id=task.thumbnail_asset_id,
                     result=result.model_dump(),
                 )
                 db.add(history_record)
@@ -428,7 +585,7 @@ async def _run_analysis(task_id: str, req: AnalyzeRequest):
                     user_id=user_id,
                     attempt=attempt,
                     started=started,
-                    code="storage_unavailable",
+                    code=ERROR_CODE_STORAGE_UNAVAILABLE,
                 )
                 return
 

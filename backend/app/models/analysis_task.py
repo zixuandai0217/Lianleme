@@ -27,9 +27,10 @@ class AnalysisTask(Base):
     error_retryable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
-    # Kept with the task until media assets are introduced; this makes a task
-    # executable after a process restart rather than depending on Python memory.
+    # 旧字段仅为兼容既有数据保留；新任务只引用媒体资产，绝不写入图片内容。
     input_image_base64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_asset_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    thumbnail_asset_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     input_profile: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     history_record_id: Mapped[int | None] = mapped_column(
         ForeignKey("body_analysis_records.id", ondelete="SET NULL"), nullable=True

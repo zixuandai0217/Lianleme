@@ -1,6 +1,8 @@
 """AI 陪练路由：对话接口（流式 SSE + 普通 JSON）+ 历史记录 + TTS"""
+import asyncio
 import base64
 import logging
+from collections.abc import AsyncIterator
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -10,7 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.observability import mark_stream_failed
+from app.core.logging import (
+    ERROR_CODE_CLIENT_DISCONNECT,
+    EVENT_SSE_INTERRUPTED,
+    FIELD_CHUNKS_SENT,
+    FIELD_ERROR_CODE,
+    FIELD_METHOD,
+    FIELD_ROUTE,
+    log_event,
+)
+from app.core.observability import mark_stream_failed, route_template
 from app.core.security import (
     ensure_current_user_matches,
     get_current_user,
@@ -136,6 +147,100 @@ async def chat(
     return result
 
 
+def _log_stream_aborted(request: Request, chunks_sent: int) -> None:
+    """Record a user abort with the shared SSE interruption event.
+
+    复用观测中间件的 ``stream.sse.interrupted`` 契约，不再另立同义事件名
+    （ADR-0008 §2）；只记路由/方法/已发帧数，绝不记录用户或教练正文。
+    连接被 Starlette 取消时由中间件记同一事件，此处不重复。
+    """
+    log_event(
+        logger,
+        EVENT_SSE_INTERRUPTED,
+        message="SSE 流被中断",
+        level=logging.WARNING,
+        **{
+            FIELD_ROUTE: route_template(request.scope) or request.url.path,
+            FIELD_METHOD: request.method,
+            FIELD_CHUNKS_SENT: chunks_sent,
+            FIELD_ERROR_CODE: ERROR_CODE_CLIENT_DISCONNECT,
+        },
+    )
+
+
+async def stream_coach_events(
+    *,
+    graph: CoachGraph,
+    request: Request,
+    user_id: int,
+    message: str,
+    context: dict,
+) -> AsyncIterator[str]:
+    """Emit the typed coach event stream for exactly one turn (spec §1/§5).
+
+    A client disconnect is an abort, not a failure: it emits no error frame, no
+    done frame and persists nothing. Upstream failures emit ``error`` then
+    ``done(error)``; the error copy never travels as a ``message_chunk``.
+    """
+    yield sse_frame(
+        CoachTurnStartedEvent(turn_id=uuid4().hex, message_id=uuid4().hex)
+    )
+    finish_reason: CoachFinishReason = "complete"
+    cleaner = CoachTextCleaner()
+    visible: list[str] = []
+    chunks_sent = 0
+
+    def frame_for(text: str) -> str:
+        """Record released正文 and turn it into one delta frame."""
+        nonlocal chunks_sent
+        visible.append(text)
+        chunks_sent += 1
+        return sse_frame(CoachMessageChunkEvent(text=text))
+
+    try:
+        async for delta in graph.stream_chat(message=message, context=context):
+            if await request.is_disconnected():
+                _log_stream_aborted(request, chunks_sent)
+                return
+            cleaned = cleaner.feed(delta)
+            if cleaned:
+                yield frame_for(cleaned)
+
+        if await request.is_disconnected():
+            _log_stream_aborted(request, chunks_sent)
+            return
+
+        tail = cleaner.flush()
+        if tail:
+            yield frame_for(tail)
+
+        reply = "".join(visible).strip()
+        if not reply:
+            reply = COACH_FALLBACK_REPLY
+            yield frame_for(reply)
+
+        await graph.save_turn(message, reply)
+    except asyncio.CancelledError:
+        # Starlette cancels the generator when the transport disappears mid-turn;
+        # the observability middleware records that path, so log nothing here.
+        raise
+    except Exception as exc:
+        logger.exception("AI 陪练流式响应失败: user_id=%s", user_id)
+        finish_reason = "error"
+        error_event = _coach_error_event(exc)
+        # 路由把上游失败收敛成 error 帧，但结束事件仍必须是带错误类别的告警事件
+        mark_stream_failed(
+            request.scope,
+            error_code=error_event.code,
+            error_class=type(exc).__name__,
+        )
+        yield sse_frame(error_event)
+    yield sse_frame(CoachDoneEvent(finish_reason=finish_reason))
+
+
+# 流开始前的 Key 校验沿用仓库既有约定：HTTP 428 `api_key_required`，不是 409。
+# 失败发生在流开始之前，响应体是普通 JSON 且不产生任何事件帧；因此 AC5 的
+# 「409 语义」由这个前置 4xx 满足，而不是把错误塞进 SSE 的 error 帧。
 @router.post("/chat/stream")
 async def chat_stream(
     msg: ChatMessage,
@@ -158,51 +263,14 @@ async def chat_stream(
         "plan_id": msg.plan_id,
     }
 
-    async def event_generator():
-        """Emit the typed coach event stream for exactly one turn."""
-        yield sse_frame(
-            CoachTurnStartedEvent(turn_id=uuid4().hex, message_id=uuid4().hex)
-        )
-        finish_reason: CoachFinishReason = "complete"
-        cleaner = CoachTextCleaner()
-        visible: list[str] = []
-
-        def frame_for(text: str) -> str:
-            """Record released正文 and turn it into one delta frame."""
-            visible.append(text)
-            return sse_frame(CoachMessageChunkEvent(text=text))
-
-        try:
-            async for delta in graph.stream_chat(message=msg.message, context=context):
-                cleaned = cleaner.feed(delta)
-                if cleaned:
-                    yield frame_for(cleaned)
-
-            tail = cleaner.flush()
-            if tail:
-                yield frame_for(tail)
-
-            reply = "".join(visible).strip()
-            if not reply:
-                reply = COACH_FALLBACK_REPLY
-                yield frame_for(reply)
-
-            await graph.save_turn(msg.message, reply)
-        except Exception as exc:
-            logger.exception("AI 陪练流式响应失败: user_id=%s", msg.user_id)
-            finish_reason = "error"
-            error_event = _coach_error_event(exc)
-            # 路由把上游失败收敛成 error 帧，但结束事件仍必须是带错误类别的告警事件
-            mark_stream_failed(
-                request.scope,
-                error_code=error_event.code,
-                error_class=type(exc).__name__,
-            )
-            yield sse_frame(error_event)
-        yield sse_frame(CoachDoneEvent(finish_reason=finish_reason))
-
     return StreamingResponse(
-        event_generator(),
+        stream_coach_events(
+            graph=graph,
+            request=request,
+            user_id=msg.user_id,
+            message=msg.message,
+            context=context,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -300,6 +368,20 @@ async def coach_tts_animated(
     )
 
 
+def _cleaned_history_content(role: str, content: str) -> str:
+    """Clean assistant text again at read time so old rows cannot replay structure.
+
+    Write-time cleaning stays the source of truth for new rows. Applying the same
+    cleaner to already-clean text is idempotent, and a row that cleans down to
+    nothing becomes the standard fallback line instead of leaking its envelope.
+    """
+    if role != "assistant":
+        return content
+    cleaner = CoachTextCleaner()
+    cleaned = (cleaner.feed(content) + cleaner.flush()).strip()
+    return cleaned or COACH_FALLBACK_REPLY
+
+
 @router.get("/{user_id}/history", response_model=ChatHistoryResponse)
 async def get_chat_history(
     user_id: int,
@@ -327,7 +409,7 @@ async def get_chat_history(
         ChatMessageResponse(
             id=r.id,
             role=r.role,
-            content=r.content,
+            content=_cleaned_history_content(r.role, r.content),
             created_at=r.created_at,
         )
         for r in records

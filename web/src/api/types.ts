@@ -92,7 +92,16 @@ export interface AnalyzeResultResponse {
 
 export interface BodyAnalysisRecordItem {
   id: number
-  image_thumbnail?: string
+  /** @deprecated 旧内联缩略图；新接口固定返回 null，前端优先读 image_url / thumbnail_url。 */
+  image_thumbnail?: string | null
+  /** 原图短时签名 URL；签发失败时为 null。 */
+  image_url?: string | null
+  /** 缩略图签名 URL；本阶段固定为 null，由后续工单填充。 */
+  thumbnail_url?: string | null
+  image_asset_id?: string | null
+  thumbnail_asset_id?: string | null
+  /** 图片链接签发/读取失败时的降级标记；列表仍可用。 */
+  degraded?: boolean
   result: BodyAnalysisResult
   created_at?: string
 }

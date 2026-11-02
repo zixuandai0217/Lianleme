@@ -4,6 +4,7 @@ from app.models.admin_export_audit import AdminExportAudit
 from app.models.analysis_task import AnalysisTask
 from app.models.body_analysis import BodyAnalysisRecord
 from app.models.chat_message import ChatMessageRecord
+from app.models.media_asset import MediaAsset
 from app.models.plan import TrainingPlan
 from app.models.record import WorkoutRecord
 from app.models.reminder import ReminderDelivery
@@ -16,4 +17,5 @@ __all__ = [
     "User", "TrainingPlan", "WorkoutRecord", "WeightRecord",
     "BodyAnalysisRecord", "ChatMessageRecord", "AnalysisTask", "PlanAdjustment",
     "ReminderDelivery", "ReminderPreference", "WorkoutSession", "AdminExportAudit",
+    "MediaAsset",
 ]

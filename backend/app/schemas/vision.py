@@ -2,14 +2,25 @@
 import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class AnalyzeRequest(BaseModel):
-    """体型分析请求：传入图片 base64 + 用户档案"""
-    image_base64: str = Field(..., description="图片 base64 编码")
+    """体型分析请求：传资产标识，兼容期也接受内联图片内容。
+
+    两个图片字段必须且只能提供一个；内联内容会先落成媒体资产，绝不写入任务表或历史表。
+    """
+    image_base64: Optional[str] = Field(None, description="兼容期内联图片 base64")
+    image_asset_id: Optional[str] = Field(None, description="已上传媒体资产的标识")
     user_id: int
     profile: Optional[dict] = Field(None, description="用户档案（身高体重目标等）")
+
+    @model_validator(mode="after")
+    def validate_single_image_source(self) -> "AnalyzeRequest":
+        provided = (self.image_base64 is not None) + (self.image_asset_id is not None)
+        if provided != 1:
+            raise ValueError("image_base64 与 image_asset_id 必须且只能提供一个")
+        return self
 
 
 class BodyAnalysisResult(BaseModel):
@@ -57,9 +68,14 @@ class AnalyzeResultResponse(BaseModel):
 
 
 class BodyAnalysisRecordResponse(BaseModel):
-    """单条体型分析历史记录"""
+    """单条体型分析历史记录：新链路返回签名图片字段，旧内联字段固定为空。"""
     id: int
     image_thumbnail: Optional[str] = None
+    image_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    image_asset_id: Optional[str] = None
+    thumbnail_asset_id: Optional[str] = None
+    degraded: bool = False
     result: BodyAnalysisResult
     created_at: Optional[datetime.datetime] = None
 

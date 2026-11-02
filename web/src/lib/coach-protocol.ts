@@ -12,6 +12,9 @@ export const COACH_PROTOCOL_VERSION = 1
 /** 清洗后整轮无正文时的兜底文案：与后端 `COACH_FALLBACK_REPLY` 同一句，保证实时与历史回放语气一致。 */
 export const EMPTY_COACH_REPLY = "刚才那段我卡了一下，homie，再跟我说一遍，我接着带。"
 
+/** Shown as its own notice when the transport ends before the closing frame. */
+export const COACH_TRUNCATED_NOTICE = "连接中断，回复可能不完整。"
+
 const ERROR_FALLBACK_MESSAGE = "教练暂时没接上，稍后再试一次。"
 
 const COACH_STATES = ["guide", "count", "rest", "complete"] as const
@@ -262,17 +265,71 @@ export function applyCoachEvent(state: CoachTurnState, event: CoachEvent): Coach
 export function settleCoachTurn(state: CoachTurnState): CoachTurnState {
   if (state.finishReason !== null || state.status === "aborted") return state
   if (state.error) return { ...state, status: "error", finishReason: "error" }
-  return {
-    ...state,
-    status: "idle",
-    finishReason: "truncated",
-    body: state.body.trim() ? state.body : EMPTY_COACH_REPLY,
-  }
+  // No fallback body here: an empty truncated turn shows the "连接中断" notice
+  // instead of an invented coach line or an empty bubble.
+  return { ...state, status: "idle", finishReason: "truncated" }
 }
 
 /** The user stopped the turn: no error, no announcement, nothing to persist. */
 export function abortCoachTurn(state: CoachTurnState): CoachTurnState {
   return { ...state, status: "aborted", finishReason: null, ignoredTurnId: null }
+}
+
+/** What the page may show and speak after one turn has settled. */
+export interface CoachTurnPresentation {
+  /** Coach bubble body; empty means no bubble at all. */
+  body: string
+  /** Independent notice unit, never part of the bubble. */
+  notice: string | null
+  noticeKind: "error" | "truncated" | null
+  /** Text safe to send to the speech queue; notices are never speakable. */
+  speakable: string | null
+}
+
+/**
+ * Separate the bubble, the notice, and speech for one turn.
+ *
+ * Error copy and the truncation notice are presentation units of their own: they
+ * are never appended to the coach body and never reach the speech queue. A user
+ * abort produces no notice at all.
+ */
+export function coachTurnPresentation(turn: CoachTurnState): CoachTurnPresentation {
+  const body = turn.body
+  if (turn.status === "aborted") {
+    return { body, notice: null, noticeKind: null, speakable: null }
+  }
+  if (turn.error) {
+    return {
+      body,
+      notice: turn.error.message,
+      noticeKind: "error",
+      speakable: null,
+    }
+  }
+  if (turn.finishReason === "truncated") {
+    return {
+      body,
+      notice: COACH_TRUNCATED_NOTICE,
+      noticeKind: "truncated",
+      speakable: body.trim() ? body : null,
+    }
+  }
+  return {
+    body,
+    notice: null,
+    noticeKind: null,
+    speakable: body.trim() ? body : null,
+  }
+}
+
+/** Whether a rejected transport read was an abort rather than a broken connection. */
+export function isCoachAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AbortError"
+  )
 }
 
 // ── 传输适配（页面用它拿归约结果，解码与归约仍然是纯的） ──
@@ -319,13 +376,21 @@ export async function streamCoachTurn(
   }
 
   const reader = response.body.getReader()
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    apply(decoder.push(textDecoder.decode(value, { stream: true })))
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      apply(decoder.push(textDecoder.decode(value, { stream: true })))
+    }
+    apply(decoder.push(textDecoder.decode()))
+    apply(decoder.end())
+  } catch (error) {
+    // A user abort stays an abort; any other transport failure means the
+    // connection ended before `done`, so the partial turn settles as truncated.
+    if (request.signal?.aborted || isCoachAbortError(error)) {
+      throw error
+    }
   }
-  apply(decoder.push(textDecoder.decode()))
-  apply(decoder.end())
 
   state = settleCoachTurn(state)
   publish()
