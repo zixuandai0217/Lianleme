@@ -1,4 +1,4 @@
-"""媒体资产路由：原图上传（服务端中转）、元数据返回与短时签名读图。"""
+"""媒体资产路由：原图上传（校验 + 服务端中转）、元数据返回与短时签名读图。"""
 import asyncio
 import datetime
 import logging
@@ -9,10 +9,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.media_errors import (
     asset_not_found,
     checksum_mismatch,
-    image_invalid,
+    raise_upload_rejected,
     storage_unavailable,
 )
+from app.core.config import settings
 from app.core.database import get_db
+from app.core.logging import (
+    EVENT_MEDIA_UPLOAD_REJECTED,
+    FIELD_CONTENT_TYPE,
+    FIELD_ERROR_CODE,
+    FIELD_SIZE_BYTES,
+    FIELD_USER_ID,
+    log_event,
+)
 from app.core.security import get_current_user
 from app.core.storage import Storage, StorageError, get_storage
 from app.models.media_asset import MediaAsset
@@ -20,14 +29,16 @@ from app.models.user import User
 from app.schemas.media import MediaAssetResponse, MediaAssetUrlResponse
 from app.services.media.media_asset_service import (
     MediaAssetService,
-    inspect_image_size,
+    MediaValidationError,
+    clean_image_bytes,
     normalize_content_type,
     sha256_hex,
+    validate_declared_content_type,
+    validate_upload_size,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
 
 def _as_utc(value: datetime.datetime | None) -> datetime.datetime | None:
     """SQLite 返回 naive datetime；统一成 UTC 以便序列化。"""
@@ -60,6 +71,24 @@ def _normalized_client_checksum(raw: str | None) -> str | None:
     return value or None
 
 
+def _log_upload_rejection(
+    *, code: str, user_id: int, content_type: str, size_bytes: int
+) -> None:
+    """记录一次校验拒绝；只带稳定分类字段，不写图片内容与用户文本。"""
+    log_event(
+        logger,
+        EVENT_MEDIA_UPLOAD_REJECTED,
+        message="图片上传校验未通过",
+        level=logging.WARNING,
+        **{
+            FIELD_USER_ID: user_id,
+            FIELD_ERROR_CODE: code,
+            FIELD_CONTENT_TYPE: content_type,
+            FIELD_SIZE_BYTES: size_bytes,
+        },
+    )
+
+
 @router.post("/assets", response_model=MediaAssetResponse)
 async def upload_asset(
     file: UploadFile = File(..., description="图片文件"),
@@ -68,23 +97,34 @@ async def upload_asset(
     current_user: User = Depends(get_current_user),
     storage: Storage = Depends(get_storage),
 ):
-    """接收图片、校验可解码性、去重后写入对象存储并登记资产。
+    """接收图片、执行请求期校验矩阵、清理元数据后去重写入对象存储。
 
-    本票只做「能不能解码」；白名单、大小、最小分辨率等完整校验矩阵由后续工单负责。
+    校验失败（格式/大小/解码/动图/伪装格式/分辨率）一律不产生资产与任务；
+    通过后按 EXIF 方向纠正像素并重新编码，存档字节不再携带任何 EXIF/GPS。
     """
-    data = await file.read()
+    # 只读到上限多一个字节即可判定超限，避免把超大请求体整个读进内存。
+    data = await file.read(settings.MEDIA_MAX_UPLOAD_BYTES + 1)
     content_type = normalize_content_type(file.content_type)
 
     try:
-        width, height = await asyncio.to_thread(inspect_image_size, data)
-    except Exception:
-        raise image_invalid() from None
+        validate_declared_content_type(content_type)
+        validate_upload_size(len(data))
+        cleaned = await asyncio.to_thread(clean_image_bytes, data, content_type)
+    except MediaValidationError as exc:
+        _log_upload_rejection(
+            code=exc.code,
+            user_id=current_user.id,
+            content_type=content_type,
+            size_bytes=len(data),
+        )
+        raise_upload_rejected(exc.code)
 
-    computed = sha256_hex(data)
+    # 客户端摘要用于核对传输完整性；去重与资产元数据一律以清理后的存档字节为准。
     supplied = _normalized_client_checksum(checksum)
-    if supplied is not None and supplied != computed:
+    if supplied is not None and supplied != sha256_hex(data):
         raise checksum_mismatch()
 
+    computed = sha256_hex(cleaned.data)
     service = MediaAssetService(db, storage)
     existing = await service.find_available_original(current_user.id, computed)
     if existing is not None:
@@ -94,11 +134,11 @@ async def upload_asset(
     try:
         asset = await service.create_original(
             user_id=current_user.id,
-            data=data,
-            content_type=content_type,
+            data=cleaned.data,
+            content_type=cleaned.content_type,
             checksum=computed,
-            width=width,
-            height=height,
+            width=cleaned.width,
+            height=cleaned.height,
             original_filename=filename,
         )
     except StorageError:

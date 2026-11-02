@@ -279,3 +279,36 @@ MediaPipe 初始化、Canvas 绘制、TTS 播放只做冒烟（模块可加载�
 - [web/src/components/coach-lip-sync.ts](web/src/components/coach-lip-sync.ts) — 纯函数化时序逻辑的范例（角度→问题项应照此组织）
 - [web/src/coach-lip-sync.test.ts](web/src/coach-lip-sync.test.ts) — 纯函数 + 非法输入防御 + 资源体积断言的测试范例
 - [web/src/pages/analysis/flow.ts](web/src/pages/analysis/flow.ts) — 页面状态收敛为纯函数
+
+
+## 落地修订（工单 40）
+
+姿态会话与周期切分的落地取舍：
+
+1. **会话只存进程内存**（ADR-0010）：不落库、不写文件、不写日志；空闲 30 分钟过期
+   （每次成功请求续期），进程重启即失效。TTL 用单调时钟，测试可注入；多 worker 部署需要
+   粘性路由，这条写进 ADR-0010 与部署注意事项。
+2. **端点与形状**：`POST /api/pose/sessions`（会话标识、有效期、建议间隔 200ms、机位提示）、
+   `POST /api/pose/sessions/{id}/frames`、`GET .../result`、`POST .../finish`。帧只收
+   `{t_ms, keypoints[{x,y,z,visibility}], person_count}`；图片/视频字段一律 422 拒绝，
+   响应从不回传关键点坐标。
+3. **上限**：单批 60 帧、单会话 3600 帧、`t_ms` 单调不减、每用户最多 3 个进行中会话
+   （后者与逐帧顺序校验是落地时补的防护：前者防止单客户端开窗耗尽内存，后者防止客户端
+   时间回拨构造伪周期；都属于 §2 未明说但必要的服务端强制项）。超限返回
+   `pose_batch_too_large` / `pose_session_frame_limit` / `pose_frames_out_of_order` 等稳定
+   错误码，绝不静默截断。
+4. **切分算法**：纯函数、无依赖。默认膝角链（髋-膝-踝），按机位选择最可见的一侧，可见度
+   低于 0.3 的点不参与、单帧缺失在 700ms 内线性插值。周期定义：起点稳定 300ms（±8°）→
+   幅度 ≥25° → 首次回到起点 ±12°；时长必须落在 1.5–6.0 秒，越界不构成周期。返回周期标识
+   （`cyc_{起始毫秒}`）、起止与时长，未成周期保持 waiting 且无评分。
+5. **质量闸门**：可见度占比 <0.6、出画占比 >0.4 或 `person_count > 1` 的周期标记为不可
+   评估，返回机位提示、无评分、零模型调用（`model_calls` 计数可断言）。
+6. **错误语义**：未登录 401；他人会话 403；不存在/过期 404 `pose_session_not_found`；
+   已结束后再写帧或取结果 409 `pose_session_finished`；非法载荷 422；均与 5xx 可区分。
+7. **PoseGraph 最小实现**：只注册 `ingest_frames` 与 `segment_cycle` 两个节点，通过依赖注入
+   可替换为替身；工单 41/42 在此之上扩展识别与评估，不改变本票契约。
+8. **结束会话**：返回周期数、可评估/不可评估计数与总帧数，重复结束幂等；
+   `avg_quality`/`issues_histogram` 在工单 43 之前保持 0/空并带 `quality_available=false`，
+   不伪造成真实评分。
+9. **范围说明**：MediaPipe 抓取在浏览器侧运行，本票不引入后端模型依赖，也不包含前端采集页；
+   采集 UI 与自托管 Wasm 资产不属于本票。

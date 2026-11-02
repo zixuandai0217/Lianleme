@@ -52,6 +52,11 @@ FIELD_DELIVERED = "delivered"
 FIELD_DUPLICATES = "duplicates"
 FIELD_FAILED = "failed"
 FIELD_SKIPPED = "skipped"
+FIELD_ASSET_ID = "asset_id"
+FIELD_CONTENT_TYPE = "content_type"
+FIELD_SIZE_BYTES = "size_bytes"
+FIELD_JOB_ID = "job_id"
+FIELD_FAILURE_CLASS = "failure_class"
 
 # --- Stable event names: domain.action.result -------------------------------
 EVENT_HTTP_COMPLETED = "http.request.completed"
@@ -79,6 +84,8 @@ EVENT_PLAN_ADJUSTMENT_FAILED = "plan.adjustment.failed"
 EVENT_REMINDER_TICK_COMPLETED = "reminder.tick.completed"
 EVENT_REMINDER_TICK_FAILED = "reminder.tick.failed"
 EVENT_REMINDER_DELIVERY_FAILED = "reminder.delivery.failed"
+EVENT_MEDIA_UPLOAD_REJECTED = "media.upload.rejected"
+EVENT_MEDIA_THUMBNAIL_FAILED = "media.thumbnail.failed"
 
 # Event used for log calls that predate the structured event vocabulary.
 FALLBACK_EVENT = "log.record.emitted"

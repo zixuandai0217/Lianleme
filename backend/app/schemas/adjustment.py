@@ -9,12 +9,23 @@ from typing import TYPE_CHECKING, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:  # pragma: no cover - 仅类型检查时引入，避免 schema 依赖 ORM
+from app.models.adjustment_job import (
+    effective_error_code,
+    effective_failure_class,
+    effective_landed,
+    effective_status,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - 仅类型检查时引入，避免 schema 依赖 ORM 实例
     from app.models.adjustment import PlanAdjustment
+    from app.models.adjustment_job import PlanAdjustmentJob
 
 AdjustmentDirection = Literal["increase", "decrease", "keep"]
 AdjustmentSource = Literal["rule", "llm"]
 AdjustmentCompleteness = Literal["full", "partial", "default"]
+AdjustmentJobStatus = Literal[
+    "evaluating", "pending_choice", "applied", "expired_no_choice", "failed"
+]
 
 
 class AdjustmentDimension(BaseModel):
@@ -120,3 +131,144 @@ class AdjustmentLatestResponse(BaseModel):
     """最近一次调整结论；没有调整记录时 ``outcome`` 为 null（不是 404、也不是伪造的 keep）。"""
 
     outcome: Optional[AdjustmentOutcomeResponse] = None
+
+
+class AdjustmentJobDecision(BaseModel):
+    """本次调整的决策：方向、幅度与动作层面的落地形式。"""
+
+    direction: AdjustmentDirection = Field(..., description="increase / decrease / keep")
+    delta_percent: float = Field(..., description="声明幅度；keep 为 0")
+    exercise_swaps: List[dict] = Field(
+        default_factory=list,
+        description="动作替换清单；工单 24 的 Graph 不产出时为不伪造的空数组",
+    )
+    rest_day_change: Optional[dict] = Field(
+        default=None, description="休息日变更；工单 24 的 Graph 不产出时为 null"
+    )
+
+
+class AdjustmentPlanDiff(BaseModel):
+    """评估时快照的计划前后差异；之后计划再变也不改写这次交代。"""
+
+    before_difficulty_factor: float
+    after_difficulty_factor: float
+    before_summary: str
+    after_summary: str
+    changed_days: List[int] = Field(default_factory=list)
+
+
+class AdjustmentJobSummary(BaseModel):
+    """作业列表项：足以判断「评估中 / 已落地 / 失败」，详情按需拉取。"""
+
+    job_id: str
+    status: AdjustmentJobStatus
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    landed: bool = Field(..., description="是否已落地（applied / expired_no_choice）")
+    landed_at: Optional[datetime.datetime] = None
+    direction: Optional[AdjustmentDirection] = None
+    failure_class: Optional[str] = None
+    error_code: Optional[str] = None
+
+    @classmethod
+    def from_job(cls, job: "PlanAdjustmentJob") -> "AdjustmentJobSummary":
+        return cls(
+            job_id=job.job_id,
+            status=effective_status(job),  # type: ignore[arg-type]
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+            landed=effective_landed(job),
+            landed_at=job.landed_at,
+            direction=_decision_direction(job.decision),
+            failure_class=effective_failure_class(job),
+            error_code=effective_error_code(job),
+        )
+
+
+class AdjustmentJobDetail(AdjustmentJobSummary):
+    """作业详情：五维小结、合并分、决策、前后差异与失败分类。"""
+
+    adjustment_id: Optional[str] = Field(
+        default=None, description="已落地时对应的调整结论标识"
+    )
+    dimensions: Optional[List[AdjustmentDimension]] = Field(
+        default=None, description="五维明细，固定顺序；未完成评估时为 null"
+    )
+    merged: Optional[AdjustmentMergedSummary] = Field(
+        default=None, description="合并小结；未完成评估时为 null"
+    )
+    decision: Optional[AdjustmentJobDecision] = None
+    plan_diff: Optional[AdjustmentPlanDiff] = None
+    interrupt: Optional[dict] = Field(
+        default=None, description="待用户选择时的 interrupt 载荷；工单 27 写入"
+    )
+
+    @classmethod
+    def from_job(
+        cls, job: "PlanAdjustmentJob", adjustment: Optional["PlanAdjustment"] = None
+    ) -> "AdjustmentJobDetail":
+        summary = AdjustmentJobSummary.from_job(job)
+        return cls(
+            **summary.model_dump(),
+            adjustment_id=job.adjustment_id,
+            dimensions=(
+                AdjustmentOutcomeResponse._project_dimensions(adjustment.dimensions)
+                if adjustment is not None
+                else None
+            ),
+            merged=(
+                AdjustmentOutcomeResponse._project_merged(adjustment.merged)
+                if adjustment is not None
+                else None
+            ),
+            decision=_project_decision(job.decision),
+            plan_diff=_project_plan_diff(job.plan_diff),
+            interrupt=job.interrupt if isinstance(job.interrupt, dict) else None,
+        )
+
+
+class AdjustmentJobPending(BaseModel):
+    """未决作业：评估中或等待用户选择；``interrupt`` 供风险确认模态使用。"""
+
+    job_id: str
+    status: AdjustmentJobStatus
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    interrupt: Optional[dict] = None
+
+    @classmethod
+    def from_job(cls, job: "PlanAdjustmentJob") -> "AdjustmentJobPending":
+        return cls(
+            job_id=job.job_id,
+            status=effective_status(job),  # type: ignore[arg-type]
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+            interrupt=job.interrupt if isinstance(job.interrupt, dict) else None,
+        )
+
+
+def _decision_direction(raw: object) -> Optional[AdjustmentDirection]:
+    if not isinstance(raw, dict):
+        return None
+    direction = raw.get("direction")
+    if direction in ("increase", "decrease", "keep"):
+        return direction  # type: ignore[return-value]
+    return None
+
+
+def _project_decision(raw: object) -> Optional[AdjustmentJobDecision]:
+    if not isinstance(raw, dict) or not raw:
+        return None
+    try:
+        return AdjustmentJobDecision.model_validate(raw)
+    except Exception:  # noqa: BLE001 - 展示降级优于读取失败
+        return None
+
+
+def _project_plan_diff(raw: object) -> Optional[AdjustmentPlanDiff]:
+    if not isinstance(raw, dict) or not raw:
+        return None
+    try:
+        return AdjustmentPlanDiff.model_validate(raw)
+    except Exception:  # noqa: BLE001 - 历史形态损坏时按「无差异」降级
+        return None

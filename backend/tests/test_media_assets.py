@@ -9,6 +9,8 @@ import base64
 import datetime
 import hashlib
 import io
+import json
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -24,15 +26,25 @@ from app.api import vision as vision_api
 from app.api.media_errors import ERROR_CODE_CHECKSUM_MISMATCH
 from app.core.config import settings
 from app.core.database import Base, get_db
+from app.core.logging import (
+    EVENT_MEDIA_THUMBNAIL_FAILED,
+    EVENT_MEDIA_UPLOAD_REJECTED,
+    StructuredJsonFormatter,
+)
 from app.core.storage import InMemoryStorage, StorageError, get_storage
 from app.main import app
 from app.models.analysis_task import AnalysisTask
 from app.models.body_analysis import BodyAnalysisRecord
 from app.models.media_asset import MediaAsset
 from app.models.user import User
-from app.schemas.vision import BodyAnalysisResult
+from app.schemas.vision import AnalyzeRequest, BodyAnalysisResult
 from app.services.media.media_asset_service import (
     ERROR_CODE_ASSET_NOT_FOUND,
+    ERROR_CODE_IMAGE_ANIMATED,
+    ERROR_CODE_IMAGE_TOO_SMALL,
+    ERROR_CODE_IMAGE_TYPE_MISMATCH,
+    ERROR_CODE_PAYLOAD_TOO_LARGE,
+    ERROR_CODE_UNSUPPORTED_MEDIA_TYPE,
     build_object_key,
     generate_asset_id,
 )
@@ -44,6 +56,42 @@ NOW = datetime.datetime.now(datetime.timezone.utc)
 def _png_bytes(width: int = 640, height: int = 480) -> bytes:
     buffer = io.BytesIO()
     Image.new("RGB", (width, height), (20, 40, 60)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _jpeg_bytes(width: int = 800, height: int = 600) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), (30, 60, 90)).save(buffer, format="JPEG", quality=95)
+    return buffer.getvalue()
+
+
+def _webp_bytes(width: int = 640, height: int = 480) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), (30, 90, 60)).save(buffer, format="WEBP", quality=95)
+    return buffer.getvalue()
+
+
+def _exif_oriented_jpeg(width: int = 800, height: int = 600) -> bytes:
+    """带 EXIF 方向 6 与 GPS 的 JPEG；左上角红色块用于断言像素确实被旋转。"""
+    image = Image.new("RGB", (width, height), (20, 40, 60))
+    for y in range(40):
+        for x in range(40):
+            image.putpixel((x, y), (255, 0, 0))
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    exif[0x8825] = {1: "N", 2: (31.0, 13.0, 0.0), 3: "E", 4: (121.0, 28.0, 0.0)}
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=95, exif=exif)
+    return buffer.getvalue()
+
+
+def _animated_png_bytes(width: int = 640, height: int = 480) -> bytes:
+    frames = [
+        Image.new("RGBA", (width, height), (255, 0, 0, 255)),
+        Image.new("RGBA", (width, height), (0, 255, 0, 255)),
+    ]
+    buffer = io.BytesIO()
+    frames[0].save(buffer, format="PNG", save_all=True, append_images=frames[1:])
     return buffer.getvalue()
 
 
@@ -148,27 +196,68 @@ async def _seed_asset(
     storage: InMemoryStorage,
     user_id: int,
     data: bytes | None = None,
+    *,
+    content_type: str = "image/png",
 ) -> MediaAsset:
-    payload = data or _png_bytes()
+    payload = data if data is not None else _png_bytes()
     asset_id = generate_asset_id()
-    key = build_object_key(user_id, asset_id, "image/png")
-    await storage.write(key, payload, "image/png")
+    key = build_object_key(user_id, asset_id, content_type)
+    await storage.write(key, payload, content_type)
+    try:
+        with Image.open(io.BytesIO(payload)) as image:
+            width, height = image.size
+    except Exception:
+        # 损坏内容也要能落成既有资产，供缩略图降级路径使用。
+        width, height = None, None
     async with session_factory() as session:
         asset = MediaAsset(
             asset_id=asset_id,
             user_id=user_id,
             kind="original",
             object_key=key,
-            content_type="image/png",
+            content_type=content_type,
             size_bytes=len(payload),
-            width=640,
-            height=480,
+            width=width,
+            height=height,
             checksum=hashlib.sha256(payload).hexdigest(),
             status="available",
         )
         session.add(asset)
         await session.commit()
     return asset
+
+
+async def _seed_task(
+    session_factory,
+    user_id: int,
+    task_id: str,
+    image_asset_id: str,
+) -> None:
+    async with session_factory() as session:
+        session.add(
+            AnalysisTask(
+                task_id=task_id,
+                user_id=user_id,
+                status="pending",
+                stage="queued",
+                attempt=0,
+                progress=0,
+                image_asset_id=image_asset_id,
+                expires_at=NOW + datetime.timedelta(minutes=10),
+            )
+        )
+        await session.commit()
+
+
+class _SuccessfulVisionGraph:
+    """后台执行器的替身：返回固定分析结果，不调用模型。"""
+
+    def __init__(self, user_id: int, db) -> None:
+        self.user_id = user_id
+        self.db = db
+
+    async def run(self, image_base64: str, profile=None) -> BodyAnalysisResult:
+        return BodyAnalysisResult(**_analysis_result())
 
 
 def _analysis_result() -> dict:
@@ -180,6 +269,35 @@ def _analysis_result() -> dict:
         muscle_scores={"back": 6},
         summary="保持训练",
     ).model_dump()
+
+
+async def _execute_analysis(
+    monkeypatch,
+    session_factory,
+    stub_background,
+    storage: InMemoryStorage,
+    *,
+    task_id: str,
+    user_id: int,
+    image_asset_id: str,
+) -> None:
+    """直接运行真实后台执行器，只替换模型与数据库工厂。"""
+    monkeypatch.setattr(vision_api, "AsyncSessionLocal", session_factory)
+    monkeypatch.setattr(vision_api, "VisionGraph", _SuccessfulVisionGraph)
+    await stub_background["original"](
+        task_id,
+        AnalyzeRequest(user_id=user_id, image_asset_id=image_asset_id),
+        storage,
+    )
+
+
+def _events(caplog, event: str) -> list[dict]:
+    formatter = StructuredJsonFormatter()
+    return [
+        json.loads(formatter.format(record))
+        for record in caplog.records
+        if getattr(record, "fields", {}).get("event") == event
+    ]
 
 
 # ── 存储端口单元语义 ──
@@ -243,10 +361,8 @@ async def test_upload_returns_metadata_and_stores_only_key(
     body = response.json()
     assert body["asset_id"].startswith("as_")
     assert body["content_type"] == "image/png"
-    assert body["size_bytes"] == len(data)
     assert body["width"] == 640
     assert body["height"] == 480
-    assert body["checksum"] == hashlib.sha256(data).hexdigest()
     assert body["created_at"]
     assert "object_key" not in body
     assert "http" not in response.text
@@ -262,8 +378,171 @@ async def test_upload_returns_metadata_and_stores_only_key(
         assert asset.width == 640
         assert asset.original_filename == "private-name.png"
 
+    stored = await storage.read(asset.object_key)
+    # 存档字节是重新编码后的清理版本：摘要与字节数都以存档为准。
+    assert body["size_bytes"] == len(stored) == asset.size_bytes
+    assert body["checksum"] == hashlib.sha256(stored).hexdigest() == asset.checksum
     assert storage.object_count == 1
-    assert await storage.read(asset.object_key) == data
+    with Image.open(io.BytesIO(stored)) as image:
+        assert image.size == (640, 480)
+        assert image.format == "PNG"
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_unsupported_content_type_without_rows(
+    client, session_factory, storage, users, caplog
+):
+    caplog.set_level(logging.WARNING)
+    owner = users["owner"]
+
+    for filename, content_type in (
+        ("body.gif", "image/gif"),
+        ("body.pdf", "application/pdf"),
+        ("body.heic", "image/heic"),
+    ):
+        response = await _upload(
+            client, owner.id, _png_bytes(), filename=filename, content_type=content_type
+        )
+        assert response.status_code == 415, response.text
+        assert response.json()["detail"]["code"] == ERROR_CODE_UNSUPPORTED_MEDIA_TYPE
+
+    assert await _asset_count(session_factory) == 0
+    assert await _task_count(session_factory) == 0
+    assert storage.object_count == 0
+    rejected = _events(caplog, EVENT_MEDIA_UPLOAD_REJECTED)
+    assert rejected, "校验拒绝必须留下可观测事件"
+    assert rejected[-1]["error_code"] == ERROR_CODE_UNSUPPORTED_MEDIA_TYPE
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_payload_over_byte_cap_before_decoding(
+    client, session_factory, storage, users, monkeypatch
+):
+    owner = users["owner"]
+    monkeypatch.setattr(settings, "MEDIA_MAX_UPLOAD_BYTES", 1024)
+
+    # 内容本身不是图片：若先解码会得到 400 image_invalid，413 证明字节上限先于解码。
+    response = await _upload(
+        client, owner.id, b"x" * 2048, filename="huge.png", content_type="image/png"
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == ERROR_CODE_PAYLOAD_TOO_LARGE
+    assert await _asset_count(session_factory) == 0
+    assert await _task_count(session_factory) == 0
+    assert storage.object_count == 0
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_animated_image_without_rows(
+    client, session_factory, storage, users
+):
+    owner = users["owner"]
+
+    response = await _upload(
+        client, owner.id, _animated_png_bytes(), filename="body.png", content_type="image/png"
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == ERROR_CODE_IMAGE_ANIMATED
+    assert await _asset_count(session_factory) == 0
+    assert await _task_count(session_factory) == 0
+    assert storage.object_count == 0
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_declared_and_actual_type_mismatch(
+    client, session_factory, storage, users
+):
+    owner = users["owner"]
+
+    response = await _upload(
+        client, owner.id, _jpeg_bytes(), filename="body.png", content_type="image/png"
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == ERROR_CODE_IMAGE_TYPE_MISMATCH
+    assert await _asset_count(session_factory) == 0
+    assert await _task_count(session_factory) == 0
+    assert storage.object_count == 0
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_image_below_minimum_edge(
+    client, session_factory, storage, users
+):
+    owner = users["owner"]
+
+    response = await _upload(
+        client, owner.id, _png_bytes(400, 480), filename="small.png", content_type="image/png"
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == ERROR_CODE_IMAGE_TOO_SMALL
+    assert await _asset_count(session_factory) == 0
+    assert await _task_count(session_factory) == 0
+    assert storage.object_count == 0
+
+
+@pytest.mark.asyncio
+async def test_upload_accepts_webp_and_preserves_declared_type(
+    client, session_factory, storage, users
+):
+    owner = users["owner"]
+
+    response = await _upload(
+        client, owner.id, _webp_bytes(), filename="body.webp", content_type="image/webp"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["content_type"] == "image/webp"
+    async with session_factory() as session:
+        asset = await session.get(MediaAsset, body["asset_id"])
+        assert asset is not None
+        assert asset.object_key.endswith(".webp")
+    stored = await storage.read(asset.object_key)
+    with Image.open(io.BytesIO(stored)) as image:
+        assert image.format == "WEBP"
+        assert image.size == (640, 480)
+    assert storage.object_count == 1
+
+
+@pytest.mark.asyncio
+async def test_upload_strips_exif_rotates_pixels_and_cleans_stored_bytes(
+    client, session_factory, storage, users
+):
+    owner = users["owner"]
+    data = _exif_oriented_jpeg()
+
+    response = await _upload(
+        client, owner.id, data, filename="body.jpg", content_type="image/jpeg"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # EXIF 方向 6 表示需顺时针旋转 90°：800×600 存档后为 600×800。
+    assert body["width"] == 600
+    assert body["height"] == 800
+
+    async with session_factory() as session:
+        asset = await session.get(MediaAsset, body["asset_id"])
+        assert asset is not None
+        assert (asset.width, asset.height) == (600, 800)
+
+    stored = await storage.read(asset.object_key)
+    assert body["size_bytes"] == len(stored) == asset.size_bytes
+    assert body["checksum"] == hashlib.sha256(stored).hexdigest()
+
+    with Image.open(io.BytesIO(stored)) as image:
+        assert image.size == (600, 800)
+        assert image.format == "JPEG"
+        # 全部 EXIF（含方向与 GPS）都必须被清除，而不是只清方向。
+        assert dict(image.getexif()) == {}
+        assert image.getexif().get_ifd(0x8825) == {}
+        # 左上角红色块旋转 90° 顺时针后落在右上角。
+        assert image.getpixel((image.width - 1, 0))[0] > 200
+    assert b"Exif" not in stored
 
 
 @pytest.mark.asyncio
@@ -362,9 +641,14 @@ async def test_owner_gets_short_lived_signed_url(client, session_factory, storag
     assert body["content_type"] == "image/png"
     assert body["width"] == 640
     assert body["height"] == 480
-    assert body["size_bytes"] == len(data)
     assert body["expires_at"]
-    assert await storage.fetch(body["url"]) == data
+
+    async with session_factory() as session:
+        stored_asset = await session.get(MediaAsset, asset_id)
+        assert stored_asset is not None
+    stored = await storage.read(stored_asset.object_key)
+    assert body["size_bytes"] == len(stored)
+    assert await storage.fetch(body["url"]) == stored
 
     # URL 与过期时间不落库：数据库里只有对象 key 与元数据。
     async with session_factory() as session:
@@ -716,3 +1000,288 @@ async def test_history_signing_failure_degrades_item_without_failing_list(
     assert item["image_url"] is None
     assert item["thumbnail_url"] is None
     assert item["degraded"] is True
+
+
+# ── 缩略图异步生成 ──
+
+
+@pytest.mark.asyncio
+async def test_analysis_generates_thumbnail_and_history_returns_signed_url(
+    client, session_factory, storage, users, stub_background, monkeypatch
+):
+    owner = users["owner"]
+    original = await _seed_asset(session_factory, storage, owner.id, _png_bytes(1600, 1200))
+    task_id = "thumbnail-success-1"
+    await _seed_task(session_factory, owner.id, task_id, original.asset_id)
+
+    await _execute_analysis(
+        monkeypatch,
+        session_factory,
+        stub_background,
+        storage,
+        task_id=task_id,
+        user_id=owner.id,
+        image_asset_id=original.asset_id,
+    )
+
+    history = await client.get(
+        f"/api/vision/{owner.id}/history",
+        headers=_auth(owner.id),
+    )
+    assert history.status_code == 200, history.text
+    item = history.json()["records"][0]
+    assert item["thumbnail_url"].startswith("memory://media/")
+    assert item["degraded"] is False
+
+    thumbnail_bytes = await storage.fetch(item["thumbnail_url"])
+    with Image.open(io.BytesIO(thumbnail_bytes)) as thumbnail:
+        assert thumbnail.format == "JPEG"
+        assert max(thumbnail.size) == settings.MEDIA_THUMBNAIL_MAX_EDGE_PX
+        assert thumbnail.size == (800, 600)
+
+    async with session_factory() as session:
+        record = await session.get(BodyAnalysisRecord, item["id"])
+        assert record is not None
+        thumbnail = await session.get(MediaAsset, record.thumbnail_asset_id)
+        assert thumbnail is not None
+        assert thumbnail.kind == "thumbnail"
+        assert thumbnail.status == "available"
+        assert thumbnail.content_type == "image/jpeg"
+        assert thumbnail.object_key == f"{original.object_key}.thumb.jpg"
+        assert (thumbnail.width, thumbnail.height) == (800, 600)
+        assert thumbnail.size_bytes == len(thumbnail_bytes)
+
+    assert storage.object_count == 2
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_long_edge_matches_config_even_for_small_uploads(
+    client, session_factory, storage, users, stub_background, monkeypatch
+):
+    """AC3 要求长边等于配置值：比配置小的图也要放大，而不是保留原边长。"""
+    owner = users["owner"]
+    original = await _seed_asset(session_factory, storage, owner.id, _png_bytes(640, 480))
+    task_id = "thumbnail-upscale-1"
+    await _seed_task(session_factory, owner.id, task_id, original.asset_id)
+
+    await _execute_analysis(
+        monkeypatch,
+        session_factory,
+        stub_background,
+        storage,
+        task_id=task_id,
+        user_id=owner.id,
+        image_asset_id=original.asset_id,
+    )
+
+    history = await client.get(
+        f"/api/vision/{owner.id}/history",
+        headers=_auth(owner.id),
+    )
+    assert history.status_code == 200, history.text
+    item = history.json()["records"][0]
+    assert item["thumbnail_url"].startswith("memory://media/")
+
+    thumbnail_bytes = await storage.fetch(item["thumbnail_url"])
+    with Image.open(io.BytesIO(thumbnail_bytes)) as thumbnail:
+        assert thumbnail.format == "JPEG"
+        assert thumbnail.size == (800, 600)
+        assert max(thumbnail.size) == settings.MEDIA_THUMBNAIL_MAX_EDGE_PX
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_generation_is_idempotent_for_the_same_original(
+    client, session_factory, storage, users, stub_background, monkeypatch
+):
+    owner = users["owner"]
+    original = await _seed_asset(session_factory, storage, owner.id, _png_bytes(1600, 1200))
+
+    for index in (1, 2):
+        task_id = f"thumbnail-idempotent-{index}"
+        await _seed_task(session_factory, owner.id, task_id, original.asset_id)
+        await _execute_analysis(
+            monkeypatch,
+            session_factory,
+            stub_background,
+            storage,
+            task_id=task_id,
+            user_id=owner.id,
+            image_asset_id=original.asset_id,
+        )
+
+    # 原图 + 唯一一份缩略图；第二次触发不写出新对象。
+    assert storage.object_count == 2
+    async with session_factory() as session:
+        thumbnails = list(
+            (
+                await session.execute(
+                    select(MediaAsset).where(MediaAsset.kind == "thumbnail")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(thumbnails) == 1
+        records = list(
+            (
+                await session.execute(
+                    select(BodyAnalysisRecord).order_by(BodyAnalysisRecord.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(records) == 2
+        assert {record.thumbnail_asset_id for record in records} == {thumbnails[0].asset_id}
+        tasks = list(
+            (
+                await session.execute(
+                    select(AnalysisTask).order_by(AnalysisTask.task_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert {task.thumbnail_asset_id for task in tasks} == {thumbnails[0].asset_id}
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_failure_degrades_history_without_hiding_analysis(
+    client, session_factory, storage, users, stub_background, monkeypatch, caplog
+):
+    caplog.set_level(logging.WARNING)
+    owner = users["owner"]
+    original = await _seed_asset(session_factory, storage, owner.id, b"not-an-image")
+    task_id = "thumbnail-failure-1"
+    await _seed_task(session_factory, owner.id, task_id, original.asset_id)
+
+    await _execute_analysis(
+        monkeypatch,
+        session_factory,
+        stub_background,
+        storage,
+        task_id=task_id,
+        user_id=owner.id,
+        image_asset_id=original.asset_id,
+    )
+
+    history = await client.get(
+        f"/api/vision/{owner.id}/history",
+        headers=_auth(owner.id),
+    )
+    assert history.status_code == 200, history.text
+    item = history.json()["records"][0]
+    # 分析结果仍然可读，原图链接照常签发。
+    assert item["result"]["body_type"] == "mesomorph"
+    assert item["image_url"].startswith("memory://media/")
+    assert await storage.fetch(item["image_url"]) == b"not-an-image"
+    assert item["thumbnail_url"] is None
+    assert item["degraded"] is True
+    assert item["thumbnail_asset_id"] is not None
+
+    async with session_factory() as session:
+        record = await session.get(BodyAnalysisRecord, item["id"])
+        assert record is not None
+        thumbnail = await session.get(MediaAsset, record.thumbnail_asset_id)
+        assert thumbnail is not None
+        assert thumbnail.kind == "thumbnail"
+        assert thumbnail.status == "degraded"
+        assert thumbnail.object_key == f"{original.object_key}.thumb.jpg"
+
+    # 失败不写对象。
+    assert storage.object_count == 1
+
+    failed = _events(caplog, EVENT_MEDIA_THUMBNAIL_FAILED)
+    assert failed, "缩略图失败必须留下降级事件，不得静默"
+    event = failed[-1]
+    assert event["asset_id"] == original.asset_id
+    assert event["task_id"] == task_id
+    assert event["user_id"] == owner.id
+    assert event["error_class"]
+    assert event["level"] == "warning"
+    assert "not-an-image" not in json.dumps(event)
+
+
+@pytest.mark.asyncio
+async def test_history_returns_degraded_when_thumbnail_asset_is_not_available(
+    client, session_factory, users, storage
+):
+    owner = users["owner"]
+    original = await _seed_asset(session_factory, storage, owner.id)
+    degraded_asset_id = generate_asset_id()
+    async with session_factory() as session:
+        session.add(
+            MediaAsset(
+                asset_id=degraded_asset_id,
+                user_id=owner.id,
+                kind="thumbnail",
+                object_key=f"{original.object_key}.thumb.jpg",
+                content_type="image/jpeg",
+                size_bytes=0,
+                checksum="",
+                status="degraded",
+            )
+        )
+        session.add(
+            BodyAnalysisRecord(
+                user_id=owner.id,
+                image_asset_id=original.asset_id,
+                thumbnail_asset_id=degraded_asset_id,
+                result=_analysis_result(),
+            )
+        )
+        await session.commit()
+
+    response = await client.get(
+        f"/api/vision/{owner.id}/history",
+        headers=_auth(owner.id),
+    )
+
+    assert response.status_code == 200
+    item = response.json()["records"][0]
+    assert item["image_url"].startswith("memory://media/")
+    assert item["thumbnail_url"] is None
+    assert item["degraded"] is True
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_signing_failure_degrades_but_keeps_original_url(
+    client, session_factory, users, storage
+):
+    owner = users["owner"]
+    original = await _seed_asset(session_factory, storage, owner.id)
+    thumbnail = await _seed_asset(session_factory, storage, owner.id, _png_bytes(700, 500))
+    async with session_factory() as session:
+        session.add(
+            BodyAnalysisRecord(
+                user_id=owner.id,
+                image_asset_id=original.asset_id,
+                thumbnail_asset_id=thumbnail.asset_id,
+                result=_analysis_result(),
+            )
+        )
+        await session.commit()
+
+    previous = app.dependency_overrides[get_storage]
+
+    class _ThumbnailFailingSignStorage(InMemoryStorage):
+        async def sign(self, key, ttl_seconds):
+            if key == thumbnail.object_key:
+                raise StorageError("down")
+            return await storage.sign(key, ttl_seconds)
+
+    app.dependency_overrides[get_storage] = lambda: _ThumbnailFailingSignStorage()
+    try:
+        response = await client.get(
+            f"/api/vision/{owner.id}/history",
+            headers=_auth(owner.id),
+        )
+    finally:
+        app.dependency_overrides[get_storage] = previous
+
+    assert response.status_code == 200
+    item = response.json()["records"][0]
+    assert item["image_url"].startswith("memory://media/")
+    assert item["thumbnail_url"] is None
+    assert item["degraded"] is True
+

@@ -1,7 +1,7 @@
 """训练计划路由：获取当前计划、生成新计划、难度调整"""
 import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -10,9 +10,20 @@ from app.core.security import (
     get_current_user,
     require_current_user_api_key,
 )
+from app.models.adjustment_job import (
+    ERROR_CODE_JOB_FORBIDDEN,
+    ERROR_CODE_JOB_NOT_FOUND,
+)
 from app.models.user import User
-from app.schemas.adjustment import AdjustmentLatestResponse, AdjustmentOutcomeResponse
+from app.schemas.adjustment import (
+    AdjustmentJobDetail,
+    AdjustmentJobPending,
+    AdjustmentJobSummary,
+    AdjustmentLatestResponse,
+    AdjustmentOutcomeResponse,
+)
 from app.schemas.plan import GeneratePlanRequest, PlanResponse, TodayWorkoutResponse
+from app.services.plan.adjustment_job_service import AdjustmentJobService
 from app.services.plan.plan_service import PlanService
 from app.services.user.user_service import UserService
 
@@ -32,6 +43,67 @@ async def get_latest_adjustment(
     return AdjustmentLatestResponse(
         outcome=AdjustmentOutcomeResponse.from_record(record) if record else None
     )
+
+
+@router.get(
+    "/{user_id}/adjustments/jobs",
+    response_model=list[AdjustmentJobSummary],
+)
+async def list_adjustment_jobs(
+    user_id: int,
+    limit: int = Query(20, ge=1, le=100, description="最多返回多少条，默认 20、上限 100"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """最近调整作业（倒序摘要）；读取只依赖数据库，进程重启后同样可查。"""
+    ensure_current_user_matches(current_user, user_id)
+    jobs = await AdjustmentJobService(db).list_jobs(user_id, limit=limit)
+    return [AdjustmentJobSummary.from_job(job) for job in jobs]
+
+
+# 字面量 pending 必须声明在 {job_id} 之前，避免被当成作业标识。
+@router.get(
+    "/{user_id}/adjustments/jobs/pending",
+    response_model=list[AdjustmentJobPending],
+)
+async def list_pending_adjustment_jobs(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """当前用户未决作业（评估中 / 待选择）；无未决时返回 200 空列表。"""
+    ensure_current_user_matches(current_user, user_id)
+    jobs = await AdjustmentJobService(db).list_pending(user_id)
+    return [AdjustmentJobPending.from_job(job) for job in jobs]
+
+
+@router.get(
+    "/{user_id}/adjustments/jobs/{job_id}",
+    response_model=AdjustmentJobDetail,
+)
+async def get_adjustment_job(
+    user_id: int,
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """作业详情：五维小结、合并分、决策与计划前后差异。"""
+    ensure_current_user_matches(current_user, user_id)
+    service = AdjustmentJobService(db)
+    job = await service.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": ERROR_CODE_JOB_NOT_FOUND, "message": "找不到这条调整作业"},
+        )
+    # 作业存在但属于别人：403 且不返回任何结果内容（不区分「存在但无权」的细节）。
+    if job.user_id != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": ERROR_CODE_JOB_FORBIDDEN, "message": "无权访问其他用户的调整作业"},
+        )
+    adjustment = await service.get_adjustment(job.adjustment_id)
+    return AdjustmentJobDetail.from_job(job, adjustment)
 
 
 @router.get("/{user_id}/adjustments/{adjustment_id}", response_model=AdjustmentOutcomeResponse)

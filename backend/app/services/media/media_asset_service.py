@@ -1,12 +1,14 @@
-"""媒体资产服务：对象 key 组织、去重、落库与签名读图。"""
+"""媒体资产服务：请求期校验、对象 key 组织、去重、落库、缩略图与签名读图。"""
+import asyncio
 import base64
 import binascii
 import datetime
 import hashlib
 import io
 import secrets
+from dataclasses import dataclass
 
-from PIL import Image
+from PIL import Image, ImageOps
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,14 +17,21 @@ from app.core.config import settings
 from app.core.storage import Storage
 from app.models.media_asset import (
     ASSET_KIND_ORIGINAL,
+    ASSET_KIND_THUMBNAIL,
     ASSET_STATUS_AVAILABLE,
+    ASSET_STATUS_DEGRADED,
     MediaAsset,
 )
 
-# 与前端/接口共享的稳定错误码（统一 404 与存储不可用语义）。
+# 与前端/接口共享的稳定错误码（上传校验、统一 404 与存储不可用语义）。
 ERROR_CODE_ASSET_NOT_FOUND = "asset_not_found"
 ERROR_CODE_IMAGE_INVALID = "image_invalid"
 ERROR_CODE_STORAGE_UNAVAILABLE = "storage_unavailable"
+ERROR_CODE_UNSUPPORTED_MEDIA_TYPE = "unsupported_media_type"
+ERROR_CODE_PAYLOAD_TOO_LARGE = "payload_too_large"
+ERROR_CODE_IMAGE_ANIMATED = "image_animated"
+ERROR_CODE_IMAGE_TYPE_MISMATCH = "image_type_mismatch"
+ERROR_CODE_IMAGE_TOO_SMALL = "image_too_small"
 
 # 扩展名只由内容类型决定，永远不使用用户原始文件名。
 CONTENT_TYPE_EXTENSIONS = {
@@ -30,13 +39,78 @@ CONTENT_TYPE_EXTENSIONS = {
     "image/png": ".png",
     "image/webp": ".webp",
 }
+# 白名单从扩展名映射派生，避免两处清单漂移。
+# 白名单由配置决定；能力映射仍是扩展名与 Pillow 格式的唯一来源。
+_DEFAULT_SUPPORTED_CONTENT_TYPES = frozenset(CONTENT_TYPE_EXTENSIONS)
+
+
+def supported_content_types() -> frozenset[str]:
+    """当前配置允许的内容类型（与可编码格式取交集）。"""
+    configured = settings.allowed_media_content_types()
+    return frozenset(configured) & _DEFAULT_SUPPORTED_CONTENT_TYPES
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
 _DEFAULT_EXTENSION = ".bin"
+
+# 存档时按声明格式重新编码；质量取高值，尽量保留原图观感。
+_PILLOW_FORMATS = {
+    "image/jpeg": "JPEG",
+    "image/png": "PNG",
+    "image/webp": "WEBP",
+}
+_PILLOW_FORMAT_CONTENT_TYPES = {
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+    "WEBP": "image/webp",
+}
+_ORIGINAL_REENCODE_QUALITY = 95
+
+# 缩略图由原图 key 确定性派生：长边缩放、JPEG 质量取配置值。
+THUMBNAIL_CONTENT_TYPE = "image/jpeg"
+
+# 进程内降级计数：与 ``media.thumbnail.failed`` 事件一起满足「计数 + 事件」。
+_thumbnail_degraded_total = 0
+
+
+def _count_degraded_thumbnail() -> None:
+    global _thumbnail_degraded_total
+    _thumbnail_degraded_total += 1
+
+
+def thumbnail_degraded_total() -> int:
+    """本进程累计的缩略图降级次数（事件字段与测试用）。"""
+    return _thumbnail_degraded_total
+_THUMBNAIL_SUFFIX = ".thumb.jpg"
 
 
 def utc_now() -> datetime.datetime:
     """当前 UTC 时间（带时区）。"""
     return datetime.datetime.now(datetime.timezone.utc)
+
+
+class MediaValidationError(ValueError):
+    """上传图片未通过请求期校验；``code`` 是稳定错误码，文案由接口层决定。"""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+class ThumbnailGenerationError(RuntimeError):
+    """缩略图生成失败；``degraded_asset`` 是已经登记为降级的资产行。"""
+
+    def __init__(self, degraded_asset: MediaAsset) -> None:
+        super().__init__("缩略图生成失败")
+        self.degraded_asset = degraded_asset
+
+
+@dataclass(frozen=True)
+class CleanedImage:
+    """通过校验并清除了元数据的存档字节及其元数据。"""
+
+    data: bytes
+    content_type: str
+    width: int
+    height: int
 
 
 def normalize_content_type(raw: str | None) -> str:
@@ -49,6 +123,111 @@ def normalize_content_type(raw: str | None) -> str:
 def extension_for_content_type(content_type: str) -> str:
     """内容类型到对象 key 扩展名的稳定映射。"""
     return CONTENT_TYPE_EXTENSIONS.get(normalize_content_type(content_type), _DEFAULT_EXTENSION)
+
+
+def validate_declared_content_type(content_type: str) -> str:
+    """白名单校验：只接受 JPEG / PNG / WebP，其余一律拒绝。"""
+    normalized = normalize_content_type(content_type)
+    if normalized not in supported_content_types():
+        raise MediaValidationError(ERROR_CODE_UNSUPPORTED_MEDIA_TYPE)
+    return normalized
+
+
+def validate_upload_size(size_bytes: int) -> None:
+    """解码前按原始字节数拒绝超限上传，避免为超大文件做无谓解码。"""
+    if size_bytes > settings.MEDIA_MAX_UPLOAD_BYTES:
+        raise MediaValidationError(ERROR_CODE_PAYLOAD_TOO_LARGE)
+
+
+def clean_image_bytes(data: bytes, declared_content_type: str) -> CleanedImage:
+    """解码、校验单帧/最小边，按 EXIF 方向纠正后重新编码以清除全部元数据。
+
+    校验顺序固定：解码失败 → 动图 → 声明与实际格式不符 → 最短边过低。
+    存档字节只保留像素，EXIF（含 GPS）、ICC 与文本块都不会进入对象存储。
+    """
+    content_type = normalize_content_type(declared_content_type)
+    pillow_format = _PILLOW_FORMATS[content_type]
+    try:
+        with Image.open(io.BytesIO(data)) as opened:
+            opened.load()
+            if (
+                getattr(opened, "is_animated", False)
+                or int(getattr(opened, "n_frames", 1) or 1) > 1
+            ):
+                raise MediaValidationError(ERROR_CODE_IMAGE_ANIMATED)
+            actual_type = _PILLOW_FORMAT_CONTENT_TYPES.get(opened.format or "")
+            if actual_type != content_type:
+                raise MediaValidationError(ERROR_CODE_IMAGE_TYPE_MISMATCH)
+            width, height = opened.size
+            if min(width, height) < settings.MEDIA_MIN_EDGE_PX:
+                raise MediaValidationError(ERROR_CODE_IMAGE_TOO_SMALL)
+            cleaned = ImageOps.exif_transpose(opened)
+    except MediaValidationError:
+        raise
+    except Exception:
+        raise MediaValidationError(ERROR_CODE_IMAGE_INVALID) from None
+
+    try:
+        if pillow_format == "JPEG":
+            if cleaned.mode not in {"RGB", "L"}:
+                cleaned = cleaned.convert("RGB")
+        elif pillow_format == "WEBP":
+            if cleaned.mode not in {"RGB", "RGBA"}:
+                cleaned = cleaned.convert(
+                    "RGBA" if "A" in cleaned.mode or "transparency" in cleaned.info else "RGB"
+                )
+        elif cleaned.mode not in {"RGB", "RGBA", "L", "LA"}:
+            cleaned = cleaned.convert(
+                "RGBA" if "A" in cleaned.mode or "transparency" in cleaned.info else "RGB"
+            )
+    except Exception:
+        raise MediaValidationError(ERROR_CODE_IMAGE_INVALID) from None
+
+    # 丢弃 EXIF / GPS / ICC / 文本块等一切元数据，再编码为声明格式。
+    cleaned.info.clear()
+    buffer = io.BytesIO()
+    save_options = {"quality": _ORIGINAL_REENCODE_QUALITY} if pillow_format != "PNG" else {}
+    try:
+        cleaned.save(buffer, format=pillow_format, **save_options)
+    except Exception:
+        raise MediaValidationError(ERROR_CODE_IMAGE_INVALID) from None
+
+    return CleanedImage(
+        data=buffer.getvalue(),
+        content_type=content_type,
+        width=cleaned.width,
+        height=cleaned.height,
+    )
+
+
+def build_thumbnail_key(original_object_key: str) -> str:
+    """缩略图 key 由原图 key 确定性派生，重复触发不会写出多份对象。"""
+    return f"{original_object_key}{_THUMBNAIL_SUFFIX}"
+
+
+def render_thumbnail(data: bytes) -> tuple[bytes, int, int]:
+    """把长边精确缩放到配置值（放大或缩小），输出配置质量的 JPEG。
+
+    契约要求「缩略图长边等于配置值」，因此不能用 ``Image.thumbnail``（它只缩不放）。
+    """
+    max_edge = max(1, settings.MEDIA_THUMBNAIL_MAX_EDGE_PX)
+    with Image.open(io.BytesIO(data)) as opened:
+        opened.load()
+        image = ImageOps.exif_transpose(opened).convert("RGB")
+    width, height = image.size
+    if width >= height:
+        target = (max_edge, max(1, round(height * max_edge / width)))
+    else:
+        target = (max(1, round(width * max_edge / height)), max_edge)
+    if target != image.size:
+        image = image.resize(target, Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    image.save(
+        buffer,
+        format="JPEG",
+        quality=settings.MEDIA_THUMBNAIL_JPEG_QUALITY,
+    )
+    return buffer.getvalue(), image.width, image.height
 
 
 def generate_asset_id() -> str:
@@ -223,3 +402,95 @@ class MediaAssetService:
     async def read(self, asset: MediaAsset) -> bytes:
         """读取资产内容（分析执行等内部路径使用）。"""
         return await self._storage.read(asset.object_key)
+
+    async def find_thumbnail_by_key(self, object_key: str) -> MediaAsset | None:
+        """按确定性 key 查找缩略图资产（包含降级行，重复生成时复用同一条）。"""
+        result = await self._db.execute(
+            select(MediaAsset).where(
+                MediaAsset.object_key == object_key,
+                MediaAsset.kind == ASSET_KIND_THUMBNAIL,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def ensure_thumbnail(self, original: MediaAsset) -> MediaAsset:
+        """生成并登记缩略图资产；目标对象或可用资产已存在时直接复用（幂等）。
+
+        生成过程包在 savepoint 里：失败只回滚这次生成，不干扰调用方事务；随后登记一行
+        ``degraded`` 缩略图资产并抛 ``ThumbnailGenerationError``，历史接口因此能返回
+        「空 URL + 降级标记」而不是静默失败。
+        """
+        object_key = build_thumbnail_key(original.object_key)
+        try:
+            async with self._db.begin_nested():
+                return await self._generate_thumbnail(original, object_key)
+        except Exception as exc:
+            # 失败路径也要落一行降级资产，否则历史接口无法区分「没缩略图」与「生成失败」。
+            degraded = await self._save_thumbnail(original.user_id, object_key)
+            _count_degraded_thumbnail()
+            raise ThumbnailGenerationError(degraded) from exc
+
+    async def _generate_thumbnail(
+        self, original: MediaAsset, object_key: str
+    ) -> MediaAsset:
+        """生成或复用缩略图对象与资产行；失败由调用方降级。"""
+        user_id = original.user_id
+        existing = await self.find_thumbnail_by_key(object_key)
+        if (
+            existing is not None
+            and existing.status == ASSET_STATUS_AVAILABLE
+            and await self._storage.exists(object_key)
+        ):
+            return existing
+        if await self._storage.exists(object_key):
+            # 对象已存在但行丢失/降级：读回对象元数据并复用，不重复写入。
+            data = await self._storage.read(object_key)
+            width, height = await asyncio.to_thread(inspect_image_size, data)
+            return await self._save_thumbnail(
+                user_id, object_key, data=data, width=width, height=height
+            )
+        source = await self.read(original)
+        data, width, height = await asyncio.to_thread(render_thumbnail, source)
+        await self._storage.write(object_key, data, THUMBNAIL_CONTENT_TYPE)
+        return await self._save_thumbnail(
+            user_id, object_key, data=data, width=width, height=height
+        )
+
+    async def _save_thumbnail(
+        self,
+        user_id: int,
+        object_key: str,
+        *,
+        data: bytes | None = None,
+        width: int | None = None,
+        height: int | None = None,
+    ) -> MediaAsset:
+        """写入/更新缩略图资产行；``data`` 为空表示降级占位（不写对象）。"""
+        available = data is not None
+        asset = await self.find_thumbnail_by_key(object_key)
+        if asset is None:
+            asset = MediaAsset(
+                asset_id=generate_asset_id(),
+                user_id=user_id,
+                kind=ASSET_KIND_THUMBNAIL,
+                object_key=object_key,
+                content_type=THUMBNAIL_CONTENT_TYPE,
+                size_bytes=0,
+                checksum="",
+                status=ASSET_STATUS_DEGRADED,
+            )
+            self._db.add(asset)
+        asset.status = ASSET_STATUS_AVAILABLE if available else ASSET_STATUS_DEGRADED
+        if available:
+            payload = data or b""
+            asset.size_bytes = len(payload)
+            asset.width = width
+            asset.height = height
+            asset.checksum = sha256_hex(payload)
+        else:
+            asset.size_bytes = 0
+            asset.width = None
+            asset.height = None
+            asset.checksum = ""
+        await self._db.flush()
+        return asset

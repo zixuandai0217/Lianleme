@@ -19,10 +19,14 @@ from app.api.media_errors import (
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.logging import (
+    EVENT_MEDIA_THUMBNAIL_FAILED,
     EVENT_TASK_COMPLETED,
     EVENT_TASK_CREATED,
     EVENT_TASK_FAILED,
     EVENT_TASK_STARTED,
+    FIELD_ASSET_ID,
+    FIELD_ERROR_CLASS,
+    FIELD_FAILED,
     log_event,
 )
 from app.core.request_context import bind_request_context, get_request_id
@@ -34,7 +38,7 @@ from app.core.security import (
 from app.core.storage import Storage, StorageError, get_storage
 from app.models.analysis_task import AnalysisTask
 from app.models.body_analysis import BodyAnalysisRecord
-from app.models.media_asset import MediaAsset
+from app.models.media_asset import ASSET_STATUS_AVAILABLE, MediaAsset
 from app.models.user import User
 from app.schemas.vision import (
     AnalyzeErrorResponse,
@@ -51,10 +55,12 @@ from app.services.media.media_asset_service import (
     ERROR_CODE_IMAGE_INVALID,
     ERROR_CODE_STORAGE_UNAVAILABLE,
     MediaAssetService,
+    ThumbnailGenerationError,
     decode_base64_image,
     inspect_image_size,
     sha256_hex,
     sniff_content_type,
+    thumbnail_degraded_total,
 )
 from app.services.user.user_service import UserService
 
@@ -166,14 +172,13 @@ async def _persist_inline_asset(
     return asset.asset_id
 
 
-async def _signed_image_url(
-    record: BodyAnalysisRecord,
+async def _signed_asset_url(
+    asset_id: str | None,
     service: MediaAssetService,
     assets: dict[str, MediaAsset],
     cache: dict[str, str],
 ) -> tuple[str | None, bool]:
-    """按需签发历史记录的图片链接；失败只降级这一条，不让整个列表失败。"""
-    asset_id = record.image_asset_id
+    """按需签发单个资产链接；缺失、非可用或签名失败只降级这一条。"""
     if not asset_id:
         return None, False
 
@@ -200,16 +205,26 @@ async def _record_response(
     assets: dict[str, MediaAsset],
     cache: dict[str, str],
 ) -> BodyAnalysisRecordResponse:
-    """把历史/详情记录映射成响应；旧内联缩略图字段固定为空。"""
-    image_url, degraded = await _signed_image_url(record, service, assets, cache)
+    """把历史/详情记录映射成响应；旧内联缩略图字段固定为空。
+
+    缩略图与原始图分别签发；任一失败都把该条标记为降级，但绝不让整个列表失败。
+    指向降级/缺失缩略图资产的记录返回空 URL + degraded=true；没有缩略图指针的
+    旧记录保持 degraded=false。
+    """
+    image_url, image_degraded = await _signed_asset_url(
+        record.image_asset_id, service, assets, cache
+    )
+    thumbnail_url, thumbnail_degraded = await _signed_asset_url(
+        record.thumbnail_asset_id, service, assets, cache
+    )
     return BodyAnalysisRecordResponse(
         id=record.id,
         image_thumbnail=None,
         image_url=image_url,
-        thumbnail_url=None,
+        thumbnail_url=thumbnail_url,
         image_asset_id=record.image_asset_id,
         thumbnail_asset_id=record.thumbnail_asset_id,
-        degraded=degraded,
+        degraded=image_degraded or thumbnail_degraded,
         result=BodyAnalysisResult(**record.result),
         created_at=_as_utc(record.created_at),
     )
@@ -391,10 +406,13 @@ async def get_analysis_history(
     )
     records = list(result.scalars().all())
     service = MediaAssetService(db, storage)
-    assets = await service.get_available_assets(
-        {record.image_asset_id for record in records if record.image_asset_id},
-        current_user.id,
-    )
+    asset_ids = {
+        asset_id
+        for record in records
+        for asset_id in (record.image_asset_id, record.thumbnail_asset_id)
+        if asset_id
+    }
+    assets = await service.get_available_assets(asset_ids, current_user.id)
     cache: dict[str, str] = {}
     items = [
         await _record_response(record, service, assets, cache) for record in records
@@ -418,11 +436,87 @@ async def get_analysis_record(
         raise HTTPException(status_code=404, detail="记录不存在")
     ensure_current_user_matches(current_user, record.user_id)
     service = MediaAssetService(db, storage)
-    assets = await service.get_available_assets(
-        {record.image_asset_id} if record.image_asset_id else set(),
-        current_user.id,
-    )
+    asset_ids = {
+        asset_id
+        for asset_id in (record.image_asset_id, record.thumbnail_asset_id)
+        if asset_id
+    }
+    assets = await service.get_available_assets(asset_ids, current_user.id)
     return await _record_response(record, service, assets, {})
+
+
+async def _attach_thumbnail(
+    db: AsyncSession,
+    storage: Storage,
+    *,
+    task_id: str,
+    history_record_id: int,
+    original_asset_id: str | None,
+    user_id: int,
+    attempt: int,
+) -> None:
+    """分析结果提交后生成缩略图并回填引用；任何失败都只降级该条历史记录。
+
+    缩略图是分析结果的附属物：对象写入与资产行先落库，再回填历史/任务引用；
+    失败时登记一行降级资产并记录 ``media.thumbnail.failed``，分析结果始终可读。
+    """
+    if not original_asset_id:
+        return
+
+    task = await db.get(AnalysisTask, task_id)
+    record = await db.get(BodyAnalysisRecord, history_record_id)
+    if task is None or record is None:
+        return
+    if record.thumbnail_asset_id:
+        current = await db.get(MediaAsset, record.thumbnail_asset_id)
+        if current is not None and current.status == ASSET_STATUS_AVAILABLE:
+            return
+
+    service = MediaAssetService(db, storage)
+    failure: BaseException | None = None
+    thumbnail: MediaAsset | None = None
+    try:
+        original = await service.get_available_owned(original_asset_id, user_id)
+        if original is None:
+            return
+        thumbnail = await service.ensure_thumbnail(original)
+    except ThumbnailGenerationError as exc:
+        thumbnail = exc.degraded_asset
+        failure = exc.__cause__ or exc
+    except Exception as exc:
+        await db.rollback()
+        failure = exc
+
+    if thumbnail is not None:
+        try:
+            # 第二个事务：缩略图资产行（对象已在上一步写好）。
+            await db.commit()
+            # 失败路径回滚过事务，重新读取指针对象，避免在过期实例上触发同步刷新。
+            record = await db.get(BodyAnalysisRecord, history_record_id)
+            task = await db.get(AnalysisTask, task_id)
+            if record is not None:
+                record.thumbnail_asset_id = thumbnail.asset_id
+            if task is not None:
+                task.thumbnail_asset_id = thumbnail.asset_id
+            # 第三个事务：回填历史与任务的缩略图引用。
+            await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            failure = failure or exc
+
+    if failure is not None:
+        # 只记录稳定分类与标识字段：不含图片字节、不含用户内容。
+        log_event(
+            logger,
+            EVENT_MEDIA_THUMBNAIL_FAILED,
+            message="缩略图生成失败，历史记录降级为占位图",
+            level=logging.WARNING,
+            **{
+                FIELD_ASSET_ID: original_asset_id,
+                FIELD_ERROR_CLASS: type(failure).__name__,
+                FIELD_FAILED: thumbnail_degraded_total(),
+            },
+        )
 
 
 async def _run_analysis(
@@ -454,8 +548,8 @@ async def _run_analysis(
         request_id = task.request_id or request_id
         user_id = task.user_id
         attempt = task.attempt or 1
+        storage_port = storage or get_storage()
         if task.image_asset_id:
-            storage_port = storage or get_storage()
             asset = await db.get(MediaAsset, task.image_asset_id)
             if asset is None:
                 await _mark_failed(
@@ -564,6 +658,7 @@ async def _run_analysis(
                 )
                 db.add(history_record)
                 await db.flush()
+                history_record_id = history_record.id
 
                 task.result = result.model_dump()
                 task.history_record_id = history_record.id
@@ -597,6 +692,17 @@ async def _run_analysis(
                 user_id=user_id,
                 attempt=attempt,
                 duration_ms=round((time.perf_counter() - started) * 1000, 3),
+            )
+
+            # 缩略图在结果提交后生成：失败只降级历史展示，不改写已完成的结论。
+            await _attach_thumbnail(
+                db,
+                storage_port,
+                task_id=task_id,
+                history_record_id=history_record_id,
+                original_asset_id=task.image_asset_id,
+                user_id=user_id,
+                attempt=attempt,
             )
 
 

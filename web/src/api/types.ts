@@ -96,7 +96,7 @@ export interface BodyAnalysisRecordItem {
   image_thumbnail?: string | null
   /** 原图短时签名 URL；签发失败时为 null。 */
   image_url?: string | null
-  /** 缩略图签名 URL；本阶段固定为 null，由后续工单填充。 */
+  /** 缩略图签名 URL；缩略图不可用（尚未生成或生成失败）时为 null。 */
   thumbnail_url?: string | null
   image_asset_id?: string | null
   thumbnail_asset_id?: string | null

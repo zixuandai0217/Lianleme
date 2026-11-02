@@ -373,3 +373,33 @@ goal: "bulk" | "cut" | "maintain"
 - [backend/app/schemas/adjustment.py](backend/app/schemas/adjustment.py) — 调整结论对外形状与 ORM 投影
 - [backend/app/api/plan.py](backend/app/api/plan.py) — 工单 08 新增的 latest / by-id 读取入口
 - [backend/tests/test_adjustment_outcome.py](backend/tests/test_adjustment_outcome.py) — 工单 08 路由层契约测试
+
+
+## 落地修订（工单 26）
+
+可查询调整作业与 pending / detail 的落地取舍：
+
+1. **作业是独立持久事实**：新增 `plan_adjustment_jobs`（迁移 0011），状态词表
+   `evaluating | pending_choice | applied | expired_no_choice | failed`；`job_id` 是
+   时间有序的 `job_` 标识，重启后仅凭数据库即可读到同一作业与状态。
+2. **打卡与评估解耦**：打卡先提交训练记录，再创建作业并返回 `job_id`（创建失败返回
+   稳定的 `job_not_created` 原因，打卡本身仍成功）；HTTP 响应绝不等待评估。
+3. **异步边界与执行器的偏离（显式记录）**：`analysis-task-persistence` 的跨 spec 约定要求
+   一次性作业走 DB 驱动执行器，但该执行器当前是体型分析专用的（`AnalysisTask` 无 job 种类
+   字段、结果按视觉结果解析），直接复用会把两域状态机揉在一起。工单 26 因此保留
+   fire-and-forget 投递，并补上**读取时收敛**：`evaluating` 超过 15 分钟没有更新即投影为
+   `failed`（`failure_class="interrupted"`、`error_code="evaluation_interrupted"`），
+   既不永远占着未决列表，也不伪装成已落地。迁移到通用执行器留给后续工单。
+4. **端点形状（与正文 §7 的路径差异）**：沿用仓库既有的用户作用域约定，落成
+   `GET /api/plan/{user_id}/adjustments/jobs`、`.../jobs/pending`、`.../jobs/{job_id}`；
+   `pending` 声明在 `{job_id}` 之前。他人作业 403 且不返回内容，未知标识 404
+   `adjustment_job_not_found`；读取终态作业不改写任何行。
+5. **pending 语义**：未决 = `evaluating` 或 `pending_choice`；无未决返回 200 空数组。
+   工单 26 只生产前者，`interrupt` 恒为 null；`pending_choice` / `expired_no_choice` 的写入
+   与 interrupt 载荷属于工单 27，读取侧已备好。
+6. **详情内容**：状态与时间戳、五维明细、合并小结、决策（方向 + 幅度；动作替换与休息日
+   变更如实为空/空数组——工单 24 的图不产出这些）、计划前后差异（评估时快照，之后计划
+   再变也不改写）、`applied` 的落地标记与时间、`failed` 的稳定失败分类。
+7. **失败分类**：`provider_error` / `invalid_input` / `persist_error` / `internal_error`
+   各自带稳定错误码；供应商原文只进日志，不出现在响应里。
+8. **权限**：与既有计划接口一致，走 JWT + 路径用户校验；他人作业 403 不泄漏内容。

@@ -236,3 +236,36 @@ key 采用「环境 / 用户 / 年月 / 资产标识.扩展名」的分层结构
    null 作为弃用窗口。签名失败只把该条置为「空链接 + degraded」，绝不让整个列表失败。
 8. **去重并发**：`(user_id, checksum)` 在「可用原图」上建部分唯一索引；并发撞键时删掉本次
    多写的对象并复用既有资产。数据库提交失败仍可能留下孤儿对象，清理归工单 16。
+
+
+## 落地修订（工单 15）
+
+请求期校验与缩略图异步生成的落地取舍：
+
+1. **校验顺序固定**：声明内容类型白名单 → 原始字节上限 → 解码 → 单帧 → 声明与实际格式
+   一致 → 最短边。错误码分别为 `unsupported_media_type`(415)、`payload_too_large`(413)、
+   `image_invalid`(400)、`image_animated`(400)、`image_type_mismatch`(400)、
+   `image_too_small`(400)；四种失败族都不产生资产、不创建分析任务。
+2. **配置项**：`MEDIA_MAX_UPLOAD_BYTES`(8 MiB)、`MEDIA_MIN_EDGE_PX`(480)、
+   `MEDIA_THUMBNAIL_MAX_EDGE_PX`(800)、`MEDIA_THUMBNAIL_JPEG_QUALITY`(80) 与
+   `MEDIA_ALLOWED_CONTENT_TYPES`（默认 jpeg/png/webp，与可编码格式取交集）。
+   白名单由配置决定，扩展名与 Pillow 格式映射仍是唯一能力表。
+3. **存档字节**：按 EXIF 方向纠正像素后重新编码（JPEG/PNG/WebP 原格式，JPEG 弃 alpha），
+   EXIF/GPS/ICC/文本块全部清除；`checksum` 与 `size_bytes` 都以**存档字节**为准，去重因此
+   对同一张原图稳定。客户端可选摘要仍核对**原始上传字节**（传输完整性），与响应里的
+   存档摘要不是同一个值——这是刻意的两个用途。
+4. **请求体内存上界**：上传最多读取 `上限 + 1` 字节即判定超限，避免把超大请求体整个读入
+   内存；上限判断在 Pillow 解码之前生效。
+5. **缩略图触发**：在 `_run_analysis` 写完成分析结果与历史记录之后，以同一协程 `await`
+   生成，不新造第二套异步机制；先写对象、再登记资产行、最后回填历史/任务引用（分开提交）。
+   对象 key 由原图 key 确定性派生（`{original_key}.thumb.jpg`），已存在则跳过，重复触发幂等。
+6. **缩略图长边**：契约要求长边**等于**配置值，因此小于配置的原图会放大（不是只缩不放）；
+   输出固定 JPEG 与配置质量。
+7. **降级**：生成失败时仍登记一行 `kind=thumbnail,status=degraded` 的资产并把指针回填到
+   历史/任务，历史接口据此返回 `thumbnail_url=null` + `degraded=true`（与「旧记录完全没有
+   缩略图指针」的 `degraded=false` 区分）；同时记 `media.thumbnail.failed` 事件并递增
+   进程内降级计数（计数 + 事件，不静默）。
+8. **前端**：分析历史列表按 `thumbnail_url → image_url → 旧内联字段` 顺序取图，三者都无则
+   不渲染破图。
+9. **兼容期内联路径保持宽松**（沿用工单 14 的决定）：内联字节解码失败不拒绝、尺寸留空；
+   完整校验矩阵只作用于上传接口。

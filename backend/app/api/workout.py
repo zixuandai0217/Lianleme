@@ -30,8 +30,8 @@ async def complete_workout(
     current_user: User = Depends(get_current_user),
 ):
     """
-    训练完成上报：记录打卡数据 + 触发计划动态调整
-    完成率 ≥80% 自动调高下周难度，<50% 调低
+    训练完成上报：记录打卡数据 + 投递一次可查询的计划调整作业
+    响应不等待五维评估完成，只返回作业标识（未创建时给出稳定原因）
     """
     ensure_current_user_matches(current_user, req.user_id)
     service = WorkoutService(db)

@@ -24,6 +24,13 @@ class WorkoutRecordResponse(BaseModel):
     completion_rate: float
     duration_minutes: int
     ai_feedback: Optional[str] = None
+    # 打卡后投递的调整作业：响应不等待评估，只带稳定标识；没建成时给稳定原因。
+    job_id: Optional[str] = Field(
+        default=None, description="本次打卡触发的调整作业标识（不等待评估完成）"
+    )
+    job_error: Optional[str] = Field(
+        default=None, description="作业未创建时的稳定原因，例如 job_not_created"
+    )
 
     class Config:
         from_attributes = True

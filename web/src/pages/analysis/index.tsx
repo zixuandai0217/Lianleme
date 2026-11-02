@@ -672,7 +672,13 @@ export default function AnalysisPage() {
                       className="flex w-full items-center gap-4 p-4 text-left"
                       onClick={() => setExpandedRecord(isExpanded ? null : record.id)}
                     >
-                      {record.image_url ? (
+                      {record.thumbnail_url ? (
+                        <img
+                          src={record.thumbnail_url}
+                          alt="缩略图"
+                          className="h-14 w-14 shrink-0 rounded-lg object-cover"
+                        />
+                      ) : record.image_url ? (
                         <img
                           src={record.image_url}
                           alt="分析照片"

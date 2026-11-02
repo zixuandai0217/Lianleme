@@ -131,14 +131,20 @@ describe("AnalysisPage history images", () => {
     summary: "保持训练",
   }
 
-  it("prefers the signed original, then the legacy thumbnail, then renders nothing", async () => {
+  it("prefers the signed thumbnail, then the signed original, then the legacy thumbnail", async () => {
     api.getAnalysisHistory.mockResolvedValue({
       records: [
-        { id: 1, image_url: "https://signed.example/photo", result },
-        { id: 2, image_thumbnail: "bGVnYWN5", result },
-        { id: 3, image_url: null, image_thumbnail: null, degraded: true, result },
+        {
+          id: 1,
+          thumbnail_url: "https://signed.example/thumb",
+          image_url: "https://signed.example/photo",
+          result,
+        },
+        { id: 2, image_url: "https://signed.example/photo-2", result },
+        { id: 3, image_thumbnail: "bGVnYWN5", result },
+        { id: 4, image_url: null, thumbnail_url: null, degraded: true, result },
       ],
-      total: 3,
+      total: 4,
     })
 
     await mountPage()
@@ -148,7 +154,8 @@ describe("AnalysisPage history images", () => {
       image.getAttribute("src"),
     )
     expect(sources).toEqual([
-      "https://signed.example/photo",
+      "https://signed.example/thumb",
+      "https://signed.example/photo-2",
       "data:image/jpeg;base64,bGVnYWN5",
     ])
   })

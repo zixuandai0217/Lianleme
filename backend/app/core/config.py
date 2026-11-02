@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     MINIO_BUCKET: str = "lianleme-photos"
     # 媒体资产签名链接有效期（秒）；只存在于签名结果中，绝不落库。
     MEDIA_SIGNED_URL_TTL_SECONDS: int = 300
+    # 允许上传的内容类型（逗号分隔）；缺失时使用安全默认值，不因缺配置而放行任意格式。
+    MEDIA_ALLOWED_CONTENT_TYPES: str = "image/jpeg,image/png,image/webp"
+    # 上传校验与缩略图：字节上限在解码前生效；最短边低于下限时提示重拍。
+    MEDIA_MAX_UPLOAD_BYTES: int = 8_388_608
+    MEDIA_MIN_EDGE_PX: int = 480
+    MEDIA_THUMBNAIL_MAX_EDGE_PX: int = 800
+    MEDIA_THUMBNAIL_JPEG_QUALITY: int = 80
 
     # LLM 系统默认 Key
     # 允许未配置个人 Key 的登录用户回退到系统 Key（仅限中央付费部署按需开启，默认关闭）
@@ -99,6 +106,15 @@ class Settings(BaseSettings):
                 "AES_SECRET_KEY must be a unique deployment secret of at least 32 bytes"
             )
         return self
+
+    def allowed_media_content_types(self) -> frozenset[str]:
+        """解析配置里的内容类型白名单；空配置回落到安全默认值。"""
+        values = {
+            item.strip().lower()
+            for item in self.MEDIA_ALLOWED_CONTENT_TYPES.split(",")
+            if item.strip()
+        }
+        return frozenset(values) or frozenset({"image/jpeg", "image/png", "image/webp"})
 
     def system_llm_credentials(self) -> tuple[str, str] | None:
         """Return usable server-managed (provider, api_key) or None.

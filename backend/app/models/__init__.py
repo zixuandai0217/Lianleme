@@ -1,5 +1,6 @@
 """models 包：导出所有 ORM 模型，确保 SQLAlchemy metadata 注册完整"""
 from app.models.adjustment import PlanAdjustment
+from app.models.adjustment_job import PlanAdjustmentJob
 from app.models.admin_export_audit import AdminExportAudit
 from app.models.analysis_task import AnalysisTask
 from app.models.body_analysis import BodyAnalysisRecord
@@ -18,4 +19,5 @@ __all__ = [
     "BodyAnalysisRecord", "ChatMessageRecord", "AnalysisTask", "PlanAdjustment",
     "ReminderDelivery", "ReminderPreference", "WorkoutSession", "AdminExportAudit",
     "MediaAsset",
+    "PlanAdjustmentJob",
 ]

@@ -9,7 +9,18 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app.api import admin, coach, media, notification, plan, user, vision, weight, workout
+from app.api import (
+    admin,
+    coach,
+    media,
+    notification,
+    plan,
+    pose,
+    user,
+    vision,
+    weight,
+    workout,
+)
 from app.core.config import settings
 from app.core.database import engine
 from app.core.health import APP_VERSION, build_readiness, liveness_report
@@ -145,6 +156,7 @@ app.include_router(media.router, prefix="/api/media", tags=["媒体资产"])
 app.include_router(plan.router, prefix="/api/plan", tags=["训练计划"])
 app.include_router(coach.router, prefix="/api/coach", tags=["AI 陪练"])
 app.include_router(workout.router, prefix="/api/workout", tags=["训练记录"])
+app.include_router(pose.router, prefix="/api/pose", tags=["姿态纠错"])
 app.include_router(weight.router, prefix="/api/weight", tags=["体重记录"])
 app.include_router(notification.router, prefix="/api/notifications", tags=["站内通知"])
 app.include_router(admin.router, prefix="/api/admin", tags=["管理后台"])
