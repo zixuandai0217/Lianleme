@@ -58,3 +58,29 @@ class AdminUserListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# 导出结果：成功，或因超过行数上限被拒绝（被拒同样写审计）
+AdminExportOutcome = Literal["success", "rejected"]
+
+
+class AdminExportAuditItem(BaseModel):
+    """一次导出尝试的审计记录（只读；成功时 rejection_reason 为空）。"""
+
+    id: int
+    operator_id: int = Field(..., description="发起导出的管理员用户 ID")
+    filter_summary: str = Field(..., description="规范化后的筛选条件摘要（含排序）")
+    filter_hash: str = Field(..., description="筛选摘要短哈希，与下载文件名中的哈希一致")
+    row_count: int = Field(..., description="成功时为导出行数；被拒时为若导出会有的行数")
+    outcome: AdminExportOutcome
+    rejection_reason: Optional[str] = Field(None, description="仅被拒时有值")
+    created_at: datetime.datetime
+
+
+class AdminExportAuditListResponse(BaseModel):
+    """导出审计分页响应（按时间倒序）"""
+
+    items: list[AdminExportAuditItem]
+    total: int
+    page: int
+    page_size: int

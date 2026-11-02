@@ -4,6 +4,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from app.schemas.adjustment import AdjustmentDirection
+
 # 今日状态的稳定枚举：前端仅凭该字段即可分叉，不再用「有没有 exercises」猜语义。
 TodayWorkoutStatus = Literal["training_day", "rest_day", "no_plan"]
 
@@ -45,10 +47,66 @@ class GeneratePlanRequest(BaseModel):
     week_start: Optional[datetime.date] = None
 
 
+class PlanGenerationBasis(BaseModel):
+    """计划生成依据：当次的体型分析快照 + 生成时的档案快照。
+
+    每个子字段都可空：旧计划的快照里没有分析时间、没有档案目标，缺失即为 null，
+    由前端决定降级文案；这里不编造默认值。``captured_at`` 是快照被计划捕获的时间
+    （分析结果本身不带时间戳），旧计划为空表示「分析时间未知」。
+    """
+
+    body_type: Optional[str] = Field(
+        default=None, description="体型分类：ectomorph / mesomorph / endomorph"
+    )
+    body_fat_range: Optional[str] = Field(default=None, description="体脂区间，如 '18-22%'")
+    weak_muscles: Optional[List[str]] = Field(default=None, description="弱势肌群")
+    strengths: Optional[List[str]] = Field(default=None, description="优势部位")
+    analysis_summary: Optional[str] = Field(default=None, description="该次分析的结论摘要")
+    captured_at: Optional[datetime.datetime] = Field(
+        default=None, description="该次分析快照被捕获的时间（UTC）；旧计划为空"
+    )
+    profile_goal: Optional[str] = Field(
+        default=None, description="生成时的档案目标；缺失表示无法定位"
+    )
+
+
+class PlanAdjustmentExplanation(BaseModel):
+    """最近一次自动调整的说明。
+
+    计划行只保存对调整结论记录的引用，内容是读取时投影出来的，不复制理由文本——
+    结论的唯一事实源是调整记录本身。
+    """
+
+    direction: AdjustmentDirection = Field(..., description="increase / decrease / keep")
+    trigger: Literal["completion_rate"] = Field(
+        default="completion_rate", description="触发指标：当前只有完成率"
+    )
+    completion_rate: float = Field(..., ge=0, le=1, description="触发时的完成率 0-1")
+    occurred_at: datetime.datetime = Field(..., description="调整发生时间（UTC）")
+    reason: str = Field(..., description="调整链路产出的一句人话理由（含触发数值）")
+
+
+class PlanExplanation(BaseModel):
+    """计划解释：为什么这样练。
+
+    两部分都可空：旧计划既没有生成快照也没有调整记录，读取仍然成功，两个子对象
+    均为 null。``latest_adjustment`` 为 null 表示「没有调整记录」，与方向 keep 的
+    真实调整可区分。
+    """
+
+    generation: Optional[PlanGenerationBasis] = Field(default=None, description="生成依据")
+    latest_adjustment: Optional[PlanAdjustmentExplanation] = Field(
+        default=None, description="最近一次调整；null 表示尚未调整"
+    )
+
+
 class PlanResponse(BaseModel):
     """训练计划响应"""
     plan: TrainingPlanSchema
     message: str = "训练计划生成成功"
+    explanation: Optional[PlanExplanation] = Field(
+        default=None, description="解释字段：生成依据 + 最近一次调整；旧计划两部分为空"
+    )
 
 
 class TodayWorkoutResponse(BaseModel):

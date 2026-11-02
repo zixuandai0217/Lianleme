@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     REDIS_PROBE_ENABLED: bool = False
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # 管理后台（只读运营台）：单次 CSV 导出的行数上限。
+    # 超限直接拒绝并要求收窄筛选，绝不静默截断——上限同时保护数据库与浏览器。
+    ADMIN_EXPORT_ROW_LIMIT: int = 5000
+
     # 提醒调度（单实例进程内 tick；时区按用户本地日界解释，第一版只有部署级时区）
     REMINDER_ENABLED: bool = True
     REMINDER_TICK_SECONDS: float = 60.0

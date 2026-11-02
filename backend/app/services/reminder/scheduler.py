@@ -14,6 +14,7 @@ from app.core.local_time import local_now
 from app.core.logging import (
     EVENT_REMINDER_TICK_FAILED,
     FIELD_ERROR_CLASS,
+    FIELD_SKIPPED,
     log_event,
 )
 from app.services.reminder.reminder_service import ReminderService
@@ -83,6 +84,7 @@ class ReminderScheduler:
                 "evaluated_users": summary.evaluated_users,
                 "delivered": summary.delivered,
                 "duplicates": summary.duplicates,
+                FIELD_SKIPPED: summary.skipped,
                 "failed": summary.failed,
             }
         except Exception as exc:

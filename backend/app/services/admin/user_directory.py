@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -68,6 +70,81 @@ def utc_now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
+@dataclass(frozen=True)
+class DirectoryFilters:
+    """列表与导出共用的筛选 / 排序条件。
+
+    导出必须应用与列表**完全相同**的筛选与排序，因此两边共用同一个条件对象：列表
+    在它之上加分页，导出在它之上加行数上限。新增筛选只加在这里，两边同时生效。
+    """
+
+    q: str | None = None
+    has_plan: bool | None = None
+    registered_from: dt.datetime | None = None
+    registered_to: dt.datetime | None = None
+    checkins_min: int | None = None
+    checkins_max: int | None = None
+    active_within_days: int | None = None
+    is_admin: bool | None = None
+    has_api_key: bool | None = None
+    flags: tuple[str, ...] | None = None
+    sort: str = SORT_REGISTERED_DESC
+
+    def as_kwargs(self, *, include_sort: bool = True) -> dict[str, Any]:
+        """The same filters as keyword arguments for ``list_users`` (or ``_conditions``)."""
+        data: dict[str, Any] = {
+            "q": self.q,
+            "has_plan": self.has_plan,
+            "registered_from": self.registered_from,
+            "registered_to": self.registered_to,
+            "checkins_min": self.checkins_min,
+            "checkins_max": self.checkins_max,
+            "active_within_days": self.active_within_days,
+            "is_admin": self.is_admin,
+            "has_api_key": self.has_api_key,
+            "flags": list(self.flags) if self.flags else None,
+        }
+        if include_sort:
+            data["sort"] = self.sort
+        return data
+
+    def summary(self) -> dict[str, Any]:
+        """Canonical summary of the applied filters: only explicit ones, plus the sort."""
+        data: dict[str, Any] = {}
+        if self.q and self.q.strip():
+            data["q"] = self.q.strip()
+        for name in (
+            "has_plan",
+            "checkins_min",
+            "checkins_max",
+            "active_within_days",
+            "is_admin",
+            "has_api_key",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                data[name] = value
+        for name in ("registered_from", "registered_to"):
+            value = getattr(self, name)
+            if value is not None:
+                data[name] = as_utc(value).isoformat()
+        if self.flags:
+            data["flag"] = list(self.flags)
+        data["sort"] = self.sort
+        return data
+
+    def summary_text(self) -> str:
+        """Readable one-line summary of the applied filters (stored in the audit row)."""
+        return "; ".join(f"{key}={value}" for key, value in self.summary().items())
+
+    def fingerprint(self) -> str:
+        """Short stable hash of the filter summary; reused in the download file name."""
+        payload = json.dumps(
+            self.summary(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
+
+
 def mask_openid(openid: str | None) -> str | None:
     """Mask an openid as ``first 6 + last 4``; short values are fully masked."""
     if not openid:
@@ -103,7 +180,7 @@ def _numeric_id(term: str) -> int | None:
     return None
 
 
-def _as_utc(value: dt.datetime | None) -> dt.datetime | None:
+def as_utc(value: dt.datetime | None) -> dt.datetime | None:
     """Normalize a stored/derived timestamp (or filter bound) to aware UTC.
 
     Naive values are interpreted as UTC: the API takes instants, not local wall time.
@@ -344,9 +421,9 @@ def _conditions(
     if has_plan is not None:
         conditions.append(plan_count > 0 if has_plan else plan_count == 0)
     if registered_from is not None:
-        conditions.append(User.created_at >= _as_utc(registered_from))
+        conditions.append(User.created_at >= as_utc(registered_from))
     if registered_to is not None:
-        conditions.append(User.created_at < _as_utc(registered_to))
+        conditions.append(User.created_at < as_utc(registered_to))
     if checkins_min is not None:
         conditions.append(total_checkins >= checkins_min)
     if checkins_max is not None:
@@ -371,6 +448,11 @@ def _conditions(
 def _no_api_key_expression() -> ColumnElement[Any]:
     """Whether a user has no own provider key configured."""
     return or_(User.llm_api_key.is_(None), User.llm_api_key == "")
+
+
+def _has_body_analysis(row: Any) -> bool:
+    """Whether a row has a body analysis: the profile snapshot or any analysis record."""
+    return bool(row.has_profile_analysis) or int(row.analysis_count or 0) > 0
 
 
 def _order_by(agg: _Aggregates, sort: str, numeric_id: int | None) -> list[Any]:
@@ -423,8 +505,8 @@ def _python_flags(
 
 def _serialize_row(row: Any, now: dt.datetime) -> dict[str, Any]:
     """Shape one aggregated row into the API contract (masking happens here)."""
-    created_at = _as_utc(row.created_at)
-    last_active_at = _as_utc(row.last_active_at)
+    created_at = as_utc(row.created_at)
+    last_active_at = as_utc(row.last_active_at)
     assert created_at is not None and last_active_at is not None  # users.created_at is NOT NULL
 
     last_checkin_date = row.last_checkin_date
@@ -432,8 +514,7 @@ def _serialize_row(row: Any, now: dt.datetime) -> dict[str, Any]:
         (now.date() - last_checkin_date).days if last_checkin_date is not None else None
     )
     plan_count = int(row.plan_count or 0)
-    analysis_count = int(row.analysis_count or 0)
-    has_body_analysis = bool(row.has_profile_analysis) or analysis_count > 0
+    has_body_analysis = _has_body_analysis(row)
     has_api_key = bool(row.has_api_key)
 
     return {
@@ -503,12 +584,7 @@ async def list_users(
         flags=flags,
     )
 
-    count_query = select(func.count()).select_from(
-        base_query.with_only_columns(User.id, maintain_column_froms=True)
-        .where(*conditions)
-        .subquery()
-    )
-    total = (await db.execute(count_query)).scalar() or 0
+    total = await _count_rows(db, base_query, conditions)
 
     page_query = (
         base_query.where(*conditions)
@@ -518,4 +594,53 @@ async def list_users(
     )
     rows = (await db.execute(page_query)).mappings().all()
 
-    return [_serialize_row(row, now) for row in rows], int(total)
+    return [_serialize_row(row, now) for row in rows], total
+
+
+async def _count_rows(
+    db: AsyncSession,
+    base_query: Select[Any],
+    conditions: Sequence[ColumnElement[Any]],
+) -> int:
+    """Count the rows a filter matches — the same total the list API reports."""
+    count_query = select(func.count()).select_from(
+        base_query.with_only_columns(User.id, maintain_column_froms=True)
+        .where(*conditions)
+        .subquery()
+    )
+    return int((await db.execute(count_query)).scalar() or 0)
+
+
+async def export_users(
+    db: AsyncSession,
+    filters: DirectoryFilters,
+    *,
+    limit: int,
+) -> tuple[list[dict[str, Any]], int]:
+    """Return every row matching ``filters`` (no pagination) plus the filtered total.
+
+    The query is capped by ``limit``: when the filtered total exceeds it, no rows are
+    fetched at all — the caller rejects the export instead of silently truncating it.
+    The returned dicts are the list contract plus ``has_body_analysis`` for the CSV
+    column that has no list equivalent.
+    """
+    now = utc_now()
+    aggregates = _build_aggregates(now)
+    base_query = _base_select(aggregates)
+    conditions, numeric_id = _conditions(aggregates, now, **filters.as_kwargs(include_sort=False))
+
+    total = await _count_rows(db, base_query, conditions)
+    if total > limit:
+        return [], total
+
+    export_query = (
+        base_query.where(*conditions)
+        .order_by(*_order_by(aggregates, filters.sort, numeric_id))
+        .limit(limit)
+    )
+    rows = (await db.execute(export_query)).mappings().all()
+
+    return [
+        {**_serialize_row(row, now), "has_body_analysis": _has_body_analysis(row)}
+        for row in rows
+    ], total

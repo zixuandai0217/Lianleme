@@ -193,3 +193,52 @@ explanation: {
 - `.scratch/workout-session-loop/issue.md`、`.scratch/adaptive-plan-adjustment/issue.md`（调整结论的上游与算法侧边界）
 - `.scratch/analysis-task-persistence/issue.md`（全组统一的「迁移与数据模型落地约定」，本 spec 的改表遵循该节）
 - `docs/adr/0006-west-coast-coach-voice.md`（语言分区：计划/报告正式语言）
+
+## 落地修订（工单 20）
+
+以下修订由工单 20 的实现回写，覆盖正文（尤其「接口契约」与「数据结构与字段扩展」）中
+与之冲突的旧表述。只记录与 spec 有差异或把 spec 写得更具体的地方。
+
+### 工单 20（计划解释字段落库与读取）
+
+1. **接口命名以工单为准**：正文的 `explanation.basis` / `explanation.adjustment` 落成
+   `explanation.generation` / `explanation.latest_adjustment`。理由：验收条款（AC1/AC2/
+   AC3/AC5）逐条点名这两个名字，前端视图模型按验收写；正文里的旧名字作废。正文中
+   `adjustment.note` 一并改名为 `reason`，`trigger` 保留且恒为 `completion_rate`
+   （当前调整链路只有完成率一个触发指标，由投影层写死，不落库）。
+2. **`explanation` 恒为对象，两个子对象可空**：正文写「新增可选字段 `explanation`，缺省
+   为 null」，实现取更严的形态——读当前计划时 `explanation` 永远存在，旧计划读到的是
+   `{"generation": null, "latest_adjustment": null}`。理由是键集合稳定后，前端只在子对象
+   上做降级判断，不必再区分「字段缺失」与「整块缺失」两种情况；AC3 要求的「解释字段为
+   null」正是这两个子对象。生成接口（`POST /plan/generate`）不回填该字段（读路径才投影）。
+3. **存储只加两列，且都是可空列**（同一次迁移交付，不回填历史）：
+   - `profile_snapshot`（JSONB，可空）：生成时的档案快照。存整份档案而不是只存 `goal`
+     一个字符串——正文要求「生成时档案快照」，且下一个要用档案字段（身高/体重/经验）
+     做解释的工单不必再改一次表；读取时只投影 `goal`，缺失即为 null。
+   - `analysis_captured_at`（带时区 DateTime，可空）：该次体型分析快照被本计划捕获的
+     时刻。分析结果本身不带时间戳，生成接口也不持有分析记录标识，因此按正文允许的
+     「在快照里补上生成时间」落地；语义**刻意**限定为「该分析被这份计划捕获的时间」，
+     不冒充 LLM 分析完成时间。旧计划为空 → 「分析时间未知」；生成时没有拿到分析则
+     不写，绝不伪造一个时间。
+4. **调整说明不新增自己的存储位**：正文「数据结构与字段扩展」里「计划记录新增一个可空
+   的解释存储位（方向、触发指标、完成率、时间、理由）」与本条冲突，作废。方向、完成率、
+   时间、理由全部按 `training_plans.latest_adjustment_id` 读回工单 08 的结论记录再投影，
+   计划行只存引用、不复制文本（这是 Lead 在工单里点明的裁决，也是结论唯一事实源的物理
+   保证）。`occurred_at` 取结论记录的 `created_at`。
+5. **投影层做类型容错，读路径不因残缺数据失败**：快照里的自由值收敛成文本或字符串列表；
+   `weak_muscles` / `strengths` 被模型写成字符串时按单元素列表兜底，整型/空串/None 降级为
+   null；调整引用指向不存在的记录（该列无外键，记录可能被清理），或方向的取值越出
+   `increase` / `decrease` / `keep` 时，`latest_adjustment` 降级为 null——宁可不解释，也
+   不谎报方向。这三种情形在路由层用例里各有断言。
+6. **解释对象挂在 `PlanResponse` 顶层而不是塞进 `plan` 里**：`TrainingPlanSchema` 同时是
+   生成链路的 LLM 输出解析目标，往它里面加字段会被写进提示词的格式指令，改变生成行为；
+   顶层新增字段对既有调用方是纯增量，`difficulty_factor` / `weekly_plan` 等字段的类型与
+   含意不变（AC5 用例守住）。
+7. **迁移落地**：`backend/alembic/versions/0006_plan_explanation.py`，revision `0006`、
+   down_revision `0005`，upgrade 只做两条 `op.add_column`（可空），downgrade 精确删除这两
+   列，可回滚到 0005；ORM 是唯一事实源，列集合与类型逐列对齐（SQLite 上即 TEXT 与
+   DATETIME），不含数据回填。
+8. **刻意不做**：`explanation.latest_adjustment` 不返回 `adjustment_id`（AC 未要求；前端
+   若要回链 `/adjustments/{id}`，下一张工单再加，属纯增量）；「重新生成会归档本周已调整
+   的计划」的提示文案与解释区渲染在工单 21。
+

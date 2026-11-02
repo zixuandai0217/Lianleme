@@ -59,13 +59,13 @@ async def get_current_plan(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取用户当前周训练计划"""
+    """获取用户当前周训练计划（附解释字段：生成依据 + 最近一次调整）"""
     ensure_current_user_matches(current_user, user_id)
     service = PlanService(db)
-    plan = await service.get_current_plan(user_id)
+    plan, explanation = await service.get_current_plan_with_explanation(user_id)
     if not plan:
         raise HTTPException(status_code=404, detail="暂无训练计划，请先完成体型分析")
-    return PlanResponse(plan=plan, message="获取成功")
+    return PlanResponse(plan=plan, message="获取成功", explanation=explanation)
 
 
 @router.post("/generate", response_model=PlanResponse)

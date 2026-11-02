@@ -18,6 +18,9 @@ from app.models.adjustment import (
 from app.models.plan import TrainingPlan
 from app.schemas.plan import (
     DailyWorkout,
+    PlanAdjustmentExplanation,
+    PlanExplanation,
+    PlanGenerationBasis,
     TodayWorkoutResponse,
     TrainingPlanSchema,
 )
@@ -29,6 +32,30 @@ from app.services.ai.llm_factory import LLMClientFactory
 REST_DAY_MESSAGE = "今日休息，好好恢复"
 
 
+def _text(value: object) -> Optional[str]:
+    """把快照里的自由值收敛成可读文本；非预期类型返回 None 而不是让读取失败。"""
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return None
+
+
+def _text_list(value: object) -> Optional[list[str]]:
+    """列表字段的正常形态是 ``list[str]``；模型偶发写成一个字符串时按单元素兜底。
+
+    解析结果为空（或类型完全无法收敛）时返回 None，让前端走「该行不显示」的降级，
+    绝不因为一个字段的形态不合预期就让整份计划读取失败。
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else None
+    if isinstance(value, (list, tuple)):
+        items = [item for item in (_text(entry) for entry in value) if item]
+        return items or None
+    return None
+
+
 class PlanService:
     """训练计划核心服务"""
 
@@ -36,16 +63,77 @@ class PlanService:
         self.db = db
         self.factory = LLMClientFactory(db)
 
-    async def get_current_plan(self, user_id: int) -> Optional[TrainingPlanSchema]:
-        """获取用户最新的 active 训练计划"""
+    async def _load_current_plan(self, user_id: int) -> Optional[TrainingPlan]:
+        """读取用户最新的 active 计划行（读取路径的唯一入口，避免口径分叉）。"""
         result = await self.db.execute(
             select(TrainingPlan)
             .where(TrainingPlan.user_id == user_id, TrainingPlan.status == "active")
             .order_by(desc(TrainingPlan.week_start))
             .limit(1)
         )
-        plan = result.scalar_one_or_none()
+        return result.scalar_one_or_none()
+
+    async def get_current_plan(self, user_id: int) -> Optional[TrainingPlanSchema]:
+        """获取用户最新的 active 训练计划"""
+        plan = await self._load_current_plan(user_id)
         return self._to_schema(plan) if plan else None
+
+    async def get_current_plan_with_explanation(
+        self, user_id: int
+    ) -> tuple[Optional[TrainingPlanSchema], PlanExplanation]:
+        """读取当前计划并附上解释字段（工单 20）。
+
+        解释是纯投影：生成依据来自计划行上的两份快照，调整说明按
+        ``latest_adjustment_id`` 读回调整结论记录，不复制文本。旧计划的解释为
+        空对象（两个子对象都是 None），读取照常成功。
+        """
+        plan = await self._load_current_plan(user_id)
+        if plan is None:
+            return None, PlanExplanation()
+        return self._to_schema(plan), await self._build_explanation(plan)
+
+    async def _build_explanation(self, plan: TrainingPlan) -> PlanExplanation:
+        return PlanExplanation(
+            generation=self._generation_basis(plan),
+            latest_adjustment=await self._latest_adjustment_basis(plan),
+        )
+
+    @staticmethod
+    def _generation_basis(plan: TrainingPlan) -> Optional[PlanGenerationBasis]:
+        """把我存的体型快照 + 档案快照投影成对外形状；没有快照时整块为 None。"""
+        snapshot = plan.body_analysis_snapshot
+        if not isinstance(snapshot, dict) or not snapshot:
+            return None
+        profile = plan.profile_snapshot if isinstance(plan.profile_snapshot, dict) else None
+        return PlanGenerationBasis(
+            body_type=_text(snapshot.get("body_type")),
+            body_fat_range=_text(snapshot.get("body_fat_range")),
+            weak_muscles=_text_list(snapshot.get("weak_muscles")),
+            strengths=_text_list(snapshot.get("strengths")),
+            analysis_summary=_text(snapshot.get("summary")),
+            captured_at=plan.analysis_captured_at,
+            profile_goal=_text(profile.get("goal")) if profile else None,
+        )
+
+    async def _latest_adjustment_basis(
+        self, plan: TrainingPlan
+    ) -> Optional[PlanAdjustmentExplanation]:
+        """按计划行上的引用读回最近一次调整结论；引用为空或失效时返回 None。"""
+        if not plan.latest_adjustment_id:
+            return None
+        record = await self.get_adjustment(plan.user_id, plan.latest_adjustment_id)
+        if record is None:
+            return None
+        if record.direction not in ADJUSTMENT_DIRECTIONS:
+            # 方向是唯一由本系统写入的枚举；越界说明数据已损坏，宁可不解释也不谎报方向。
+            return None
+        return PlanAdjustmentExplanation(
+            direction=record.direction,
+            trigger="completion_rate",
+            completion_rate=record.completion_rate,
+            occurred_at=record.created_at,
+            reason=record.reason,
+        )
 
     @staticmethod
     def _today() -> datetime.date:
@@ -153,6 +241,12 @@ class PlanService:
             week_start=week_start,
             weekly_plan=[d.model_dump() for d in schema.weekly_plan],
             body_analysis_snapshot=body_analysis,
+            # 生成时的档案快照与记下「该次分析被本计划捕获的时刻」：只有存下当时的目标，
+            # 读取时才不会拿用户后来改过的档案做错误归因。
+            profile_snapshot=profile,
+            analysis_captured_at=(
+                datetime.datetime.now(datetime.timezone.utc) if body_analysis else None
+            ),
             difficulty_factor=1.0,
             status="active",
         )

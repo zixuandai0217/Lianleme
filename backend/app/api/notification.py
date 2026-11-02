@@ -13,12 +13,18 @@ from app.core.local_time import local_now, to_local
 from app.core.security import ensure_current_user_matches, get_current_admin, get_current_user
 from app.models.user import User
 from app.schemas.notification import (
+    DeliveryRecordItem,
+    DeliveryRecordListResponse,
+    DeliveryStatus,
     MarkAllReadResponse,
     MarkReadResponse,
     NotificationItem,
     NotificationListResponse,
+    ReminderPreferenceResponse,
+    ReminderPreferenceUpdate,
     TickSummaryResponse,
 )
+from app.services.reminder import preferences as preference_service
 from app.services.reminder.reminder_service import ReminderService
 
 router = APIRouter()
@@ -56,8 +62,50 @@ async def manual_tick(
         evaluated_users=summary.evaluated_users,
         delivered=summary.delivered,
         duplicates=summary.duplicates,
+        skipped=summary.skipped,
         failed=summary.failed,
         ran_at=ran_at,
+    )
+
+
+@router.get("/deliveries", response_model=DeliveryRecordListResponse)
+async def list_deliveries(
+    user_id: int | None = Query(default=None, description="只看某个用户的投递记录"),
+    status: DeliveryStatus | None = Query(default=None, description="sent / skipped / failed"),
+    date_from: datetime.date | None = Query(default=None, description="本地日期下界（含）"),
+    date_to: datetime.date | None = Query(default=None, description="本地日期上界（含）"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    """投递记录查询（内部/运维用途，含被跳过的候选与原因，不返回通知正文）。"""
+    service = ReminderService(db)
+    rows, total = await service.list_deliveries(
+        user_id=user_id,
+        status=status,
+        local_date_from=date_from,
+        local_date_to=date_to,
+        page=page,
+        page_size=page_size,
+    )
+    return DeliveryRecordListResponse(
+        items=[
+            DeliveryRecordItem(
+                id=row.id,
+                user_id=row.user_id,
+                rule_code=row.rule_code,
+                local_date=row.local_date,
+                channel=row.channel,
+                status=row.status,
+                skip_reason=(row.payload or {}).get("skip_reason"),
+                created_at=row.created_at,
+            )
+            for row in rows
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
     )
 
 
@@ -83,6 +131,45 @@ async def list_notifications(
         page=page,
         page_size=page_size,
     )
+
+
+def _to_preference_response(row) -> ReminderPreferenceResponse:
+    return ReminderPreferenceResponse(
+        daily_training_enabled=row.daily_training_enabled,
+        rest_day_note_enabled=row.rest_day_note_enabled,
+        recall_inactive_enabled=row.recall_inactive_enabled,
+        weekly_goal_enabled=row.weekly_goal_enabled,
+        onboarding_nudge_enabled=row.onboarding_nudge_enabled,
+        quiet_hours_start=row.quiet_hours_start,
+        quiet_hours_end=row.quiet_hours_end,
+        daily_cap=row.daily_cap,
+        weekly_goal_target=row.weekly_goal_target,
+        timezone=row.timezone,
+    )
+
+
+@router.get("/{user_id}/preferences", response_model=ReminderPreferenceResponse)
+async def get_preferences(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """读取提醒偏好；从未保存过时返回缺省值（读路径不写库）。"""
+    ensure_current_user_matches(current_user, user_id)
+    return _to_preference_response(await preference_service.get_effective(db, user_id))
+
+
+@router.put("/{user_id}/preferences", response_model=ReminderPreferenceResponse)
+async def update_preferences(
+    user_id: int,
+    payload: ReminderPreferenceUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """整份替换提醒偏好；非法值在写入前被 422 拒绝，已存偏好保持不变。"""
+    ensure_current_user_matches(current_user, user_id)
+    row = await preference_service.upsert(db, user_id, payload.model_dump())
+    return _to_preference_response(row)
 
 
 @router.post("/{user_id}/read-all", response_model=MarkAllReadResponse)

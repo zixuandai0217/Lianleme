@@ -23,6 +23,17 @@ class TrainingPlan(Base):
     # 计划生成依据的体型分析快照
     body_analysis_snapshot: Mapped[dict | None] = mapped_column(JSONB)
 
+    # 生成时的档案快照（身高/体重/目标/训练经验）。与体型快照同级：只有存下「当时
+    # 的目标」，计划读取才能诚实回答「这份计划是按哪个目标排的」，而不是读当前档案
+    # 推断出错误归因。旧计划该列为空，解释区走降级文案。
+    profile_snapshot: Mapped[dict | None] = mapped_column(JSONB)
+
+    # 该次体型分析快照被本计划捕获的时间（UTC）。分析结果本身不带时间戳，因此记录
+    # 捕获时刻作为「该次分析」的可核对定位；旧计划为空，表示分析时间未知。
+    analysis_captured_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
     # 整体难度系数（1.0 基准，用于动态调整）
     difficulty_factor: Mapped[float] = mapped_column(default=1.0)
 

@@ -51,6 +51,7 @@ FIELD_EVALUATED_USERS = "evaluated_users"
 FIELD_DELIVERED = "delivered"
 FIELD_DUPLICATES = "duplicates"
 FIELD_FAILED = "failed"
+FIELD_SKIPPED = "skipped"
 
 # --- Stable event names: domain.action.result -------------------------------
 EVENT_HTTP_COMPLETED = "http.request.completed"

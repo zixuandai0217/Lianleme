@@ -94,6 +94,19 @@ PRD 的 P1-6 明确写了前提依赖：正式登录、用户订阅授权、后�
 - **本票只实现第一条规则**（`daily_training`：训练日 + 已过提醒时刻 + 当天未打卡），规则是纯函数、可脱离数据库与时钟单测；其余五条规则、偏好、免打扰与每日上限归工单 34，调度与投递链路不需要改。
 - **收件箱有页面，不只是接口**（正文要求「用户能在应用里看到通知列表与未读数」）：`/notifications` 页面提供未读筛选、单条点击标已读并跳转、全部已读与空态；侧边栏新增「通知」入口。铃铛角标挂在顶栏属于工单 34 的偏好/入口收口，本票只保证数据与页面可用。
 
+### 落地修订（工单 34：六条规则 + 每日上限 + 免打扰）
+
+- **规则判定返回「候选或跳过原因」而不是布尔**：每条规则输出 `RuleOutcome(candidate | skip_reason)`，因此「今天为什么没收到」这类运营问题有结构化答案，而不是靠猜。优先级写死为 召回 > 每日训练 > 恢复日 > 周目标 > 引导（`RULE_PRIORITY`），裁剪只在服务层做，规则本身互不知道对方。
+- **当日窗口语义收紧为三段**：早于提醒时刻 = 尚未到点（不落记录）；窗口内 = 可投递；晚于窗口结束（提醒时刻 + 4 小时）= 记 `outside_daily_window` 跳过、不跨日补发。这条区分避免了凌晨 tick 为每个用户刷一条「今日未提醒」的噪声记录。
+- **免打扰是「顺延」而不是「丢弃」**：落在免打扰区间内、但区间结束仍在当日窗口内时，本轮**不落任何记录**，由免打扰结束后的 tick 正常投递；区间结束已越过当日窗口时才写 `quiet_hours` 跳过记录。免打扰区间支持跨零点（如 22:00–08:00）。
+- **每日上限只数「真正发出去的」**：上限按当日 `status=sent` 的条数计算，跳过记录不占额度；超出上限的候选按优先级从低到高写 `daily_cap` 跳过记录，用户看不到它们（收件箱只投影 `status=sent`）。
+- **周目标类提醒每周期最多一次**：达成提醒在达成当天发一条，同周期后续 tick/次日通过「本周已发过该规则」判定为 `already_sent_this_week`；缺口提醒只在周期末（默认周日）且仍有缺口时发，正文含「还差 N 次」。
+- **召回阶梯与叠加抑制**：距上次打卡 3 天、7 天各一次，14 天起每 7 天一次（AC2 为准）。「不叠加」只约束**同一天**：当天已经提醒过一次时，召回记为 `already_reminded_today` 跳过，避免一天两条催促；历史上收到过提醒不影响阶梯触发。从未打卡的用户不进入召回（由引导规则负责）。
+- **偏好是一对一懒创建**：没有记录时读取返回缺省值且不写库，首次保存才创建；更新为整份替换，校验（`HH:MM` 格式、开始≠结束、每日上限 0–5、周目标 1–14）在写入前完成，非法值返回 422 且已存偏好保持不变。时区第一版仍为部署级，接口只读不写。
+- **跳过记录有内部查询入口**（AC5 的「可查询」）：`GET /api/notifications/deliveries` 仅管理员可用，按用户 / 状态 / 本地日期区间分页查询投递记录，返回 `skip_reason`，不返回通知正文；这是运营回答「他今天为什么没收到」的入口，公开收件箱仍然只看得到 `status=sent` 的通知。
+- **用户主动关闭的规则不写跳过记录**：关闭是用户选择，不是系统拒绝；跳过记录只承载系统侧的裁剪原因（窗口、免打扰、上限、本周已发、近期已提醒、引导用尽），避免把用户偏好污染成运营异常数据。
+- **tick 的读查询固定为常数条**：用户、当前计划、今日打卡、历史最近打卡、本周次数、分析记录、偏好、近 30 天投递、引导已发次数各一次，全部在内存里逐用户判定；仍不发起任何外部网络调用。
+
 ## Testing Decisions
 
 好测试只断言**外部可见行为**：给定时间与数据，跑一次调度后「哪些通知真的产生了、哪些被幂等拦住、哪些被上限或免打扰裁掉」，以及用户能看到的列表、未读数与偏好生效结果。绝不断言调度器内部的 sleep 精度、任务对象或 ORM 语句。
@@ -161,4 +174,5 @@ PRD 的 P1-6 明确写了前提依赖：正式登录、用户订阅授权、后�
 - API 方法与类型：`web/src/api/index.ts`、`web/src/api/types.ts`
 - 纯函数 + 单测 prior art：`web/src/pages/analysis/flow.ts`、`web/src/pages/analysis/flow.test.ts`
 - 页面级 jsdom 测试 prior art：`web/src/api-key-gate.test.tsx`
+- 工单 34 新增：`backend/app/models/reminder_preference.py`（偏好表）、`backend/alembic/versions/0005_reminder_preferences.py`、`backend/app/services/reminder/preferences.py`（懒创建/整份替换）、`backend/tests/test_reminder_rules.py`（六条规则、上限、免打扰、偏好校验）
 - 工单 33 新增：收件箱页面 `web/src/pages/notifications/index.tsx`、页面级测试 `web/src/notifications-page.test.tsx`、路由与侧边栏入口 `web/src/App.tsx`、`web/src/components/sidebar.tsx`、API 方法与类型 `web/src/api/index.ts`、`web/src/api/types.ts`；投递记录模型 `backend/app/models/reminder.py`、迁移 `backend/alembic/versions/0004_reminder_deliveries.py`、规则纯函数 `backend/app/services/reminder/rules.py`、调度服务与宿主 `backend/app/services/reminder/reminder_service.py`、`backend/app/services/reminder/scheduler.py`、通知路由 `backend/app/api/notification.py`、本地时间工具 `backend/app/core/local_time.py`、路由层测试 `backend/tests/test_reminder_inbox.py`
