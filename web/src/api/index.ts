@@ -25,6 +25,7 @@ import type {
   WorkoutRecord as WorkoutRecordResp,
   CalendarDay,
   NotificationListResponse,
+  WorkoutSessionView,
   MarkAllNotificationsReadResponse,
   MarkNotificationReadResponse,
 } from "./types"
@@ -172,6 +173,25 @@ export const getWeightTrend = (userId: number, days = 90) =>
 
 export const deleteWeightRecord = (userId: number, recordId: number) =>
   client.delete<unknown, { message: string }>(`/api/weight/${userId}/${recordId}`)
+
+// ── Workout session ──
+export const startWorkoutSession = (userId: number) =>
+  client.post<unknown, WorkoutSessionView>("/api/workout/sessions/start", { user_id: userId })
+
+export const getCurrentWorkoutSession = (userId: number) =>
+  client.get<unknown, WorkoutSessionView>(`/api/workout/sessions/current?user_id=${userId}`)
+
+export const completeSessionSet = (sessionId: string, exerciseIndex: number, setIndex: number) =>
+  client.post<unknown, WorkoutSessionView>(`/api/workout/sessions/${sessionId}/sets`, {
+    exercise_index: exerciseIndex,
+    set_index: setIndex,
+  })
+
+export const skipSessionExercise = (sessionId: string, exerciseIndex: number, reason: string) =>
+  client.post<unknown, WorkoutSessionView>(`/api/workout/sessions/${sessionId}/skip`, {
+    exercise_index: exerciseIndex,
+    reason,
+  })
 
 // ── Notifications ──
 export const getNotifications = (

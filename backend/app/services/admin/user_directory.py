@@ -548,6 +548,21 @@ def _serialize_row(row: Any, now: dt.datetime) -> dict[str, Any]:
     }
 
 
+async def load_user_row(
+    db: AsyncSession, user_id: int, *, now: dt.datetime | None = None
+) -> dict[str, Any] | None:
+    """One user's directory row (same aggregates, flags and masking as the list).
+
+    The admin user *detail* endpoint reuses this so 「档案」与「需关注标记」不可能和列表
+    漂移：同一组聚合子查询、同一套阈值、同一套掩码。未知用户返回 ``None``，由路由
+    决定 404——详情接口的其他分区缺数据都不是错误。
+    """
+    at = now or utc_now()
+    aggregates = _build_aggregates(at)
+    row = (await db.execute(_base_select(aggregates).where(User.id == user_id))).mappings().first()
+    return None if row is None else _serialize_row(row, at)
+
+
 async def list_users(
     db: AsyncSession,
     *,

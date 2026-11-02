@@ -1,6 +1,6 @@
 /* Coach-led dashboard with training status, contextual actions, and check-in states. */
 import { useCallback, useEffect, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   ArrowRight,
   BotMessageSquare,
@@ -125,11 +125,12 @@ function getCoachState(
 export default function DashboardPage() {
   const { userId, user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const hasBodyAnalysis = Boolean(user?.body_analysis)
   const [today, setToday] = useState<TodayWorkout | null>(null)
   const [stats, setStats] = useState<CheckInStats | null>(null)
   const [loading, setLoading] = useState(true)
-  const [checkinOpen, setCheckinOpen] = useState(false)
+  const [checkinOpen, setCheckinOpen] = useState(() => searchParams.get("checkin") === "1")
   const [checkinLoading, setCheckinLoading] = useState(false)
   const [checkinDone, setCheckinDone] = useState(false)
   const [aiFeedback, setAiFeedback] = useState<string | null>(null)
@@ -166,6 +167,14 @@ export default function DashboardPage() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // 会话页的「收尾并打卡」跳到首页并带上 ?checkin=1：弹窗由 URL 初始化，
+  // 打开后清掉参数，避免刷新页面又弹一次。
+  useEffect(() => {
+    if (checkinOpen && searchParams.get("checkin") === "1") {
+      navigate("/", { replace: true })
+    }
+  }, [checkinOpen, searchParams, navigate])
 
   const handleCheckin = async () => {
     if (!userId) return
@@ -464,11 +473,15 @@ export default function DashboardPage() {
                   ))}
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row">
+                  <Button className="flex-1" onClick={() => navigate("/session")}>
+                    <Dumbbell />
+                    开始训练
+                  </Button>
                   <Button variant="outline" className="flex-1" onClick={() => navigate("/coach")}>
                     AI 陪练
                     <ArrowRight />
                   </Button>
-                  <Button className="flex-1" onClick={openCheckinDialog}>
+                  <Button variant="outline" className="flex-1" onClick={openCheckinDialog}>
                     <CheckCircle2 />
                     完成打卡
                   </Button>

@@ -162,6 +162,47 @@ export interface TodayWorkout {
   message?: string
 }
 
+// ── Workout session ──
+export type SessionExerciseStatus = "pending" | "completed" | "skipped"
+
+export interface SessionExercise {
+  index: number
+  order: number
+  name: string
+  sets: number
+  reps: string
+  weight_suggestion: string
+  tips: string
+  rest_seconds: number
+  completed_sets: number
+  skipped: boolean
+  skip_reason?: string | null
+  status: SessionExerciseStatus
+  target_set_number?: number | null
+}
+
+export interface SessionProgressView {
+  completed_sets: number
+  total_sets: number
+  percent: number
+}
+
+export interface WorkoutSessionView {
+  session_id: string
+  user_id: number
+  plan_id?: number | null
+  status: string
+  session_date: string
+  started_at: string
+  last_activity_at: string
+  progress: SessionProgressView
+  exercises: SessionExercise[]
+  current_exercise?: SessionExercise | null
+  next_exercise?: SessionExercise | null
+  finished: boolean
+  can_checkin: boolean
+}
+
 // ── Notifications ──
 /** 站内通知（投递记录的收件箱投影）。 */
 export interface NotificationItem {

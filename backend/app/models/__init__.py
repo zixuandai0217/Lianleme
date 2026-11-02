@@ -10,9 +10,10 @@ from app.models.reminder import ReminderDelivery
 from app.models.reminder_preference import ReminderPreference
 from app.models.user import User
 from app.models.weight import WeightRecord
+from app.models.workout_session import WorkoutSession
 
 __all__ = [
     "User", "TrainingPlan", "WorkoutRecord", "WeightRecord",
     "BodyAnalysisRecord", "ChatMessageRecord", "AnalysisTask", "PlanAdjustment",
-    "ReminderDelivery", "ReminderPreference", "AdminExportAudit",
+    "ReminderDelivery", "ReminderPreference", "WorkoutSession", "AdminExportAudit",
 ]

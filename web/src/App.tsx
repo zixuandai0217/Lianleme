@@ -13,6 +13,7 @@ import PlanPage from "@/pages/plan"
 import ProfilePage from "@/pages/profile"
 import WeightPage from "@/pages/weight"
 import NotificationsPage from "@/pages/notifications"
+import SessionPage from "@/pages/session"
 import AdminPage from "@/pages/admin"
 import { AuthProvider, useAuth } from "@/hooks/use-auth"
 import { Loader2 } from "lucide-react"
@@ -118,6 +119,7 @@ export default function App() {
               <Route path="/coach" element={<ApiKeyGate><Suspense fallback={<LoadingScreen />}><CoachPage /></Suspense></ApiKeyGate>} />
               <Route path="/weight" element={<WeightPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/session" element={<SessionPage />} />
               <Route path="/profile" element={<ProfilePage />} />
             </Route>
 

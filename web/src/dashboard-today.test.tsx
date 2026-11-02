@@ -44,7 +44,7 @@ import DashboardPage from "@/pages/dashboard"
 let root: Root | null
 let container: HTMLDivElement
 
-async function renderDashboard(today: TodayWorkout | null) {
+async function renderDashboard(today: TodayWorkout | null, initialEntry = "/") {
   authState.user = {
     id: 1,
     openid: "u-1",
@@ -56,7 +56,7 @@ async function renderDashboard(today: TodayWorkout | null) {
 
   await act(async () => {
     root?.render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <DashboardPage />
       </MemoryRouter>,
     )
@@ -154,5 +154,13 @@ describe("首页今日三态", () => {
     expect(text).toContain("全身")
     expect(text).toContain("45 分钟")
     expect(buttonLabels().some((label) => label.includes("完成打卡"))).toBe(true)
+  })
+
+  it("带 ?checkin=1 进入时直接打开打卡弹窗（会话页收尾入口）", async () => {
+    await renderDashboard(trainingDay, "/?checkin=1")
+
+    // 弹窗渲染在 portal 里，必须查整个 document。
+    expect(document.body.textContent).toContain("训练打卡")
+    expect(document.body.textContent).toContain("完成组数")
   })
 })
