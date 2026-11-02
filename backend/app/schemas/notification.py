@@ -2,7 +2,7 @@
 import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class NotificationItem(BaseModel):
@@ -111,3 +111,62 @@ class DeliveryRecordListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ---------- Web Push 重通道（工单 35） ----------
+
+
+class PushStatusResponse(BaseModel):
+    """推送通道状态：服务端是否配置了密钥、当前身份是否已订阅。"""
+
+    available: bool = Field(..., description="服务端 VAPID 配置齐全时为 true")
+    subscribed: bool = Field(..., description="当前身份是否存在有效订阅")
+    subscription_count: int = Field(..., ge=0, description="当前身份的有效订阅数")
+    public_key: str | None = Field(
+        default=None, description="VAPID 公钥；通道可用时浏览器用它完成订阅"
+    )
+
+
+class PushSubscribeKeys(BaseModel):
+    """浏览器生成的订阅密钥（只用于加密推送载荷，服务端不打印）。"""
+
+    p256dh: str = Field(..., min_length=1, max_length=255)
+    auth: str = Field(..., min_length=1, max_length=255)
+
+    @field_validator("p256dh", "auth")
+    @classmethod
+    def key_must_not_be_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("订阅密钥不能为空")
+        return cleaned
+
+
+class PushSubscribeRequest(BaseModel):
+    """登记一台浏览器的推送订阅；endpoint 是幂等身份。"""
+
+    endpoint: str = Field(..., min_length=1, max_length=2048)
+    keys: PushSubscribeKeys
+
+    @field_validator("endpoint")
+    @classmethod
+    def endpoint_must_not_be_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("endpoint 不能为空")
+        return cleaned
+
+
+class PushSubscribeResponse(BaseModel):
+    """登记结果：重复登记同一 endpoint 仍是同一行，重新激活。"""
+
+    subscribed: bool = True
+    subscription_id: int
+    subscription_count: int = Field(..., ge=0)
+
+
+class PushUnsubscribeResponse(BaseModel):
+    """注销结果：只软失效本人订阅，返回本次失效的条数。"""
+
+    subscribed: bool = False
+    deactivated: int = Field(..., ge=0)

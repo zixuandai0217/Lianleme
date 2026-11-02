@@ -41,6 +41,7 @@ dependencies = [
     "greenlet>=3.3.2",
     # multipart/form-data 文件上传（媒体资产接口）
     "python-multipart==0.0.20",
+    "pywebpush>=2.5.0",
 ]
 
 

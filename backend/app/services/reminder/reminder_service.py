@@ -34,6 +34,7 @@ from app.core.logging import (
 )
 from app.models.body_analysis import BodyAnalysisRecord
 from app.models.plan import TrainingPlan
+from app.models.push import PushSubscription
 from app.models.record import WorkoutRecord
 from app.models.reminder import (
     CHANNEL_IN_APP,
@@ -44,6 +45,7 @@ from app.models.reminder import (
 from app.models.reminder_preference import ReminderPreference
 from app.models.user import User
 from app.schemas.plan import TrainingPlanSchema
+from app.services.notification.push_service import enqueue_web_push_delivery
 from app.services.plan.plan_service import PlanService
 from app.services.reminder import preferences as preference_service
 from app.services.reminder.rules import (
@@ -163,6 +165,19 @@ class ReminderService:
             for candidate in candidates:
                 result = await self._record_delivery(user.id, candidate, today)
                 self._count(summary, result)
+                if result.outcome == "delivered":
+                    # 重通道只在站内记录真正写入后追加：tick 只落记录与作业，
+                    # 真正的网络发送由 PushJobExecutor 负责（tick 内零外部调用）。
+                    subscription_id = facts.push_subscriptions.get(user.id)
+                    if subscription_id is not None:
+                        await enqueue_web_push_delivery(
+                            self.db,
+                            user_id=user.id,
+                            rule_code=candidate.rule_code,
+                            local_date=today,
+                            subscription_id=subscription_id,
+                            payload=self._delivery_payload(candidate),
+                        )
             for rule_code, reason in skip_reasons.items():
                 result = await self._record_skip(user.id, rule_code, today, reason)
                 self._count(summary, result)
@@ -313,7 +328,31 @@ class ReminderService:
             },
             sent_today=sent_today,
             onboarding_sent={user_id: count for user_id, count in onboarding_rows},
+            push_subscriptions=await self._active_push_subscriptions(),
         )
+
+    async def _active_push_subscriptions(self) -> dict[int, int]:
+        """每个用户挑一条有效订阅（最新一条），一次查询取齐。
+
+        通道未配置时不查库：未启用推送的环境不承担这份额外读成本。
+        """
+        if not settings.web_push_available():
+            return {}
+        rows = (
+            await self.db.execute(
+                select(PushSubscription.user_id, PushSubscription.id)
+                .where(PushSubscription.is_active.is_(True))
+                .order_by(
+                    PushSubscription.user_id,
+                    PushSubscription.created_at.desc(),
+                    PushSubscription.id.desc(),
+                )
+            )
+        ).all()
+        subscriptions: dict[int, int] = {}
+        for user_id, subscription_id in rows:
+            subscriptions.setdefault(user_id, subscription_id)
+        return subscriptions
 
     async def _active_plans_by_user(self) -> dict[int, TrainingPlanSchema]:
         """Latest active plan per user, in one query (newest week_start wins)."""
@@ -354,13 +393,18 @@ class ReminderService:
             candidate.rule_code,
             local_date,
             status=DELIVERY_STATUS_SENT,
-            payload={
-                "title": candidate.title,
-                "body": candidate.body,
-                "target_path": candidate.target_path,
-                "params": candidate.params,
-            },
+            payload=self._delivery_payload(candidate),
         )
+
+    @staticmethod
+    def _delivery_payload(candidate: ReminderCandidate) -> dict:
+        """渲染结果的唯一形状：站内收件箱与 web_push 作业共用，避免两处漂移。"""
+        return {
+            "title": candidate.title,
+            "body": candidate.body,
+            "target_path": candidate.target_path,
+            "params": candidate.params,
+        }
 
     async def _record_skip(
         self, user_id: int, rule_code: str, local_date: datetime.date, reason: str
@@ -559,3 +603,4 @@ class _Facts:
     rules_this_week: dict[int, frozenset[str]]
     sent_today: dict[int, int]
     onboarding_sent: dict[int, int]
+    push_subscriptions: dict[int, int]

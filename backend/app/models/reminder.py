@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.compat import JSONB
 from app.core.database import Base
 
+DELIVERY_STATUS_PENDING = "pending"
 DELIVERY_STATUS_SENT = "sent"
 DELIVERY_STATUS_FAILED = "failed"
 DELIVERY_STATUS_SKIPPED = "skipped"

@@ -49,6 +49,7 @@ from app.core.request_context import (
 )
 from app.core.storage import ensure_bucket_exists
 from app.models import record  # noqa: F401 触发 ORM 注册
+from app.services.notification.push_service import PushJobWorker
 from app.services.reminder.scheduler import ReminderScheduler
 
 configure_logging(
@@ -86,11 +87,19 @@ async def lifespan(app: FastAPI):
     if settings.REMINDER_ENABLED:
         scheduler.start()
 
+    # Web Push 重通道的作业执行器：与提醒 tick 分开宿主，只消费 push_jobs。
+    push_worker = PushJobWorker()
+    # 通道未配置（或提醒整体关闭）时不起轮询：不产生无意义的数据库读。
+    if settings.REMINDER_ENABLED and settings.web_push_available():
+        push_worker.start()
+    app.state.push_worker = push_worker
+
     try:
         yield
     finally:
-        # 先停调度再释放连接池：否则 tick 可能在引擎关闭后仍尝试写库。
+        # 先停调度再释放连接池：否则 tick/worker 可能在引擎关闭后仍尝试写库。
         await scheduler.stop()
+        await push_worker.stop()
         await engine.dispose()
 
 

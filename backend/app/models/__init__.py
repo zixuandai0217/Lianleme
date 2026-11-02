@@ -8,6 +8,7 @@ from app.models.chat_message import ChatMessageRecord
 from app.models.media_asset import MediaAsset
 from app.models.plan import TrainingPlan
 from app.models.pose_aggregate import PoseQualityAggregate
+from app.models.push import PushJob, PushSubscription
 from app.models.record import WorkoutRecord
 from app.models.reminder import ReminderDelivery
 from app.models.reminder_preference import ReminderPreference
@@ -22,4 +23,6 @@ __all__ = [
     "MediaAsset",
     "PlanAdjustmentJob",
     "PoseQualityAggregate",
+    "PushSubscription",
+    "PushJob",
 ]

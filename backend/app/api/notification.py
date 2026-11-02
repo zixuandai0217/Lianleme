@@ -8,6 +8,7 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.local_time import local_now, to_local
 from app.core.security import ensure_current_user_matches, get_current_admin, get_current_user
@@ -20,14 +21,27 @@ from app.schemas.notification import (
     MarkReadResponse,
     NotificationItem,
     NotificationListResponse,
+    PushStatusResponse,
+    PushSubscribeRequest,
+    PushSubscribeResponse,
+    PushUnsubscribeResponse,
     ReminderPreferenceResponse,
     ReminderPreferenceUpdate,
     TickSummaryResponse,
+)
+from app.services.notification.push_service import (
+    ERROR_CODE_PUSH_ENDPOINT_IN_USE,
+    ERROR_CODE_PUSH_UNAVAILABLE,
+    PushEndpointInUse,
+    PushService,
 )
 from app.services.reminder import preferences as preference_service
 from app.services.reminder.reminder_service import ReminderService
 
 router = APIRouter()
+
+# 未配置 VAPID 时登记订阅的稳定错误码与安全文案。
+PUSH_UNAVAILABLE_MESSAGE = "推送通道未配置，暂不可用"
 
 
 def _to_item(delivery) -> NotificationItem:
@@ -42,6 +56,71 @@ def _to_item(delivery) -> NotificationItem:
         read_at=delivery.read_at,
         is_read=delivery.read_at is not None,
     )
+
+
+@router.get("/push/status", response_model=PushStatusResponse)
+async def get_push_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """当前身份的推送通道状态；未配置密钥时 available=false（站内不受影响）。"""
+    service = PushService(db)
+    count = await service.active_subscription_count(current_user.id)
+    return PushStatusResponse(
+        available=service.available,
+        subscribed=count > 0,
+        subscription_count=count,
+        public_key=settings.VAPID_PUBLIC_KEY.strip() if service.available else None,
+    )
+
+
+@router.post("/push/subscribe", response_model=PushSubscribeResponse)
+async def subscribe_push(
+    payload: PushSubscribeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """登记浏览器推送订阅；同一 endpoint 重复登记是 upsert，不会产生第二行。
+
+    通道未配置时必须在写入之前拒绝：数据库里不允许留下一条永远不会被投递的订阅。
+    """
+    service = PushService(db)
+    if not service.available:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": ERROR_CODE_PUSH_UNAVAILABLE, "message": PUSH_UNAVAILABLE_MESSAGE},
+        )
+    try:
+        row = await service.subscribe(
+            current_user.id,
+            endpoint=payload.endpoint,
+            p256dh=payload.keys.p256dh,
+            auth=payload.keys.auth,
+        )
+    except PushEndpointInUse:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": ERROR_CODE_PUSH_ENDPOINT_IN_USE,
+                "message": "该浏览器已绑定其他账号，请先在原账号注销推送",
+            },
+        ) from None
+    count = await service.active_subscription_count(current_user.id)
+    return PushSubscribeResponse(
+        subscribed=True,
+        subscription_id=row.id,
+        subscription_count=count,
+    )
+
+
+@router.delete("/push/subscribe", response_model=PushUnsubscribeResponse)
+async def unsubscribe_push(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """注销本人全部推送订阅（软失效）；返回本次失效条数。"""
+    deactivated = await PushService(db).deactivate_all(current_user.id)
+    return PushUnsubscribeResponse(subscribed=False, deactivated=deactivated)
 
 
 @router.post("/tick", response_model=TickSummaryResponse)

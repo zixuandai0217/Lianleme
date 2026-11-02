@@ -176,3 +176,37 @@ PRD 的 P1-6 明确写了前提依赖：正式登录、用户订阅授权、后�
 - 页面级 jsdom 测试 prior art：`web/src/api-key-gate.test.tsx`
 - 工单 34 新增：`backend/app/models/reminder_preference.py`（偏好表）、`backend/alembic/versions/0005_reminder_preferences.py`、`backend/app/services/reminder/preferences.py`（懒创建/整份替换）、`backend/tests/test_reminder_rules.py`（六条规则、上限、免打扰、偏好校验）
 - 工单 33 新增：收件箱页面 `web/src/pages/notifications/index.tsx`、页面级测试 `web/src/notifications-page.test.tsx`、路由与侧边栏入口 `web/src/App.tsx`、`web/src/components/sidebar.tsx`、API 方法与类型 `web/src/api/index.ts`、`web/src/api/types.ts`；投递记录模型 `backend/app/models/reminder.py`、迁移 `backend/alembic/versions/0004_reminder_deliveries.py`、规则纯函数 `backend/app/services/reminder/rules.py`、调度服务与宿主 `backend/app/services/reminder/reminder_service.py`、`backend/app/services/reminder/scheduler.py`、通知路由 `backend/app/api/notification.py`、本地时间工具 `backend/app/core/local_time.py`、路由层测试 `backend/tests/test_reminder_inbox.py`
+
+
+## 落地修订（工单 35）
+
+Web Push 重通道的落地取舍：
+
+1. **两张表**（迁移 0016）：`push_subscriptions`（用户、endpoint 唯一、p256dh/auth、
+   是否有效、最后成功时间、失效原因）与 `push_jobs`（投递记录唯一、订阅、状态
+   pending/sent/failed、尝试次数、`claimed_at` 租约）。两者都不存通知正文之外的隐私数据。
+2. **订阅接口**：`GET /notifications/push/status` 返回 available / subscribed /
+   subscription_count，并在通道可用时返回 VAPID **公钥**（浏览器订阅需要它）；
+   `POST .../subscribe` 按 endpoint upsert——同一账号重复登记只更新密钥并重新激活，
+   **同一 endpoint 属于其他账号时返回 409 `push_endpoint_in_use`**，绝不静默转移归属；
+   `DELETE .../subscribe` 软失效本人全部订阅。VAPID 三项配置不齐时通道整体不可用，
+   登记返回 409 `push_unavailable` 且不落任何订阅行；站内通道完全不受影响。
+3. **tick 边界**：只有站内投递真正写入（status=sent）之后，且通道可用、用户有有效订阅时，
+   才追加一条 `reminder_deliveries(channel=web_push,status=pending)` 与一条 `push_jobs`；
+   tick 内零外部发送调用，跳过/被裁的候选不入队。重复 tick 由投递记录唯一键与作业
+   `delivery_id` 唯一键双重幂等。
+4. **执行器与租约**：`PushJobExecutor` 用条件 UPDATE 抢租约（`claimed_at`，`status=pending`
+   且未占用），发送前释放会话与事务，发送在 `asyncio.to_thread` 中执行，结果在短事务回写；
+   崩溃遗留的旧租约在下一轮回收。成功 → 作业/记录 sent、订阅最后成功时间；404/410 →
+   作业/记录 failed、订阅失效（`endpoint_gone`），后续 tick 不再投递；其他失败重试到上限
+   （3 次）后 failed。作业与订阅归属不一致时拒绝发送（`subscription_owner_mismatch`）。
+5. **worker**：`PushJobWorker` 在 lifespan 启停，先睡后跑、可重入保护、异常不杀循环；
+   **仅当 `REMINDER_ENABLED` 且 VAPID 配置齐全时才启动**，通道禁用时不做无意义的轮询。
+6. **配置**：`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`、
+   `PUSH_JOB_TICK_SECONDS`(10)、`PUSH_JOB_MAX_ATTEMPTS`(3)、`PUSH_JOB_BATCH_SIZE`、
+   `PUSH_SEND_TIMEOUT_SECONDS`。`pywebpush` 依赖随本票加入（同时带来 `cryptography` 升级）。
+7. **已知取舍**：tick 第三条读查询之外在配置了推送时多一条订阅批量查询（工单 33 的
+   「固定三条」在开启重通道后放宽为四条，已在代码注释与本修订记录）；入队失败是
+   best-effort（只记事件，不生成可重试记录），当天的推送可能因此缺失一次；执行器无
+   跨实例租约，发送后、回写前崩溃会按 at-least-once 重发；每个用户只取最新一条有效
+   订阅（多设备扇出不在本票范围）；管理员投递列表目前仍只展示站内通道。

@@ -54,6 +54,17 @@ class Settings(BaseSettings):
     REMINDER_TIMEZONE: str = "Asia/Shanghai"
     REMINDER_HOUR: int = 19
 
+    # Web Push 重通道（工单 35）：三项 VAPID 配置齐全时通道才可用。
+    # 缺任意一项都只是「通道整体禁用」，站内收件箱不受影响。
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_SUBJECT: str = ""
+    # 推送作业执行器的轮询间隔、单批上限、重试上限与单次发送超时。
+    PUSH_JOB_TICK_SECONDS: float = 10.0
+    PUSH_JOB_BATCH_SIZE: int = 20
+    PUSH_JOB_MAX_ATTEMPTS: int = 3
+    PUSH_SEND_TIMEOUT_SECONDS: float = 10.0
+
     # MinIO / 对象存储
     MINIO_ENDPOINT: str = "localhost:9000"
     MINIO_ROOT_USER: str = "minioadmin"
@@ -119,6 +130,20 @@ class Settings(BaseSettings):
             if item.strip()
         }
         return frozenset(values) or frozenset({"image/jpeg", "image/png", "image/webp"})
+
+    def web_push_available(self) -> bool:
+        """Web Push 通道是否可用：三项 VAPID 配置全部非空才启用。
+
+        缺失任意一项时通道整体禁用，而不是悄悄发送失败；站内通道不依赖它。
+        """
+        return all(
+            value.strip()
+            for value in (
+                self.VAPID_PUBLIC_KEY,
+                self.VAPID_PRIVATE_KEY,
+                self.VAPID_SUBJECT,
+            )
+        )
 
     def system_llm_credentials(self) -> tuple[str, str] | None:
         """Return usable server-managed (provider, api_key) or None.
