@@ -4,8 +4,9 @@
 于是「计划为什么变了」无法从数据回答。这张表把已有结论变成可读事实；计划侧只保存
 最近一次的引用（``training_plans.latest_adjustment_id``），不复制理由文本。
 
-该记录刻意只存「结论」：五维明细、合并分与 HITL 状态属于后续调整作业（工单 26/27），
-届时在其上扩展，不在这里预埋。
+工单 24 在其上**追加**五维明细与合并小结（``dimensions`` / ``merged`` /
+``overall_score`` / ``delta_percent``）：一次调整只写一条记录，不新建并行存储，
+工单 26 的详情直接读这里。旧记录这些列为空，读取仍按「没有评估明细」降级。
 """
 import datetime
 import time
@@ -14,6 +15,7 @@ from uuid import uuid4
 from sqlalchemy import DateTime, Float, ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.compat import JSONB
 from app.core.database import Base
 
 # 与 AdjustGraph 的 adjustment_type 对齐；也是对外稳定枚举。
@@ -48,6 +50,11 @@ class PlanAdjustment(Base):
     reason: Mapped[str] = mapped_column(String(255), nullable=False)
     completion_rate: Mapped[float] = mapped_column(Float, nullable=False)
     difficulty_rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 工单 24 追加：本次评估的五维明细、合并小结与声明幅度（只追加，旧记录为空）。
+    overall_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    delta_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dimensions: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    merged: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

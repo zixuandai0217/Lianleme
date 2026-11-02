@@ -54,7 +54,7 @@
 训练计划动态调整工作流。根据用户训练反馈（完成率、疲劳度等）自动调整下周计划的难度。
 
 **Analyzer（分析器）**
-AdjustGraph 中的并行节点，负责从特定维度评估用户状态。输出格式：`{score: 0-10, reason: str, suggestion: str}`。
+AdjustGraph 中的并行节点，负责从特定维度评估用户状态。输出格式：`{name, score: 0-10, reason, suggestion, source: rule | llm, degraded, data_completeness: full | partial | default}`。五个维度：完成率、疲劳度、伤病风险、睡眠、体重/体脂趋势；缺省维度用 `default` 标记并排除在合并均分之外（规则见 [ADR-0009](docs/adr/0009-five-dimension-merge-and-direction.md)）。
 
 ### B
 
@@ -193,3 +193,4 @@ AdjustGraph 动态调整
 - [ADR-0006](docs/adr/0006-west-coast-coach-voice.md) - 西海岸口语风格教练设计
 - [ADR-0007](docs/adr/0007-coach-event-protocol.md) - 陪练流式输出改用结构化事件协议
 - [ADR-0008](docs/adr/0008-observability-contract.md) - 运行观测契约（请求关联、结构化日志、脱敏）
+- [ADR-0009](docs/adr/0009-five-dimension-merge-and-direction.md) - 五维合并与方向决策规则

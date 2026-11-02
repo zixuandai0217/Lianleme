@@ -1,12 +1,14 @@
 /* 管理后台独立布局：与用户端分离，简洁的顶栏 + 内容区 */
 import { NavLink, Outlet, Navigate } from "react-router-dom"
-import { ShieldCheck, BarChart3, LogOut } from "lucide-react"
+import { ShieldCheck, BarChart3, LogOut, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useAuth } from "@/hooks/use-auth"
 
+/** 管理端侧边栏：概览精确匹配，用户入口按路径前缀匹配（详情页仍高亮「用户」）。 */
 const adminNav = [
   { to: "/admin", icon: BarChart3, label: "数据概览", end: true },
+  { to: "/admin/users", icon: Users, label: "用户", end: false },
 ]
 
 export default function AdminLayout() {

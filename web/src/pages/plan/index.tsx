@@ -3,9 +3,11 @@ import { useEffect, useState } from "react"
 import {
   ArrowRight,
   CalendarDays,
+  ChevronDown,
   Clock,
   Dumbbell,
   Heart,
+  Info,
   Loader2,
   Sparkles,
   Timer,
@@ -16,25 +18,17 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { generatePlan, getCurrentPlan } from "@/api"
-import type { DailyWorkout, Exercise, TrainingPlan } from "@/api/types"
+import type { DailyWorkout, Exercise, PlanExplanation, TrainingPlan } from "@/api/types"
 import { useAuth } from "@/hooks/use-auth"
+import {
+  buildExplanationCopy,
+  DAY_NAMES,
+  normalizeFocus,
+} from "@/lib/plan-explanation"
 import { cn } from "@/lib/utils"
 
-const DAY_NAMES = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-const FOCUS_LABELS: Record<string, string> = {
-  push: "上肢推",
-  pull: "上肢拉",
-  legs: "腿部",
-  core: "核心",
-  full_body: "全身",
-  upper: "上肢",
-  lower: "下肢",
-  cardio: "有氧",
-  recovery: "恢复",
-}
-
-function focusLabel(english: string): string {
-  return FOCUS_LABELS[english.toLowerCase()] || english
+function focusLabel(focus: string): string {
+  return normalizeFocus(focus).label
 }
 
 // ── Exercise card ────────────────────────────────────────────────
@@ -289,11 +283,64 @@ function EmptyState({
   )
 }
 
+// ── Explanation card ─────────────────────────────────────────────
+
+function ExplanationBlock({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-secondary/30 px-4 py-3">
+      <p className="font-sans text-xs font-semibold text-muted-foreground">{title}</p>
+      <p className="mt-1.5 font-sans text-sm leading-6 text-foreground">{body}</p>
+    </div>
+  )
+}
+
+function ExplanationCard({
+  plan,
+  explanation,
+  currentGoal,
+}: {
+  plan: TrainingPlan
+  explanation: PlanExplanation | null
+  currentGoal?: string | null
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const copy = buildExplanationCopy(explanation, plan, currentGoal)
+
+  return (
+    <Card className="overflow-hidden">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+      >
+        <span className="flex items-center gap-2">
+          <Info className="size-4 text-primary" />
+          <span className="font-sans text-sm font-semibold">本周为什么这样练</span>
+        </span>
+        <span className="flex items-center gap-1.5 font-sans text-xs text-muted-foreground">
+          {expanded ? "收起" : "展开"}
+          <ChevronDown className={cn("size-4 transition-transform", expanded && "rotate-180")} />
+        </span>
+      </button>
+      {expanded && (
+        <div className="grid gap-3 border-t border-border px-5 py-5 sm:grid-cols-2">
+          <ExplanationBlock title="本周目标" body={copy.goal} />
+          <ExplanationBlock title="重点来源" body={copy.source} />
+          <ExplanationBlock title="训练量" body={copy.volume} />
+          <ExplanationBlock title="调整说明" body={copy.adjustment} />
+        </div>
+      )}
+    </Card>
+  )
+}
+
 // ── Main page ────────────────────────────────────────────────────
 
 export default function PlanPage() {
   const { userId, user } = useAuth()
   const [plan, setPlan] = useState<TrainingPlan | null>(null)
+  const [explanation, setExplanation] = useState<PlanExplanation | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -306,7 +353,10 @@ export default function PlanPage() {
     const loadPlan = async () => {
       try {
         const response = await getCurrentPlan(userId)
-        if (!cancelled) setPlan(response.plan)
+        if (!cancelled) {
+          setPlan(response.plan)
+          setExplanation(response.explanation ?? null)
+        }
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : "加载失败")
       } finally {
@@ -327,6 +377,13 @@ export default function PlanPage() {
     try {
       const response = await generatePlan(userId, user?.body_analysis || undefined, user?.profile || undefined)
       setPlan(response.plan)
+      // 生成接口只返回计划本身；解释字段随读取接口回来，这里重新读一次以免卡片退化为「无依据」。
+      try {
+        const refreshed = await getCurrentPlan(userId)
+        setExplanation(refreshed.explanation ?? null)
+      } catch {
+        setExplanation(null)
+      }
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : "生成失败")
     } finally {
@@ -358,7 +415,7 @@ export default function PlanPage() {
           <h1 className="page-title">训练计划</h1>
           <p className="page-description">
             {plan
-              ? `本周从 ${plan.week_start} 开始 · 难度系数 ${plan.difficulty_factor} · 共 ${plan.weekly_plan.length} 天`
+              ? `本周从 ${plan.week_start} 开始 · 共 ${plan.weekly_plan.length} 天`
               : "把体型画像、训练目标和可用时间整理成一周可执行的训练安排。"}
           </p>
         </div>
@@ -392,6 +449,12 @@ export default function PlanPage() {
       {/* ── Active plan ── */}
       {plan?.weekly_plan && (
         <section className="space-y-6">
+          <ExplanationCard
+            plan={plan}
+            explanation={explanation}
+            currentGoal={user?.profile?.goal}
+          />
+
           {/* Day selector pills */}
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
             {plan.weekly_plan.map((workout) => (

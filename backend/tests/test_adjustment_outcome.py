@@ -25,6 +25,18 @@ from app.core.logging import StructuredJsonFormatter
 from app.main import app
 from app.models.plan import TrainingPlan
 from app.models.user import User
+from app.services.ai.adjust_analyzers import (
+    COMPLETENESS_DEFAULT,
+    analyze_completion,
+    analyze_fatigue,
+    analyze_sleep,
+)
+from app.services.ai.adjust_merge import (
+    build_reason,
+    decide_direction,
+    delta_percent_for,
+    merge_results,
+)
 
 TODAY = datetime.date.today()
 
@@ -53,7 +65,11 @@ def week_plan() -> list[dict]:
 
 
 class _FakeAdjuster:
-    """复刻 AdjustGraph 的出口（方向 + 理由），不调用 LLM。"""
+    """复刻 AdjustGraph 的出口（方向 + 理由），用生产规则而不是另写一套阈值。
+
+    早先这里手抄了一份「0.8 加量 / 0.5 减量」的路由，工单 24 改成五维合并后两份策略
+    会互相矛盾；现在直接调用生产分析器与合并函数，替身只负责「不调模型」。
+    """
 
     def __init__(self, user_id: int, db=None):
         self.user_id = user_id
@@ -62,15 +78,18 @@ class _FakeAdjuster:
     async def run(
         self, completion_rate: float, difficulty_rating: float, current_plan: dict
     ) -> dict:
-        if completion_rate >= 0.8:
-            direction = "increase"
-            reason = f"完成率 {completion_rate:.0%}，表现优秀，适当加量"
-        elif completion_rate < 0.5:
-            direction = "decrease"
-            reason = f"完成率 {completion_rate:.0%}，难度过高，适当减量"
-        else:
-            direction = "keep"
-            reason = f"完成率 {completion_rate:.0%}，保持当前难度"
+        dimensions = [
+            analyze_completion({"completion_rates": [completion_rate]}),
+            analyze_fatigue({}),
+            analyze_sleep({}),
+        ]
+        merged = merge_results(dimensions, completion_rate=completion_rate)
+        participating = any(
+            entry.data_completeness != COMPLETENESS_DEFAULT for entry in dimensions
+        )
+        direction = decide_direction(
+            merged.overall_score, completion_rate, participating=participating
+        )
         return {
             "user_id": self.user_id,
             "completion_rate": completion_rate,
@@ -78,7 +97,12 @@ class _FakeAdjuster:
             "current_plan": current_plan,
             "adjustment_type": direction,
             "adjusted_plan": current_plan,
-            "reason": reason,
+            "reason": build_reason(
+                merged, direction, completion_rate, participating=participating
+            ),
+            "dimensions": [entry.to_dict() for entry in dimensions],
+            "merged": merged.to_dict(),
+            "delta_percent": delta_percent_for(direction),
         }
 
 
@@ -214,7 +238,7 @@ async def test_checkin_persists_readable_adjustment_outcome(
     client, users, active_plan, background_tasks, session_factory
 ):
     """AC1：打卡触发调整后可读到方向、含触发数值的理由、完成率、时间与计划标识。"""
-    response = await check_in(client, users["owner"].id, completed=8, total=10)
+    response = await check_in(client, users["owner"].id, completed=9, total=10)
     assert response.status_code == 200
     assert background_tasks, "打卡后应调度一次调整"
     await background_tasks[0]
@@ -223,9 +247,9 @@ async def test_checkin_persists_readable_adjustment_outcome(
     outcome = body["outcome"]
     assert outcome is not None
     assert outcome["direction"] == "increase"
-    assert outcome["completion_rate"] == pytest.approx(0.8)
+    assert outcome["completion_rate"] == pytest.approx(0.9)
     assert outcome["plan_id"] == active_plan.id
-    assert "80%" in outcome["reason"]
+    assert "90%" in outcome["reason"]
     assert outcome["adjustment_id"].startswith("adj_")
     assert outcome["created_at"]
 
@@ -235,7 +259,7 @@ async def test_plan_row_references_the_latest_outcome(
     client, users, active_plan, background_tasks, session_factory
 ):
     """存储不变量（非路由契约）：计划侧只存引用，指向的正是落盘的那条结论。"""
-    await check_in(client, users["owner"].id, completed=8, total=10)
+    await check_in(client, users["owner"].id, completed=9, total=10)
     await background_tasks[0]
     outcome = (await latest_outcome(client, users["owner"].id))["outcome"]
 

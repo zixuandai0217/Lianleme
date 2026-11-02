@@ -3,7 +3,6 @@ import { lazy, Suspense } from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import Layout from "@/components/layout"
-import AdminLayout from "@/components/admin-layout"
 import ApiKeyGate from "@/components/api-key-gate"
 import LoginPage from "@/pages/login"
 import AdminLoginPage from "@/pages/admin-login"
@@ -14,8 +13,8 @@ import ProfilePage from "@/pages/profile"
 import WeightPage from "@/pages/weight"
 import NotificationsPage from "@/pages/notifications"
 import SessionPage from "@/pages/session"
-import AdminPage from "@/pages/admin"
 import { AuthProvider, useAuth } from "@/hooks/use-auth"
+import { adminRouteTree } from "@/pages/admin/routes"
 import { Loader2 } from "lucide-react"
 
 const CoachPage = lazy(() => import("@/pages/coach"))
@@ -44,24 +43,6 @@ function UserGate({ children }: { children: React.ReactNode }) {
 
   if (isAdmin) {
     return <Navigate to="/admin" replace />
-  }
-
-  return <>{children}</>
-}
-
-function AdminGate({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, loading, isAdmin } = useAuth()
-
-  if (loading) {
-    return <LoadingScreen />
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/admin/login" replace />
-  }
-
-  if (!isAdmin) {
-    return <Navigate to="/" replace />
   }
 
   return <>{children}</>
@@ -123,16 +104,8 @@ export default function App() {
               <Route path="/profile" element={<ProfilePage />} />
             </Route>
 
-            {/* 管理后台路由（独立布局） */}
-            <Route
-              element={
-                <AdminGate>
-                  <AdminLayout />
-                </AdminGate>
-              }
-            >
-              <Route path="/admin" element={<AdminPage />} />
-            </Route>
+            {/* 管理后台路由（独立布局）：概览 / 用户列表 / 用户详情 */}
+            {adminRouteTree}
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

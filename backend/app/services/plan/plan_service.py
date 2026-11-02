@@ -256,41 +256,73 @@ class PlanService:
         return schema
 
     async def adjust_plan_after_workout(
-        self, user_id: int, completion_rate: float, difficulty_rating: float
+        self,
+        user_id: int,
+        completion_rate: float,
+        difficulty_rating: Optional[float],
+        *,
+        fatigue_scores: Optional[list[int]] = None,
+        sleep_hours: Optional[float] = None,
+        sleep_quality: Optional[int] = None,
     ) -> Optional[PlanAdjustment]:
-        """训练完成后触发动态调整：写回计划，并把「方向 + 理由」落成可查结论。
+        """训练完成后触发动态调整：五维评估 → 合并决策 → 写回计划并落成可查结论。
 
         返回落盘的结论记录；没有可用计划时返回 None（没有可调整的对象，也就不该
         伪造一条空结论）。
+
+        疲劳 / 睡眠目前没有打卡字段，缺省值由分析器自己补齐；只有调用方真的提供了
+        这两类输入时才传给 Graph，保持 ``AdjustGraph`` 的既有调用契约向后兼容。
         """
         plan = await self.get_current_plan(user_id)
         if not plan or not plan.id:
             return None
 
         adjuster = AdjustGraph(user_id=user_id, db=self.db)
-        outcome_state = await adjuster.run(
-            completion_rate=completion_rate,
-            difficulty_rating=difficulty_rating,
-            current_plan={"weekly_plan": [d.model_dump() for d in plan.weekly_plan]},
-        )
+        run_kwargs: dict[str, object] = {
+            "completion_rate": completion_rate,
+            "difficulty_rating": difficulty_rating,
+            "current_plan": {
+                "weekly_plan": [d.model_dump() for d in plan.weekly_plan],
+                "difficulty_factor": plan.difficulty_factor,
+            },
+        }
+        if fatigue_scores or sleep_hours is not None or sleep_quality is not None:
+            run_kwargs.update(
+                fatigue_scores=fatigue_scores,
+                sleep_hours=sleep_hours,
+                sleep_quality=sleep_quality,
+            )
+        outcome_state = await adjuster.run(**run_kwargs)
 
         db_plan = await self.db.get(TrainingPlan, plan.id)
         if db_plan is not None:
             adjusted = outcome_state.get("adjusted_plan") or {}
             db_plan.weekly_plan = adjusted.get("weekly_plan", db_plan.weekly_plan)
+            db_plan.difficulty_factor = adjusted.get(
+                "difficulty_factor", db_plan.difficulty_factor
+            )
 
         direction = outcome_state.get("adjustment_type") or "keep"
         if direction not in ADJUSTMENT_DIRECTIONS:
             direction = "keep"
 
+        # 工单 24：五维明细与合并小结追加进同一条结论记录，不新建并行存储。
+        merged = outcome_state.get("merged") or {}
+        reason = (
+            outcome_state.get("reason") or f"完成率 {completion_rate:.0%}，本次未调整训练量"
+        )[:255]
         record = PlanAdjustment(
             id=new_adjustment_id(),
             user_id=user_id,
             plan_id=plan.id,
             direction=direction,
-            reason=outcome_state.get("reason") or f"完成率 {completion_rate:.0%}，本次未调整训练量",
+            reason=reason,
             completion_rate=completion_rate,
             difficulty_rating=difficulty_rating,
+            overall_score=merged.get("overall_score"),
+            delta_percent=outcome_state.get("delta_percent"),
+            dimensions=outcome_state.get("dimensions") or None,
+            merged=merged or None,
         )
         self.db.add(record)
         if db_plan is not None:

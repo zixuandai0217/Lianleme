@@ -1,5 +1,6 @@
 /* API 方法集合：对应后端全部路由 */
 import client, { fetchCoachAnimatedTTSPayload, fetchCoachTTSBlob, fetchCoachTTSStatus } from "./client"
+import { buildAdminExportSearch, buildAdminUsersSearch, type AdminUsersRequest } from "@/lib/admin-query"
 import type {
   AnalyzeResponse,
   AnalyzeResultResponse,
@@ -13,6 +14,9 @@ import type {
   LoginResponse,
   PaginatedUsers,
   AdminStats,
+  AdminExportAuditListResponse,
+  AdminUserDetailResponse,
+  AdminUserDetailSection,
   PlanResponse,
   CurrentPlanLookup,
   TodayWorkout,
@@ -222,7 +226,71 @@ export const markAllNotificationsRead = (userId: number) =>
 // 管理端身份只来自 token：URL 上拼 user_id 既无效也误导，已按 spec 清理。
 export const getAdminStats = () => client.get<unknown, AdminStats>("/api/admin/stats")
 
-export const getAdminUsers = (page = 1, pageSize = 20) =>
-  client.get<unknown, PaginatedUsers>(`/api/admin/users?page=${page}&page_size=${pageSize}`)
+/** 用户列表：搜索 / 筛选 / 排序 / 分页全部由 URL 状态解析后交给服务端。 */
+export const getAdminUsers = (request: AdminUsersRequest) => {
+  const query = buildAdminUsersSearch(request)
+  return client.get<unknown, PaginatedUsers>(`/api/admin/users${query ? `?${query}` : ""}`)
+}
+
+/** 单个用户的运营详情；只请求需要的分区，便于卡片级加载与失败隔离。 */
+export const getAdminUserDetail = (
+  userId: number,
+  options: {
+    sections?: AdminUserDetailSection[]
+    page?: number
+    page_size?: number
+  } = {},
+) => {
+  const params = new URLSearchParams()
+  if (options.sections?.length) params.set("sections", options.sections.join(","))
+  if (options.page !== undefined && options.page !== 1) params.set("page", String(options.page))
+  if (options.page_size !== undefined) params.set("page_size", String(options.page_size))
+  const query = params.toString()
+  return client.get<unknown, AdminUserDetailResponse>(
+    `/api/admin/users/${userId}${query ? `?${query}` : ""}`,
+  )
+}
+
+/**
+ * 按当前筛选下载 CSV。
+ *
+ * 导出接口只认 Authorization 头，普通 `<a download>` 带不上 token，因此用 fetch 拿
+ * blob 再触发浏览器下载；文件名以服务端 Content-Disposition 为准。
+ */
+export async function downloadAdminUsersExport(request: AdminUsersRequest): Promise<void> {
+  const query = buildAdminExportSearch(request)
+  const token = localStorage.getItem("token")
+  const response = await fetch(`/api/admin/users/export${query ? `?${query}` : ""}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+
+  if (!response.ok) {
+    let message = "导出失败，请稍后重试"
+    try {
+      const detail = (await response.json())?.detail
+      if (typeof detail === "string") message = detail
+      else if (detail?.message) message = detail.message
+    } catch {
+      // 非 JSON 错误体：保留通用文案
+    }
+    throw new Error(message)
+  }
+
+  const disposition = response.headers.get("content-disposition") ?? ""
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "users.csv"
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+/** 导出审计（只读，按时间倒序）。 */
+export const getAdminExportAudits = (page = 1, pageSize = 20) =>
+  client.get<unknown, AdminExportAuditListResponse>(
+    `/api/admin/export-audits?page=${page}&page_size=${pageSize}`,
+  )
 
 export type * from "./types"

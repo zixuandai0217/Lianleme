@@ -246,7 +246,30 @@ goal: "bulk" | "cut" | "maintain"
 - **调整失败与打卡成功解耦**：结论写入失败时打卡仍 200、记录仍可见，失败只记一条 warning（事件 `plan.adjustment.failed`，`error_code=adjustment_persist_failed`，含 `error_class`）；成功落盘记 `plan.adjustment.applied`（含 `adjustment_id` / `direction` / `completion_rate`），让运营能回答「这次打卡到底改没改计划」（AC4）。
 - **稳定标识按时间有序**：`id` 是 `adj_` + 纳秒时间前缀 + 随机后缀。`created_at` 在 SQLite 上只有秒精度，若只按时间列排序，同秒内两次调整的「最近一次」会随随机 id 漂移；时间前缀让「按 id 倒序」等价于创建顺序，AC3 的「本次」判定不再依赖同秒内的插入顺序。
 - **`difficulty_rating` 是触发时的难度自评快照**（AC1 只要求完成率，但打卡反馈（28）要按难度分档给恢复建议，因此在写入时一并快照，避免回查打卡记录）。
-- **本票只落结论，不落评估过程**：五维明细、合并分、HITL 状态与作业语义仍归工单 26/27，届时在 `plan_adjustments` 之上扩展，不在这里预埋字段。
+- **本票只落结论，不落评估过程**：五维明细、合并分、HITL 状态与作业语义仍归工单 26/27，届时在 `plan_adjustments` 之上扩展，不在这里预埋字段（工单 24 已在其上追加五维明细与合并分，见下节）。
+
+### 13. 落地修订（工单 24：Analyzer 抽象、三路规则与 Merge Node）
+
+- **五维形状固定为 `{name, score, reason, suggestion, source, degraded, data_completeness}`**：`score` 一律是健康评分（10 最好、0 最差），规则型与模型型同形状；`source` 取 `rule | llm`，`data_completeness` 取 `full | partial | default`。五维顺序固定为 completion / fatigue / injury_risk / sleep / body_composition，不依赖并行完成先后。
+- **第五维命名为 `body_composition`**：spec 正文的 `body_metrics` 指同一维度（体重/体脂趋势）；落库、读取与后续工单统一用 `body_composition`，避免两个名字并存。
+- **三路规则阈值（ADR-0003，分析器内部的评分映射，与决策路由阈值是两件事）**：
+
+| 维度 | 输入 | 映射 |
+| --- | --- | --- |
+| completion | 近 7 天完成率序列的均值 | ≥0.85→9、0.7-0.85→7、<0.7→5 |
+| fatigue | 疲劳自评 1-5 的均值 | ≤1.5→10、≤2.5→9、≤3.5→7、≤4.5→5、其余→3（即 1-2→9-10、3→7、4-5→3-5） |
+| sleep | 睡眠时长 + 主观质量 | ≥7h 且质量 ≥4→9、≥6h→7、<6h→5；睡够但质量 <4 归 7 |
+
+- **缺省与降级**：无疲劳数据按 3 分、无睡眠数据按 7h / 3 分参与，`data_completeness=default` 且理由带「数据为缺省」；只缺睡眠的其中一项时按缺省补齐并标 `partial`。单维输入非法或抛错时只把该维降级为中性 5 分（`default`、`degraded=true`），其余四维与方向照常产出。两路模型维度本票一律「未评估」占位（`source=llm`、`degraded=true`、`default`），不发起任何模型调用；整趟评估的模型调用计数为 0。
+- **Merge 聚合**：参与维度（`data_completeness != default`）等权平均得 `overall_score`；被剔除的缺省维度列入 `excluded_dimensions`，降级维度列入 `degraded_dimensions`，`completeness` 按 full / partial / default 汇总。红标志旁路、不参与平均，且**只产出当前数据足以判定的信号**：injury_risk 健康评分 ≤3（工单 25 接入后生效）、完成率 <50%、疲劳健康评分 ≤5；「连续 ≥3 次幅度 >20%」与「减脂期体重上升」需要调整历史与体重趋势，按工单 27 以同一 `{code, severity, evidence}` 形状追加（原先写在本节的 `goal == "cut"` 判定作废——档案目标是「减脂/增肌」等中文值，英文键永远匹配不上）。`top_reasons` 先取红标志关联维度，再取最低 / 最高分维度，最后按固定顺序补齐，最多 3 条。全五维缺省视为评估不可用：`overall_score` 记 0 且 `completeness=default`，方向直接落 keep（不按 0 分推导成减量）。
+- **方向与冲突规则**：只看 `overall_score`——≥7.5 加量（声明 12%）、5.0-7.5 保持（0%）、<5.0 减量（声明 18%）。与完成率极值（≥0.8 指向加量、<0.5 指向减量）冲突时取更保守的一方（减量 > 保持 > 加量）；完成率不再单独决定方向。
+- **落盘形状（扩展工单 08 的同一条记录，不新建并行存储）**：`plan_adjustments` 追加四个可空列——`overall_score`（Float）、`delta_percent`（Float）、`dimensions`（JSONB，五维条目数组）、`merged`（JSONB，合并小结：整体分、五维分、红标志、顶层理由、降级与剔除清单、完整度）。方向仍写既有的 `direction` 列；旧记录四列为空，读取按「无明细」降级。迁移 `0009` 以 `0008` 为父，downgrade 只丢弃这四列；ORM 是唯一事实源，两条建表路径由一致性测试对齐。
+- **读取形状不变**：工单 08 的 latest / by-id 两个入口继续返回 direction / reason / completion_rate；新增的 `overall_score` / `delta_percent` / `dimensions` / `merged` 是可选字段（旧记录为 null），不新增端点。计划解释的 `trigger` 仍为 `completion_rate`——本票唯一参与平均的维度就是完成率，扩展枚举留给工单 26 的详情。
+- **取材边界**：`analyze_input` 只做裁剪与缺省填充。本票的完成率序列取本次打卡的单个样本（7 天历史回读留给 26 的作业化取材）；`difficulty_rating` 随输入下行留档但**不**当疲劳代理——打卡路由会把缺省的难度自评归一成 3，代理会让「无数据」与「自评 3」不可区分，与 AC3 的缺省标注冲突。代理留到打卡表单扩展时与真实疲劳字段一起接入。
+- **落地方式**：本票零模型调用，因此不做「让模型改写动作列表」的落地；按声明幅度缩放计划的整体难度系数（`difficulty_factor`）表达加量 / 减量，动作清单原样保留。整数组数无法表达 10-15%，逐动作的组数 / 次数重排留到工单 27/28。
+- **留给工单 25 的接缝**：AdjustGraph 持有模型工厂但一次都不调用（测试用计数替身断言为 0）；两路模型维度由「未评估」占位，25 把真实 LLM 分析器接进同一注册表与同一合并规则即可，不需要改拓扑与落盘形状。评估去重、红标志所需的历史幅度、interrupt 与作业状态仍归 26/27。
+- **合并与方向规则写进 ADR-0009（五维合并与方向决策规则）**：等权平均、缺省剔除、红标志旁路、方向阈值与保守冲突规则原本只在本节与代码里，属跨工单契约；现记录为 ADR-0009，根目录上下文文档里的分析器输出形状同步更新，后续工单引用 ADR 而不是重述规则。
+
 
 ## Testing Decisions
 
