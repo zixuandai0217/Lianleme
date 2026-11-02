@@ -128,3 +128,41 @@ PRD 与路线图对这件事的判断是一致的：后台「只有统计卡片 
 - API 方法与类型（含管理端方法上的 `user_id` 参数）：`web/src/api/index.ts`、`web/src/api/types.ts`
 - 纯函数 + 单测 prior art：`web/src/pages/analysis/flow.ts`、`web/src/pages/analysis/flow.test.ts`
 - 页面级 jsdom 测试 prior art：`web/src/api-key-gate.test.tsx`、`web/src/coach-page.integration.test.ts`
+
+## Implementation Decisions（工单 36 落地修订）
+
+工单 36（后端用户列表）实现期对上述契约的落地取舍，覆盖正文中与之冲突或含糊的表述：
+
+1. **`page_size` 超上限选择「拒绝」而非裁剪**：`page_size > 100` 直接返回 422（沿用查询参数
+   校验），与「`page` 越界返回空 `items` + 正确 `total`」刻意区分——参数越界属于调用方错误，
+   页码越界属于正常浏览行为。测试锁定 422，前端应据此禁用/收窄每页条数。
+2. **「一次聚合查询集」的落地形状**：一次列表请求固定发两条业务 SQL——一条 `COUNT(*)`、
+   一条当页行；计划 / 打卡 / 体型分析 / 体重 / 对话各自一个按 `user_id` 分组的聚合子查询，
+   以 LEFT JOIN 挂到用户表上。「最近活跃」用嵌套 CASE 求六路时间戳（注册、计划、打卡、
+   分析、体重、对话）的最大值，避开 `greatest` / 多参 `max` 的方言差异；最近一份计划的
+   难度系数用窗口函数 `row_number() over (partition by user_id order by created_at desc,
+   id desc)` 取排名第一行。计数查询只投影用户 id、不读 JSON 列。实测当页 1 人与 20 人的
+   语句数相同（2 条业务语句，另有 1 条鉴权查询），AC4 用查询计数断言锁死。
+3. **注册时间区间边界语义**：`registered_from` 含下界、`registered_to` 不含上界；不带时区的
+   入参按 UTC 解释（只给日期即当天 00:00 UTC）。正文要求的「运营本地日界」由前端换算成
+   UTC 区间后传入，接口不猜调用方时区，接口文档写明该语义。
+4. **掩码在 API 层落地**：openid 前 6 + 后 4，长度 ≤10 时整段打码（保留长度）；邮箱保留本地
+   部分首字符 + `***` + 完整域名；`llm_provider` 只在确实配置了 Key 时返回，`has_api_key`
+   只暴露布尔状态；密码哈希与加密 Key 的列既不 select 也不进入响应模型（无对应字段名）。
+5. **需关注标记口径**：阈值常量（7 / 7 / 14 / 3 / 30 天）集中在服务层，SQL 过滤与响应里的
+   标记使用同一组常量计算，避免两处漂移。`planned_no_checkin` 把「有计划但从未打卡」视作
+   无限久未打卡并计入；`never_analyzed` 认可用户表体型分析快照与体型分析历史任一存在；
+   `inactive_14d` 以六路事件时间最大值判定。多选 `flag` 取**并集**（任一命中即返回），单选
+   即精确筛选。
+6. **数字关键字只改变排序优先级**：`q` 为纯数字时，用户 ID 精确命中的行排在所选 `sort`
+   结果之前，其余模糊命中仍按所选排序；`sort` 的固定枚举语义不被搜索改变。
+7. **兼容旧前端字段**：保留 `id`、`nickname`、`openid`、`created_at`、`has_plan`、
+   `total_checkins`（`openid` 由明文改为掩码，仍是字符串）；新增 `email_masked`、`is_admin`、
+   `has_api_key`、`llm_provider` 与全部派生字段；旧前端在 URL 上拼的 `user_id` 查询参数被
+   忽略（身份只来自 token），并有回归测试保证它不改变结果集。
+8. **`has_plan` / `plan_difficulty_factor` 口径**：任意计划记录（含 archived）存在即
+   `has_plan=true`；难度系数取最近一份计划的 `difficulty_factor`，无计划时为 `null`。
+9. **时间字段格式**：响应里的时间统一是带时区的 UTC（序列化为 `Z` 后缀，等价 `+00:00`），
+   `last_checkin_date` 为 `YYYY-MM-DD` 日期；筛选入参按 UTC 瞬时值比较，避免「筛 6 月 1 日
+   却少 8 小时数据」的错位由后端隐式猜测造成。
+

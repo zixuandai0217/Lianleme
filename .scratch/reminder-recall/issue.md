@@ -82,6 +82,18 @@ PRD 的 P1-6 明确写了前提依赖：正式登录、用户订阅授权、后�
 
 **文案：** 提醒正文以模板 + 变量插值为主（角色口吻遵循 West Coast Slang，但每条必须包含明确动作与可跳转目标）；LLM 可选，仅用于召回类提醒的个性化一句话，LLM 失败或超时一律回退模板，且模板必须让用户不需要任何 AI 能力也能看懂要做什么。
 
+### 落地修订（工单 33：调度宿主 + 投递记录 + 收件箱）
+
+- **投递记录即收件箱，不再建第二张表**：`reminder_deliveries` 一行同时是幂等事实与用户可见通知；`payload` 里存渲染结果（title / body / target_path / 规则参数），收件箱直接投影，不在读取时重新渲染——否则规则文案一改，历史通知会「变脸」。未读即 `read_at is null`（仅 `channel=in_app` 且 `status=sent` 的行进入收件箱）。
+- **唯一键是幂等契约的物理保证**：（user_id, rule_code, local_date, channel）。写入走 SAVEPOINT + 唯一键冲突即跳过，冲突只回滚这一条，不会让整次 tick 的事务一起失效；tick 摘要里区分 `delivered` / `duplicates` / `failed`。
+- **调度宿主先睡后 tick**：启动瞬间不写业务数据，滚动发布时不会和旧实例抢同一条记录；`start()` 对重复调用幂等，`stop()` 幂等且等待任务真正结束（先停调度再释放连接池）。单次 tick 异常被捕获并记 `reminder.tick.failed` error 事件，长任务不死；进程内标志位做可重入保护。事件按 `domain.action.result` 命名：`reminder.tick.completed` / `reminder.tick.failed` / `reminder.delivery.failed`。
+- **tick 固定三条读查询**：用户、当前 active 计划、当日打卡各一次取齐后在内存里逐用户判定；逐用户查询会让 60 秒一次的 tick 成本随用户数线性增长，违背「轻量 tick」的边界。
+- **手动 tick 是管理员入口，不是公开端点**：`POST /api/notifications/tick` 仅管理员可调，支持注入 `at` 时刻（运维补跑/排障/测试确定性），不返回任何用户通知正文。普通用户与未登录一律 401/403。
+- **tick 内的训练日判定复用计划的周几查询**：新增 `PlanService.get_workout_for_weekday()`，今日三态与提醒共用同一口径，避免「提醒说今天没练、统计说今天练了」。本地日期统一走共享的本地时间工具（见「相关文件」），不再拿服务器日期冒充用户本地日期。
+- **时区依赖显式化**：Windows 没有系统 tzdata，`zoneinfo` 解析 `Asia/Shanghai` 会失败，因此依赖里新增 `tzdata`（部署级时区第一版固定 `Asia/Shanghai`）。
+- **本票只实现第一条规则**（`daily_training`：训练日 + 已过提醒时刻 + 当天未打卡），规则是纯函数、可脱离数据库与时钟单测；其余五条规则、偏好、免打扰与每日上限归工单 34，调度与投递链路不需要改。
+- **收件箱有页面，不只是接口**（正文要求「用户能在应用里看到通知列表与未读数」）：`/notifications` 页面提供未读筛选、单条点击标已读并跳转、全部已读与空态；侧边栏新增「通知」入口。铃铛角标挂在顶栏属于工单 34 的偏好/入口收口，本票只保证数据与页面可用。
+
 ## Testing Decisions
 
 好测试只断言**外部可见行为**：给定时间与数据，跑一次调度后「哪些通知真的产生了、哪些被幂等拦住、哪些被上限或免打扰裁掉」，以及用户能看到的列表、未读数与偏好生效结果。绝不断言调度器内部的 sleep 精度、任务对象或 ORM 语句。
@@ -149,3 +161,4 @@ PRD 的 P1-6 明确写了前提依赖：正式登录、用户订阅授权、后�
 - API 方法与类型：`web/src/api/index.ts`、`web/src/api/types.ts`
 - 纯函数 + 单测 prior art：`web/src/pages/analysis/flow.ts`、`web/src/pages/analysis/flow.test.ts`
 - 页面级 jsdom 测试 prior art：`web/src/api-key-gate.test.tsx`
+- 工单 33 新增：收件箱页面 `web/src/pages/notifications/index.tsx`、页面级测试 `web/src/notifications-page.test.tsx`、路由与侧边栏入口 `web/src/App.tsx`、`web/src/components/sidebar.tsx`、API 方法与类型 `web/src/api/index.ts`、`web/src/api/types.ts`；投递记录模型 `backend/app/models/reminder.py`、迁移 `backend/alembic/versions/0004_reminder_deliveries.py`、规则纯函数 `backend/app/services/reminder/rules.py`、调度服务与宿主 `backend/app/services/reminder/reminder_service.py`、`backend/app/services/reminder/scheduler.py`、通知路由 `backend/app/api/notification.py`、本地时间工具 `backend/app/core/local_time.py`、路由层测试 `backend/tests/test_reminder_inbox.py`

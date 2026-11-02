@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     REDIS_PROBE_ENABLED: bool = False
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # 提醒调度（单实例进程内 tick；时区按用户本地日界解释，第一版只有部署级时区）
+    REMINDER_ENABLED: bool = True
+    REMINDER_TICK_SECONDS: float = 60.0
+    REMINDER_TIMEZONE: str = "Asia/Shanghai"
+    REMINDER_HOUR: int = 19
+
     # MinIO / 对象存储
     MINIO_ENDPOINT: str = "localhost:9000"
     MINIO_ROOT_USER: str = "minioadmin"

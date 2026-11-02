@@ -68,7 +68,11 @@ class AdjustGraph:
         difficulty_rating: float,
         current_plan: dict,
     ) -> dict:
-        """执行计划调整，返回修订后的计划 JSON"""
+        """执行计划调整，返回完整状态（调整后的计划 + 方向 + 理由）。
+
+        早期实现只返回 ``adjusted_plan``，导致 ``adjustment_type`` 与 ``reason`` 在
+        出口被丢弃、计划变化无法追溯。出口保持完整状态，调用方按需取用。
+        """
         initial: AdjustState = {
             "user_id": self.user_id,
             "completion_rate": completion_rate,
@@ -79,7 +83,8 @@ class AdjustGraph:
             "reason": "",
         }
         result = await self._graph.ainvoke(initial)
-        return result.get("adjusted_plan") or current_plan
+        result["adjusted_plan"] = result.get("adjusted_plan") or current_plan
+        return result
 
     async def _analyze_node(self, state: AdjustState) -> dict:
         """分析节点：确定调整类型（实际路由由条件边完成）"""

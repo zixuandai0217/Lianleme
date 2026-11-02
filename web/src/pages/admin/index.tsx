@@ -22,8 +22,8 @@ export default function AdminPage() {
       setLoading(true)
       try {
         const [s, u] = await Promise.all([
-          getAdminStats(userId).catch(() => null),
-          getAdminUsers(userId, page).catch(() => null),
+          getAdminStats().catch(() => null),
+          getAdminUsers(page).catch(() => null),
         ])
         setStats(s)
         setUsers(u)

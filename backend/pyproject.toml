@@ -36,6 +36,8 @@ dependencies = [
     "python-dotenv==1.0.1",
     # SQLite 异步驱动（本地开发不依赖 PostgreSQL）
     "aiosqlite==0.20.0",
+    # IANA 时区数据库：Windows 上没有系统 tzdata，zoneinfo 需要它才能解析 Asia/Shanghai
+    "tzdata>=2024.1",
     "greenlet>=3.3.2",
 ]
 

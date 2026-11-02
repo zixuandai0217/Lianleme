@@ -24,6 +24,9 @@ import type {
   WorkoutCompleteRequest,
   WorkoutRecord as WorkoutRecordResp,
   CalendarDay,
+  NotificationListResponse,
+  MarkAllNotificationsReadResponse,
+  MarkNotificationReadResponse,
 } from "./types"
 
 // ── Auth ──
@@ -170,11 +173,36 @@ export const getWeightTrend = (userId: number, days = 90) =>
 export const deleteWeightRecord = (userId: number, recordId: number) =>
   client.delete<unknown, { message: string }>(`/api/weight/${userId}/${recordId}`)
 
-// ── Admin ──
-export const getAdminStats = (userId: number) =>
-  client.get<unknown, AdminStats>(`/api/admin/stats?user_id=${userId}`)
+// ── Notifications ──
+export const getNotifications = (
+  userId: number,
+  options: { unreadOnly?: boolean; page?: number; pageSize?: number } = {},
+) => {
+  const params = new URLSearchParams()
+  if (options.unreadOnly) params.set("unread_only", "true")
+  if (options.page) params.set("page", String(options.page))
+  if (options.pageSize) params.set("page_size", String(options.pageSize))
+  const qs = params.toString()
+  return client.get<unknown, NotificationListResponse>(
+    `/api/notifications/${userId}${qs ? `?${qs}` : ""}`,
+  )
+}
 
-export const getAdminUsers = (userId: number, page = 1, pageSize = 20) =>
-  client.get<unknown, PaginatedUsers>(`/api/admin/users?user_id=${userId}&page=${page}&page_size=${pageSize}`)
+export const markNotificationRead = (userId: number, notificationId: number) =>
+  client.post<unknown, MarkNotificationReadResponse>(
+    `/api/notifications/${userId}/${notificationId}/read`,
+  )
+
+export const markAllNotificationsRead = (userId: number) =>
+  client.post<unknown, MarkAllNotificationsReadResponse>(
+    `/api/notifications/${userId}/read-all`,
+  )
+
+// ── Admin ──
+// 管理端身份只来自 token：URL 上拼 user_id 既无效也误导，已按 spec 清理。
+export const getAdminStats = () => client.get<unknown, AdminStats>("/api/admin/stats")
+
+export const getAdminUsers = (page = 1, pageSize = 20) =>
+  client.get<unknown, PaginatedUsers>(`/api/admin/users?page=${page}&page_size=${pageSize}`)
 
 export type * from "./types"

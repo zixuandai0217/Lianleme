@@ -146,13 +146,52 @@ export interface CurrentPlanLookup {
   planId?: number
 }
 
+/** 今日状态稳定枚举；老服务端可能不返回该字段，因此类型上可选。 */
+export type TodayWorkoutStatus = "training_day" | "rest_day" | "no_plan"
+
 export interface TodayWorkout {
+  status?: TodayWorkoutStatus
   day?: number
   focus?: string
   exercises?: Exercise[]
   estimated_duration?: number
+  exercise_count?: number
+  total_sets?: number
+  plan_id?: number
   is_rest_day?: boolean
   message?: string
+}
+
+// ── Notifications ──
+/** 站内通知（投递记录的收件箱投影）。 */
+export interface NotificationItem {
+  id: number
+  rule_code: string
+  title: string
+  body: string
+  target_path: string
+  created_at: string
+  read_at?: string | null
+  is_read: boolean
+}
+
+export interface NotificationListResponse {
+  items: NotificationItem[]
+  total: number
+  unread_count: number
+  page: number
+  page_size: number
+}
+
+export interface MarkNotificationReadResponse {
+  notification_id: number
+  read_at: string
+  unread_count: number
+}
+
+export interface MarkAllNotificationsReadResponse {
+  updated: number
+  unread_count: number
 }
 
 // ── Coach ──

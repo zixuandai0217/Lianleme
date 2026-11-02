@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app.api import admin, coach, plan, user, vision, weight, workout
+from app.api import admin, coach, notification, plan, user, vision, weight, workout
 from app.core.config import settings
 from app.core.database import engine
 from app.core.health import APP_VERSION, build_readiness, liveness_report
@@ -38,6 +38,7 @@ from app.core.request_context import (
 )
 from app.core.storage import ensure_bucket_exists
 from app.models import record  # noqa: F401 触发 ORM 注册
+from app.services.reminder.scheduler import ReminderScheduler
 
 configure_logging(
     app_env=settings.APP_ENV,
@@ -62,14 +63,24 @@ def uses_orm_bootstrap() -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：开发环境建表 + 确保 MinIO bucket，关闭时释放连接池"""
+    """应用生命周期：开发环境建表 + 确保 MinIO bucket + 启停提醒调度宿主"""
     if uses_orm_bootstrap():
         from app.core.database import Base
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     ensure_bucket_exists()
-    yield
-    await engine.dispose()
+
+    scheduler = ReminderScheduler()
+    app.state.reminder_scheduler = scheduler
+    if settings.REMINDER_ENABLED:
+        scheduler.start()
+
+    try:
+        yield
+    finally:
+        # 先停调度再释放连接池：否则 tick 可能在引擎关闭后仍尝试写库。
+        await scheduler.stop()
+        await engine.dispose()
 
 
 app = FastAPI(
@@ -134,6 +145,7 @@ app.include_router(plan.router, prefix="/api/plan", tags=["训练计划"])
 app.include_router(coach.router, prefix="/api/coach", tags=["AI 陪练"])
 app.include_router(workout.router, prefix="/api/workout", tags=["训练记录"])
 app.include_router(weight.router, prefix="/api/weight", tags=["体重记录"])
+app.include_router(notification.router, prefix="/api/notifications", tags=["站内通知"])
 app.include_router(admin.router, prefix="/api/admin", tags=["管理后台"])
 
 

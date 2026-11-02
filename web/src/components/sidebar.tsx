@@ -6,6 +6,7 @@ import { useState } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import {
   Activity,
+  Bell,
   Bot,
   ChartNoAxesCombined,
   ChevronDown,
@@ -41,6 +42,7 @@ const sidebarNav: NavEntry[] = [
     ],
   },
   { to: "/plan", icon: ClipboardList, label: "训练计划" },
+  { to: "/notifications", icon: Bell, label: "通知" },
   { to: "/weight", icon: ChartNoAxesCombined, label: "体重记录" },
   { to: "/profile", icon: User, label: "我的" },
 ]

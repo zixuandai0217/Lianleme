@@ -2,12 +2,28 @@
 WorkoutService：训练完成数据上报、打卡记录存储、连续打卡统计
 训练完成后自动触发 AdjustGraph 计划动态调整
 """
+import asyncio
 import datetime
+import logging
 
 from langchain_core.messages import HumanMessage
 from sqlalchemy import desc, extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import AsyncSessionLocal
+from app.core.logging import (
+    ERROR_CODE_ADJUSTMENT_PERSIST_FAILED,
+    EVENT_PLAN_ADJUSTMENT_APPLIED,
+    EVENT_PLAN_ADJUSTMENT_FAILED,
+    FIELD_ADJUSTMENT_ID,
+    FIELD_COMPLETION_RATE,
+    FIELD_DIRECTION,
+    FIELD_ERROR_CLASS,
+    FIELD_ERROR_CODE,
+    FIELD_PLAN_ID,
+    FIELD_USER_ID,
+    log_event,
+)
 from app.models.record import WorkoutRecord
 from app.schemas.workout import (
     CheckInStatsResponse,
@@ -16,6 +32,8 @@ from app.schemas.workout import (
 )
 from app.services.ai import llm_observability as observed
 from app.services.ai.llm_factory import LLMClientFactory
+
+logger = logging.getLogger(__name__)
 
 
 class WorkoutService:
@@ -55,7 +73,6 @@ class WorkoutService:
         await self.db.flush()
 
         # 异步触发计划调整（不阻塞响应）
-        import asyncio
         asyncio.create_task(
             self._trigger_plan_adjustment(
                 user_id=req.user_id,
@@ -176,14 +193,52 @@ class WorkoutService:
     async def _trigger_plan_adjustment(
         self, user_id: int, completion_rate: float, difficulty_rating: float
     ) -> None:
-        """异步触发计划调整（独立 session 避免冲突）"""
-        from app.core.database import AsyncSessionLocal
+        """异步触发计划调整（独立 session 避免冲突）。
+
+        调整是打卡之后的独立事实：失败不回滚打卡、不向用户抛异常，只用稳定错误码
+        记一条 warning（工单 08 AC4）。结论落盘成功时再记一条 applied，便于运营回答
+        「这次打卡到底改没改计划」。
+        """
         from app.services.plan.plan_service import PlanService
-        async with AsyncSessionLocal() as session:
-            plan_service = PlanService(session)
-            await plan_service.adjust_plan_after_workout(
-                user_id=user_id,
-                completion_rate=completion_rate,
-                difficulty_rating=difficulty_rating,
+
+        record = None
+        try:
+            async with AsyncSessionLocal() as session:
+                plan_service = PlanService(session)
+                record = await plan_service.adjust_plan_after_workout(
+                    user_id=user_id,
+                    completion_rate=completion_rate,
+                    difficulty_rating=difficulty_rating,
+                )
+                await session.commit()
+        except Exception as exc:
+            log_event(
+                logger,
+                EVENT_PLAN_ADJUSTMENT_FAILED,
+                message="打卡后的计划调整未能落盘",
+                level=logging.WARNING,
+                exc_info=exc,
+                **{
+                    FIELD_USER_ID: user_id,
+                    FIELD_ERROR_CODE: ERROR_CODE_ADJUSTMENT_PERSIST_FAILED,
+                    FIELD_ERROR_CLASS: type(exc).__name__,
+                },
             )
-            await session.commit()
+            return
+
+        if record is None:
+            # 没有可用计划：不是失败，只是没有可调整的对象。
+            return
+
+        log_event(
+            logger,
+            EVENT_PLAN_ADJUSTMENT_APPLIED,
+            message="计划调整已落盘",
+            **{
+                FIELD_USER_ID: user_id,
+                FIELD_ADJUSTMENT_ID: record.id,
+                FIELD_PLAN_ID: record.plan_id,
+                FIELD_DIRECTION: record.direction,
+                FIELD_COMPLETION_RATE: round(completion_rate, 4),
+            },
+        )

@@ -29,6 +29,7 @@ import { completeWorkout, getCheckinStats, getTodayWorkout, lookupCurrentPlan } 
 import type { CheckInStats, PlanLookup, TodayWorkout } from "@/api/types"
 import { useAuth } from "@/hooks/use-auth"
 import { NEXT_STEP_ROUTES, buildNextStepGuide, type NextStepTarget } from "@/lib/next-step"
+import { resolveTodayState, type TodayState } from "@/lib/today-workout"
 import { cn } from "@/lib/utils"
 
 const coachActions = [
@@ -56,7 +57,12 @@ interface CoachState {
 }
 
 // Turn the user's current training data into one clear recommendation.
-function getCoachState(hasBodyAnalysis: boolean, planId: number | undefined, today: TodayWorkout | null): CoachState {
+function getCoachState(
+  hasBodyAnalysis: boolean,
+  planId: number | undefined,
+  today: TodayWorkout | null,
+  todayState: TodayState,
+): CoachState {
   if (!hasBodyAnalysis) {
     return {
       eyebrow: "先认识你",
@@ -77,17 +83,27 @@ function getCoachState(hasBodyAnalysis: boolean, planId: number | undefined, tod
     }
   }
 
-  if (today?.is_rest_day) {
+  if (todayState === "no_plan") {
+    return {
+      eyebrow: "还没有计划",
+      title: "本周还没有训练安排，先把这一周排出来。",
+      message: "计划会把动作、组数和组间休息一起排好，今天该练什么就不用再猜。",
+      primaryTo: "/plan",
+      characterState: "idle",
+    }
+  }
+
+  if (todayState === "rest") {
     return {
       eyebrow: "恢复日",
       title: "今天不用硬练，把恢复也算进进步里。",
-      message: today.message || "保持轻量活动，补充水分，有疑问就随时问我。",
+      message: today?.message || "保持轻量活动，补充水分，有疑问就随时问我。",
       primaryTo: "/coach",
       characterState: "idle",
     }
   }
 
-  if (today?.exercises?.length) {
+  if (todayState === "training" && today?.exercises?.length) {
     return {
       eyebrow: "今日训练",
       title: `${today.focus || "今天"}，我们按 ${today.estimated_duration || 30} 分钟的节奏完成。`,
@@ -209,7 +225,8 @@ export default function DashboardPage() {
     hasCheckedIn: Boolean(stats?.total_checkins),
   })
 
-  const dailyState = getCoachState(hasBodyAnalysis, planId, today)
+  const todayState = resolveTodayState(today)
+  const dailyState = getCoachState(hasBodyAnalysis, planId, today, todayState)
   const isGuiding = guide.state !== "daily"
   const primaryTo = isGuiding ? NEXT_STEP_ROUTES[guide.primaryAction.target] : dailyState.primaryTo
   const recommendedAction = coachActions.find((action) => action.to === primaryTo) ?? coachActions[2]
@@ -411,7 +428,7 @@ export default function DashboardPage() {
               <span className="page-kicker text-primary">Today</span>
               <CardTitle id="today-workout-title" className="text-xl">今日训练</CardTitle>
             </div>
-            {today && !today.is_rest_day && (
+            {todayState === "training" && today && (
               <div className="flex items-center gap-2 font-sans text-xs text-muted-foreground">
                 <Badge className="bg-brand-green text-brand-light">{today.focus}</Badge>
                 <span>{today.estimated_duration} 分钟</span>
@@ -419,18 +436,18 @@ export default function DashboardPage() {
             )}
           </CardHeader>
           <CardContent>
-            {today?.is_rest_day ? (
+            {todayState === "rest" ? (
               <div className="flex min-h-56 flex-col justify-center py-6">
                 <h3 className="text-2xl font-semibold">今天留给恢复</h3>
                 <p className="mt-3 max-w-xl font-sans text-sm leading-6 text-muted-foreground">
-                  {today.message || "保持轻量活动，补充水分，让下一次训练更有质量。"}
+                  {today?.message || "保持轻量活动，补充水分，让下一次训练更有质量。"}
                 </p>
                 <Button variant="outline" className="mt-7 w-fit" onClick={() => navigate("/coach")}>
                   咨询恢复建议
                   <ArrowRight />
                 </Button>
               </div>
-            ) : today?.exercises ? (
+            ) : todayState === "training" && today?.exercises ? (
               <div className="space-y-6">
                 <div className="divide-y divide-border border-y border-border">
                   {today.exercises.map((exercise, index) => (
@@ -457,12 +474,25 @@ export default function DashboardPage() {
                   </Button>
                 </div>
               </div>
+            ) : todayState === "no_plan" ? (
+              <div className="flex min-h-56 flex-col justify-center py-6">
+                <h3 className="text-2xl font-semibold">还没有本周训练计划</h3>
+                <p className="mt-3 max-w-lg font-sans text-sm leading-6 text-muted-foreground">
+                  先生成一份周计划，动作、组数与组间休息会按你的体型分析排好，今天该练什么就不用再猜。
+                </p>
+                <Button className="mt-7 w-fit" onClick={() => navigate("/plan")}>
+                  去生成本周计划
+                  <ArrowRight />
+                </Button>
+              </div>
             ) : (
               <div className="flex min-h-56 flex-col justify-center py-6">
-                <h3 className="text-2xl font-semibold">今天还没有训练安排</h3>
-                <p className="mt-3 max-w-lg font-sans text-sm leading-6 text-muted-foreground">完成体型分析后，生成一份与你当前状态匹配的周计划。</p>
-                <Button className="mt-7 w-fit" onClick={() => navigate("/analysis")}>
-                  先完成体型分析
+                <h3 className="text-2xl font-semibold">今天的安排暂时没拿到</h3>
+                <p className="mt-3 max-w-lg font-sans text-sm leading-6 text-muted-foreground">
+                  网络或服务波动都可能让它缺席；你可以直接去计划页看整周安排，或稍后刷新。
+                </p>
+                <Button variant="outline" className="mt-7 w-fit" onClick={() => navigate("/plan")}>
+                  查看训练计划
                   <ArrowRight />
                 </Button>
               </div>

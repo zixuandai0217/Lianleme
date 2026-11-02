@@ -11,11 +11,46 @@ from app.core.security import (
     require_current_user_api_key,
 )
 from app.models.user import User
-from app.schemas.plan import GeneratePlanRequest, PlanResponse
+from app.schemas.adjustment import AdjustmentLatestResponse, AdjustmentOutcomeResponse
+from app.schemas.plan import GeneratePlanRequest, PlanResponse, TodayWorkoutResponse
 from app.services.plan.plan_service import PlanService
 from app.services.user.user_service import UserService
 
 router = APIRouter()
+
+
+@router.get("/{user_id}/adjustments/latest", response_model=AdjustmentLatestResponse)
+async def get_latest_adjustment(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """读取最近一次调整结论；没有记录时返回 outcome=null（与「方向为 keep」可区分）。"""
+    ensure_current_user_matches(current_user, user_id)
+    service = PlanService(db)
+    record = await service.get_latest_adjustment(user_id)
+    return AdjustmentLatestResponse(
+        outcome=AdjustmentOutcomeResponse.from_record(record) if record else None
+    )
+
+
+@router.get("/{user_id}/adjustments/{adjustment_id}", response_model=AdjustmentOutcomeResponse)
+async def get_adjustment(
+    user_id: int,
+    adjustment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """按稳定标识读取「本次」调整的结论（同一计划多次调整时不会互相覆盖）。"""
+    ensure_current_user_matches(current_user, user_id)
+    service = PlanService(db)
+    record = await service.get_adjustment(user_id, adjustment_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "adjustment_not_found", "message": "找不到这条调整记录"},
+        )
+    return AdjustmentOutcomeResponse.from_record(record)
 
 
 @router.get("/{user_id}/current", response_model=PlanResponse)
@@ -61,16 +96,17 @@ async def generate_plan(
     return PlanResponse(plan=plan, message="训练计划生成成功，开始燃烧吧！")
 
 
-@router.get("/{user_id}/today")
+@router.get(
+    "/{user_id}/today",
+    response_model=TodayWorkoutResponse,
+    response_model_exclude_none=True,
+)
 async def get_today_workout(
     user_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取今日训练任务（用于首页展示）"""
+    """获取今日训练安排（三态：训练日 / 休息日 / 无计划，用于首页与训练会话入口）"""
     ensure_current_user_matches(current_user, user_id)
     service = PlanService(db)
-    today_workout = await service.get_today_workout(user_id)
-    if not today_workout:
-        return {"message": "今日休息，好好恢复", "is_rest_day": True}
-    return today_workout
+    return await service.get_today_state(user_id)

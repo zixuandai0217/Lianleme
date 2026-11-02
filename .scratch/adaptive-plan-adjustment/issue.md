@@ -237,6 +237,17 @@ goal: "bulk" | "cut" | "maintain"
 - 风险确认以模态呈现，三个选项平铺，推荐项有显式标记；关闭模态等同于"稍后决定"，页面顶部保留常驻提示以便回来处理。
 - 所有文案遵循项目术语（完成率、疲劳度评分、伤病风险、Human-in-the-loop），调整说明属正式语言区，不使用 West Coast Slang（ADR-0006 明确计划/报告类保持正式）。
 
+### 12. 落地修订（工单 08：调整结论落盘）
+
+- **独立记录 `plan_adjustments`，计划侧只存引用**：一次调整一条，`id` 是对外稳定标识（`adj_` + 24 hex，非自增、不可猜）；`training_plans.latest_adjustment_id` 只保存最近一次的引用，不复制理由文本。该列**刻意不加外键**——`plan_adjustments.plan_id` 已指向计划，反向外键会形成环，破坏建表顺序与 SQLite batch 迁移；引用一致性由唯一写入路径保证。
+- **读取入口独立于页面**：`GET /api/plan/{user_id}/adjustments/latest`（最近一次，显式空态 `outcome=null`）与 `GET /api/plan/{user_id}/adjustments/{adjustment_id}`（按稳定标识取「本次」）。同一计划多次调整时旧记录不被覆盖，latest 与 by-id 都不会把方向与理由张冠李戴（AC3）。
+- **空态与 keep 的可区分性靠字段本身**：没有记录时 `outcome` 为 `null`，而 `direction="keep"` 是一条真实记录；两者都不依赖 404 或前端默认值（AC2）。
+- **`AdjustGraph.run()` 出口改为返回完整状态**（调整后计划 + `adjustment_type` + `reason`）：此前只返回计划 JSON，方向与理由在出口被丢弃，正是这条数据无法追溯的根因。判定规则本身未改。
+- **调整失败与打卡成功解耦**：结论写入失败时打卡仍 200、记录仍可见，失败只记一条 warning（事件 `plan.adjustment.failed`，`error_code=adjustment_persist_failed`，含 `error_class`）；成功落盘记 `plan.adjustment.applied`（含 `adjustment_id` / `direction` / `completion_rate`），让运营能回答「这次打卡到底改没改计划」（AC4）。
+- **稳定标识按时间有序**：`id` 是 `adj_` + 纳秒时间前缀 + 随机后缀。`created_at` 在 SQLite 上只有秒精度，若只按时间列排序，同秒内两次调整的「最近一次」会随随机 id 漂移；时间前缀让「按 id 倒序」等价于创建顺序，AC3 的「本次」判定不再依赖同秒内的插入顺序。
+- **`difficulty_rating` 是触发时的难度自评快照**（AC1 只要求完成率，但打卡反馈（28）要按难度分档给恢复建议，因此在写入时一并快照，避免回查打卡记录）。
+- **本票只落结论，不落评估过程**：五维明细、合并分、HITL 状态与作业语义仍归工单 26/27，届时在 `plan_adjustments` 之上扩展，不在这里预埋字段。
+
 ## Testing Decisions
 
 ### 好测试的标准
@@ -334,3 +345,8 @@ goal: "bulk" | "cut" | "maintain"
 - [backend/tests/test_user_api_keys.py](backend/tests/test_user_api_keys.py) — ASGI + 依赖覆盖 + 工厂替换（prior art）
 - [web/src/pages/plan/index.tsx](web/src/pages/plan/index.tsx) — 计划页（小结卡片、调整时间线、风险弹窗的落点）
 - [web/src/pages/analysis/flow.ts](web/src/pages/analysis/flow.ts) — 页面状态收敛为纯函数的既有范例
+- [backend/app/models/adjustment.py](backend/app/models/adjustment.py) — 工单 08 新增：调整结论记录（方向/理由/完成率/时间）
+- [backend/alembic/versions/0003_plan_adjustments.py](backend/alembic/versions/0003_plan_adjustments.py) — 工单 08 新增：`plan_adjustments` 表与计划侧引用列
+- [backend/app/schemas/adjustment.py](backend/app/schemas/adjustment.py) — 调整结论对外形状与 ORM 投影
+- [backend/app/api/plan.py](backend/app/api/plan.py) — 工单 08 新增的 latest / by-id 读取入口
+- [backend/tests/test_adjustment_outcome.py](backend/tests/test_adjustment_outcome.py) — 工单 08 路由层契约测试
