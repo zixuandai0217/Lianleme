@@ -276,13 +276,18 @@ def ensure_bucket_exists() -> None:
         logger.warning("MinIO 不可用，跳过 bucket 初始化: %s", e)
 
 
+def uses_in_memory_storage() -> bool:
+    """开发环境的 SQLite 运行不依赖任何对象存储服务。"""
+    return settings.APP_ENV == "development" and settings.DATABASE_URL.startswith("sqlite")
+
+
 def build_storage() -> Storage:
     """在装配处决定端口实现。
 
     开发环境使用 SQLite（本地轻量运行、无 MinIO）时装配内存实现，避免每次开发运行
     都依赖外部服务；其余环境一律使用 MinIO。测试通过依赖覆盖注入自己的内存实例。
     """
-    if settings.APP_ENV == "development" and settings.DATABASE_URL.startswith("sqlite"):
+    if uses_in_memory_storage():
         return InMemoryStorage()
     return MinioStorage(get_minio_client(), settings.MINIO_BUCKET)
 

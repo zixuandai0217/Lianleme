@@ -47,7 +47,7 @@ from app.core.request_context import (
     bind_request_context,
     new_request_id,
 )
-from app.core.storage import ensure_bucket_exists
+from app.core.storage import ensure_bucket_exists, uses_in_memory_storage
 from app.models import record  # noqa: F401 触发 ORM 注册
 from app.services.notification.push_service import PushJobWorker
 from app.services.reminder.scheduler import ReminderScheduler
@@ -80,7 +80,9 @@ async def lifespan(app: FastAPI):
         from app.core.database import Base
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-    ensure_bucket_exists()
+    # 内存存储没有 bucket；跳过初始化，避免开发启动时白等 MinIO 的超时重试。
+    if not uses_in_memory_storage():
+        ensure_bucket_exists()
 
     scheduler = ReminderScheduler()
     app.state.reminder_scheduler = scheduler

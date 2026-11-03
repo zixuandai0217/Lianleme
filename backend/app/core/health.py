@@ -89,8 +89,16 @@ async def probe_database() -> None:
 
 
 async def probe_object_storage() -> None:
-    """Check that the configured bucket exists; the MinIO call is blocking."""
-    from app.core.storage import bounded_minio_client
+    """Check that the configured bucket exists; the MinIO call is blocking.
+
+    Development on SQLite uses the in-memory storage port, exactly like the Redis
+    probe skips unused Redis: probing MinIO there would report a missing
+    dependency that the deployment does not actually have.
+    """
+    from app.core.storage import bounded_minio_client, uses_in_memory_storage
+
+    if uses_in_memory_storage():
+        return
 
     timeout = float(settings.HEALTH_PROBE_TIMEOUT_SECONDS)
     with bounded_minio_client(timeout) as client:

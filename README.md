@@ -33,6 +33,8 @@ uv run uvicorn app.main:app --reload --port 8000
 
 首次启动会自动创建 SQLite 数据库（`dev.db`）和所有表。
 
+> 开发环境用 `create_all` 建表，不执行迁移：拉取包含新字段/新表的代码后，已有的 `dev.db` 不会被补列，相关接口会报 `no such column`。先备份再删掉 `backend/dev.db` 重启即可重建（生产/CI 一律走 Alembic，不受影响）。
+
 可选的音素级口型由 Rhubarb Lip Sync v1.14.0 提供；缺失时语音仍可播放，前端自动使用能量口型。安装脚本会校验官方发布包 SHA-256，二进制保存在忽略目录 `backend/.tools/rhubarb/`：
 
 ```bash
