@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 from app.core.database import Base, get_db
+from app.core.storage import InMemoryStorage, get_storage
 from app.main import app
 from app.models.analysis_task import AnalysisTask
 from app.models.body_analysis import BodyAnalysisRecord
@@ -88,8 +89,14 @@ async def users(session_factory):
         return {"owner": owner, "stranger": stranger}
 
 
+@pytest.fixture
+def storage() -> InMemoryStorage:
+    """Inline images are written through the storage port; never touch MinIO."""
+    return InMemoryStorage()
+
+
 @pytest_asyncio.fixture
-async def client(session_factory):
+async def client(session_factory, storage):
     async def override_get_db():
         async with session_factory() as session:
             try:
@@ -100,6 +107,7 @@ async def client(session_factory):
                 raise
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_storage] = lambda: storage
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://testserver",
